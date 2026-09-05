@@ -254,6 +254,8 @@ struct OverrideType {
 struct Config {
     output: String,
     db_crate: db_crates::SupportedDbCrate,
+    api: db_crates::Api,
+    query_parameter_limit: usize,
     overrides: Vec<OverrideType>,
     debug: bool,
     #[serde(flatten)]
@@ -266,6 +268,8 @@ impl Default for Config {
         Config {
             output: "queries.rs".into(),
             db_crate: Default::default(),
+            api: Default::default(),
+            query_parameter_limit: 1,
             overrides: Default::default(),
             debug: false,
             return_row_attributes: Default::default(),
@@ -277,6 +281,53 @@ impl Default for Config {
 impl Config {
     fn from_option(buf: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_slice(buf)
+    }
+
+    fn validate(&self, queries: &[Query]) -> Result<(), Error> {
+        if self.api != db_crates::Api::ParamsStruct {
+            return Ok(());
+        }
+
+        if !matches!(self.db_crate, db_crates::SupportedDbCrate::Sqlx(_)) {
+            return Err(Error::any(
+                "api: params_struct is supported only by sqlx-postgres, sqlx-mysql, and sqlx-sqlite."
+                    .into(),
+            ));
+        }
+
+        for query in queries {
+            match query.annotation {
+                query::Annotation::CopyFrom
+                | query::Annotation::BatchExec
+                | query::Annotation::BatchMany
+                | query::Annotation::BatchOne => {
+                    return Err(Error::any(
+                        format!(
+                            "api: params_struct does not support {} queries ({}).",
+                            query.annotation, query.query_name
+                        )
+                        .into(),
+                    ));
+                }
+                query::Annotation::ExecLastId
+                    if matches!(
+                        self.db_crate,
+                        db_crates::SupportedDbCrate::Sqlx(db_crates::Sqlx::Postgres)
+                    ) =>
+                {
+                    return Err(Error::any(
+                        format!(
+                            "api: params_struct does not support :execlastid with sqlx-postgres ({}).",
+                            query.query_name
+                        )
+                        .into(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -305,16 +356,20 @@ pub fn try_main() -> Result<(), Error> {
     };
 
     let mut db_type = config.db_crate.db_type_map();
-    for override_type in config.overrides {
+    for override_type in &config.overrides {
         let owned_type = syn::parse_str::<syn::Type>(&override_type.rs_type)
             .map_err(|e| Error::any(e.into()))?;
         let slice_type = override_type
             .rs_slice
-            .map(|s| syn::parse_str::<syn::Type>(&s))
+            .as_deref()
+            .map(syn::parse_str::<syn::Type>)
             .transpose()
             .map_err(|e| Error::any(e.into()))?;
 
-        match (&override_type.db_type, &override_type.column) {
+        match (
+            override_type.db_type.as_deref(),
+            override_type.column.as_deref(),
+        ) {
             (None, Some(column)) => {
                 db_type.insert_column_type(
                     column,
@@ -397,6 +452,8 @@ pub fn try_main() -> Result<(), Error> {
         .map(|q| Query::from_query(&db_type, q))
         .collect::<Result<Vec<_>, _>>()?;
 
+    config.validate(&queries)?;
+
     let enums_ts = defined_enums
         .iter()
         .map(|e| config.db_crate.defined_enum(e))
@@ -404,14 +461,21 @@ pub fn try_main() -> Result<(), Error> {
     let enums_tt = quote::quote! {#(#enums_ts)*};
     let embedded_tables_tt = db_crates::make_embedded_tables(&returning_rows)?;
 
-    let queries_ts = returning_rows
-        .iter()
-        .zip(queries.iter())
-        .map(|(r, q)| config.db_crate.generate_query(r, q))
-        .collect::<Vec<_>>();
-    let queries_tt = quote::quote! {#(#queries_ts)*};
+    let options = db_crates::GenerationOptions {
+        api: config.api,
+        query_parameter_limit: config.query_parameter_limit,
+    };
+    let queries_tt = config
+        .db_crate
+        .generate_queries(&returning_rows, &queries, &options);
 
-    let init_tt = config.db_crate.init();
+    let init_tt = if config.api == db_crates::Api::ParamsStruct
+        && matches!(config.db_crate, db_crates::SupportedDbCrate::Sqlx(_))
+    {
+        quote::quote! {}
+    } else {
+        config.db_crate.init()
+    };
     let tt = quote::quote! {
         #init_tt
         #enums_tt
@@ -449,4 +513,26 @@ pub fn try_main() -> Result<(), Error> {
     std::io::stdout().write_all(&serialized_response)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_params_struct_for_non_sqlx_crates() {
+        for db_crate in [
+            "postgres",
+            "tokio-postgres",
+            "deadpool-postgres",
+            "rusqlite",
+        ] {
+            let config = Config::from_option(
+                format!(r#"{{"api":"params_struct","db_crate":"{db_crate}"}}"#).as_bytes(),
+            )
+            .unwrap();
+
+            assert!(config.validate(&[]).is_err(), "{db_crate}");
+        }
+    }
 }

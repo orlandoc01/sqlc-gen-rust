@@ -306,6 +306,10 @@ impl RsColType {
         is_slice || copy_expensive
     }
 
+    pub(crate) fn need_params_struct_lifetime(&self) -> bool {
+        self.dim != 0 || self.rs_type.slice.is_some()
+    }
+
     /// Convert to tokens for function parameter struct
     pub(crate) fn to_param_tokens(&self, life_time: &syn::Lifetime) -> proc_macro2::TokenStream {
         let wrapped_type = match self.dim {
@@ -336,6 +340,32 @@ impl RsColType {
             (false, false) => {
                 quote::quote! {#wrapped_type}
             }
+        }
+    }
+
+    pub(crate) fn to_params_struct_tokens(
+        &self,
+        lifetime: Option<&syn::Lifetime>,
+    ) -> proc_macro2::TokenStream {
+        let wrapped_type = match self.dim {
+            0 if self.rs_type.slice.is_some() => self.rs_type.slice(),
+            0 => self.rs_type.owned(),
+            _ => {
+                let mut base_type = self.rs_type.owned();
+                for _ in 1..self.dim {
+                    base_type = quote::quote! {Vec<#base_type>};
+                }
+                quote::quote! {[#base_type]}
+            }
+        };
+
+        match (self.need_params_struct_lifetime(), self.optional, lifetime) {
+            (true, true, Some(lifetime)) => quote::quote! {Option<&#lifetime #wrapped_type>},
+            (true, false, Some(lifetime)) => quote::quote! {&#lifetime #wrapped_type},
+            (true, true, None) => quote::quote! {Option<&#wrapped_type>},
+            (true, false, None) => quote::quote! {&#wrapped_type},
+            (false, true, _) => quote::quote! {Option<#wrapped_type>},
+            (false, false, _) => wrapped_type,
         }
     }
 }
@@ -1260,6 +1290,69 @@ mod tests {
         assert_eq!(
             row.field_ordinals().collect::<Vec<_>>(),
             vec![0..1, 1..3, 3..4, 4..7]
+        );
+    }
+
+    #[test]
+    fn params_struct_types_borrow_only_slices() {
+        let lifetime = syn::Lifetime::new("'a", proc_macro2::Span::call_site());
+        let string = RsColType {
+            rs_type: RsType::new(
+                syn::parse_str("String").unwrap(),
+                Some(syn::parse_str("str").unwrap()),
+                false,
+            ),
+            dim: 0,
+            optional: false,
+        };
+        let integer = RsColType {
+            rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            dim: 0,
+            optional: false,
+        };
+        let override_type = RsColType {
+            rs_type: RsType::new(
+                syn::parse_str("chrono::DateTime<chrono::Utc>").unwrap(),
+                None,
+                false,
+            ),
+            dim: 0,
+            optional: false,
+        };
+        let slice = RsColType {
+            rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            dim: 1,
+            optional: false,
+        };
+        let nullable = RsColType {
+            rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            dim: 0,
+            optional: true,
+        };
+
+        assert_eq!(
+            string.to_params_struct_tokens(Some(&lifetime)).to_string(),
+            "& 'a str"
+        );
+        assert_eq!(
+            integer.to_params_struct_tokens(Some(&lifetime)).to_string(),
+            "i64"
+        );
+        assert_eq!(
+            override_type
+                .to_params_struct_tokens(Some(&lifetime))
+                .to_string(),
+            "chrono :: DateTime < chrono :: Utc >"
+        );
+        assert_eq!(
+            slice.to_params_struct_tokens(Some(&lifetime)).to_string(),
+            "& 'a [i64]"
+        );
+        assert_eq!(
+            nullable
+                .to_params_struct_tokens(Some(&lifetime))
+                .to_string(),
+            "Option < i64 >"
         );
     }
 }

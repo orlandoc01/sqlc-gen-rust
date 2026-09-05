@@ -176,6 +176,52 @@ The crate used in the generated code. Default is `tokio-postgres`. Available val
 - `sqlx-sqlite`
 - `rusqlite`
 
+### `api`
+
+Select the generated query API. `builder` is the default and preserves the existing generated
+builder structs. `params_struct` is available for `sqlx-postgres`, `sqlx-mysql`, and
+`sqlx-sqlite`; it generates SQL constants, free async functions, and public params/row structs
+instead of query builders. `:copyfrom` and `:batch*` are not supported with this API.
+
+```yaml
+options:
+  db_crate: sqlx-sqlite
+  api: params_struct
+```
+
+For example, a `:one` query with one `id` parameter generates a direct argument, while a query
+with two parameters generates a params struct:
+
+```rust
+pub const GET_AUTHOR: &str = "SELECT id, name FROM authors WHERE id = ?";
+
+pub struct GetAuthorRow {
+    pub id: i64,
+    pub name: String,
+}
+
+pub async fn get_author<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    id: i64,
+) -> Result<GetAuthorRow, sqlx::Error> { /* ... */ }
+
+#[derive(Debug, Clone, Default)]
+pub struct CreateAuthorParams<'a> {
+    pub name: &'a str,
+    pub bio: Option<&'a str>,
+}
+```
+
+### `query_parameter_limit`
+
+The maximum number of parameters emitted as individual function arguments with
+`api: params_struct`. The default is `1`; `0` always emits a params struct for parameterized
+queries. A params struct is emitted only when the parameter count is greater than this limit.
+
+Params structs always derive `Default`. Override types used as params must therefore implement
+`Default`. String, bytes, and array params are borrowed; all other params, including non-copy
+override types, are stored by value.
+
 ### `overrides`
 
 Customize Rust type mapping per column or database type. Each entry **must include exactly one** of the following: `column` or `db_type`.

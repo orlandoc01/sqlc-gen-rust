@@ -257,7 +257,7 @@ impl From<Sqlx> for crate::db_crates::DataBaseKind {
 }
 
 impl Sqlx {
-    fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
+    pub(super) fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
         if row
             .fields
             .iter()
@@ -492,7 +492,7 @@ impl Sqlx {
         }
     }
 
-    fn database_ident(&self) -> syn::Type {
+    pub(super) fn database_ident(&self) -> syn::Type {
         match self {
             Sqlx::Postgres => syn::parse_quote! {sqlx::Postgres},
             Sqlx::MySql => syn::parse_quote! {sqlx::MySql},
@@ -508,15 +508,24 @@ impl Sqlx {
         }
     }
 
-    fn query_bind(&self, query: &Query, query_ident: syn::Ident) -> proc_macro2::TokenStream {
+    pub(super) fn query_bind<F>(
+        &self,
+        query: &Query,
+        query_ident: syn::Ident,
+        accessor: F,
+    ) -> proc_macro2::TokenStream
+    where
+        F: Fn(&syn::Ident) -> proc_macro2::TokenStream,
+    {
         match self {
             Self::Postgres => query
                 .fields
                 .iter()
                 .map(|f| {
                     let name = &f.name;
+                    let value = accessor(name);
                     quote::quote! {
-                        let #query_ident =  #query_ident.bind(self.#name);
+                        let #query_ident =  #query_ident.bind(#value);
                     }
                 })
                 .collect(),
@@ -525,14 +534,15 @@ impl Sqlx {
                 .iter()
                 .map(|f| {
                     let name = &f.name;
+                    let value = accessor(name);
 
                     if f.scalar_type().is_array() {
                         quote::quote! {
-                            let #query_ident =  self.#name.iter().fold(#query_ident, |q, item| q.bind(item));
+                            let #query_ident =  #value.iter().fold(#query_ident, |q, item| q.bind(item));
                         }
                     } else {
                         quote::quote! {
-                            let #query_ident =  #query_ident.bind(self.#name);
+                            let #query_ident =  #query_ident.bind(#value);
                         }
                     }
                 })
@@ -642,7 +652,9 @@ impl DbCrate for Sqlx {
                 }
             };
 
-            let query_bind = self.query_bind(query, quote::format_ident!("q"));
+            let query_bind = self.query_bind(query, quote::format_ident!("q"), |name| {
+                quote::quote! {self.#name}
+            });
             let query_cache = if query_ast.need_expand_query() {
                 // expanded queries are likely to differ each time, so we disable query cache
                 Some(quote::quote! {

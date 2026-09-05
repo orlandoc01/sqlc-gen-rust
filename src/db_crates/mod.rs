@@ -3,6 +3,22 @@ use crate::query::{self, DbEnum, DbTypeMap, EmbeddedTable, Query, ReturningRows,
 mod postgres;
 mod rusqlite;
 mod sqlx;
+mod sqlx_params;
+
+pub(crate) use sqlx::Sqlx;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Api {
+    #[default]
+    Builder,
+    ParamsStruct,
+}
+
+pub(crate) struct GenerationOptions {
+    pub(crate) api: Api,
+    pub(crate) query_parameter_limit: usize,
+}
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(untagged)]
@@ -29,6 +45,19 @@ pub(super) trait DbCrate {
     fn defined_enum(&self, enum_type: &DbEnum) -> proc_macro2::TokenStream;
     /// Generate returning row and query fn
     fn generate_query(&self, row: &ReturningRows, query: &Query) -> proc_macro2::TokenStream;
+
+    fn generate_queries(
+        &self,
+        rows: &[ReturningRows],
+        queries: &[Query],
+        _options: &GenerationOptions,
+    ) -> proc_macro2::TokenStream {
+        let queries = rows
+            .iter()
+            .zip(queries)
+            .map(|(row, query)| self.generate_query(row, query));
+        quote::quote! {#(#queries)*}
+    }
 }
 
 impl DbCrate for SupportedDbCrate {
@@ -62,6 +91,28 @@ impl DbCrate for SupportedDbCrate {
             Self::Sqlx(sqlx) => sqlx.generate_query(row, query),
             Self::Rusqlite(rusqlite) => rusqlite.generate_query(row, query),
         }
+    }
+
+    fn generate_queries(
+        &self,
+        rows: &[ReturningRows],
+        queries: &[Query],
+        options: &GenerationOptions,
+    ) -> proc_macro2::TokenStream {
+        if let (Api::ParamsStruct, Self::Sqlx(sqlx)) = (options.api, self) {
+            return sqlx_params::generate_queries(
+                sqlx,
+                rows,
+                queries,
+                options.query_parameter_limit,
+            );
+        }
+
+        let queries = rows
+            .iter()
+            .zip(queries)
+            .map(|(row, query)| self.generate_query(row, query));
+        quote::quote! {#(#queries)*}
     }
 }
 
@@ -141,7 +192,7 @@ struct QueryAst<'a> {
 }
 
 impl<'a> QueryAst<'a> {
-    fn new(query: &'a Query, kind: DataBaseKind) -> Self {
+    pub(super) fn new(query: &'a Query, kind: DataBaseKind) -> Self {
         let ident = crate::value_ident(&query.query_name);
         let lifetime = syn::Lifetime::new("'a", proc_macro2::Span::call_site());
         Self {
@@ -160,7 +211,7 @@ impl<'a> QueryAst<'a> {
         self.fields().any(|f| f.scalar_type().need_lifetime())
     }
 
-    fn need_expand_query(&self) -> bool {
+    pub(super) fn need_expand_query(&self) -> bool {
         if matches!(self.kind, DataBaseKind::Postgres) {
             return false;
         }
@@ -294,30 +345,7 @@ impl<'a> QueryAst<'a> {
 
         if self.need_expand_query() {
             let query_ident = quote::format_ident!("__query");
-
-            let query_builder =
-                    self.query
-                        .fields
-                        .iter()
-                        .filter(|f| f.scalar_type().is_array())
-                        .map(|f| {
-                            let name = &f.name;
-                            let marker = format!("/*SLICE:{}*/?", name);
-                            quote::quote! {
-                                let #query_ident = match #name.len(){
-                                    0 => {
-                                        #query_ident.replace(#marker, "NULL")
-                                    }
-                                    1 => {
-                                        #query_ident.replace(#marker, "?")
-                                    }
-                                    n => {
-                                        let to = core::iter::once("?").chain(core::iter::repeat(",?").take(n - 1)).collect::<String>();
-                                        #query_ident.replace(#marker, &to)
-                                    }
-                                };
-                            }
-                        });
+            let query_builder = self.make_expand_query(&query_ident, |name| quote::quote! {#name});
 
             quote::quote! {
                   impl <#lifetime> #builder_ident<#lifetime,(#(#typ_list,)*)>{
@@ -325,7 +353,7 @@ impl<'a> QueryAst<'a> {
                         let (#(#field_list,)*) = self.fields;
 
                         let #query_ident = #struct_ident::QUERY;
-                        #(#query_builder)*
+                        #query_builder
 
                         #struct_ident{
                             #(#field_list,)*
@@ -356,6 +384,42 @@ impl<'a> QueryAst<'a> {
             #setter_tt
             #build_tt
         }
+    }
+
+    pub(super) fn make_expand_query<F>(
+        &self,
+        query_ident: &syn::Ident,
+        accessor: F,
+    ) -> proc_macro2::TokenStream
+    where
+        F: Fn(&syn::Ident) -> proc_macro2::TokenStream,
+    {
+        let query_builder = self
+            .query
+            .fields
+            .iter()
+            .filter(|field| field.scalar_type().is_array())
+            .map(|field| {
+                let name = &field.name;
+                let value = accessor(name);
+                let marker = format!("/*SLICE:{}*/?", name);
+                quote::quote! {
+                    let #query_ident = match #value.len(){
+                        0 => {
+                            #query_ident.replace(#marker, "NULL")
+                        }
+                        1 => {
+                            #query_ident.replace(#marker, "?")
+                        }
+                        n => {
+                            let to = core::iter::once("?").chain(core::iter::repeat(",?").take(n - 1)).collect::<String>();
+                            #query_ident.replace(#marker, &to)
+                        }
+                    };
+                }
+            });
+
+        quote::quote! {#(#query_builder)*}
     }
 }
 
