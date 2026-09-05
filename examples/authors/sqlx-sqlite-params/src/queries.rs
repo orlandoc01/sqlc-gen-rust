@@ -56,8 +56,6 @@ pub struct CreateAuthorParams<'a> {
     pub name: &'a str,
     pub bio: Option<&'a str>,
 }
-#[derive(sqlx::FromRow)]
-pub struct CreateAuthorRow {}
 pub async fn create_author<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
     params: CreateAuthorParams<'_>,

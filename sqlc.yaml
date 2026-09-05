@@ -288,3 +288,14 @@ sql:
         options:
           output: queries.rs
           db_crate: rusqlite
+  - schema: examples/sqlc-slice/sqlx-sqlite-params/schema.sql
+    queries: examples/sqlc-slice/sqlx-sqlite-params/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/sqlx-sqlite-params/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+          api: params_struct
+          query_parameter_limit: 0

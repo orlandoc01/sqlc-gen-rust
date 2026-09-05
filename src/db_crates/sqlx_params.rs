@@ -48,9 +48,7 @@ fn generate_query(
     let sql = query.query_str();
     let params = params_definition(&query_ast, query, query_parameter_limit);
     let arguments = function_arguments(query, query_parameter_limit);
-    let returns = query
-        .annotation
-        .generates_returning_row()
+    let returns = matches!(query.annotation, Annotation::One | Annotation::Many)
         .then(|| sqlx.returning_row(row));
     let functions = query_functions(
         sqlx,
