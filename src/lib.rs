@@ -485,6 +485,18 @@ pub fn try_main() -> Result<(), Error> {
             query.apply_dynfilter();
         }
     }
+    if config.api == db_crates::Api::ParamsStruct
+        && matches!(
+            config.db_crate,
+            db_crates::SupportedDbCrate::Sqlx(db_crates::Sqlx::MySql | db_crates::Sqlx::Sqlite)
+        )
+    {
+        for query in &mut queries {
+            if query.dynfilter().is_none() {
+                query.apply_static_slices();
+            }
+        }
+    }
 
     config.validate(&queries)?;
 

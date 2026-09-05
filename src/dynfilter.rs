@@ -114,12 +114,7 @@ pub(crate) fn parse(sql: &str, params: &[(String, usize)]) -> Option<DynFilterIn
         }
     }
 
-    let mut ordered_params = params.to_vec();
-    ordered_params.sort_unstable_by_key(|(_, number)| *number);
-    let mut ordered_arg_names = ordered_params
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect::<Vec<_>>();
+    let mut ordered_arg_names = ordered_arg_names(params);
     ordered_arg_names.extend(flag_params.iter().map(|flag| flag.name.clone()));
 
     Some(DynFilterInfo {
@@ -128,6 +123,27 @@ pub(crate) fn parse(sql: &str, params: &[(String, usize)]) -> Option<DynFilterIn
         flag_params,
         ordered_arg_names,
     })
+}
+
+pub(crate) fn parse_static_slices(sql: &str, params: &[(String, usize)]) -> Option<DynFilterInfo> {
+    sql.contains("/*SLICE:").then(|| DynFilterInfo {
+        annotated_sql: number_sqlc_slices(
+            sql,
+            &params
+                .iter()
+                .map(|(name, number)| (name.as_str(), *number))
+                .collect(),
+        ),
+        conditional_param_numbers: Vec::new(),
+        flag_params: Vec::new(),
+        ordered_arg_names: ordered_arg_names(params),
+    })
+}
+
+fn ordered_arg_names(params: &[(String, usize)]) -> Vec<String> {
+    let mut ordered_params = params.to_vec();
+    ordered_params.sort_unstable_by_key(|(_, number)| *number);
+    ordered_params.into_iter().map(|(name, _)| name).collect()
 }
 
 fn annotation_locations(lines: &[&str]) -> Vec<Option<(usize, usize, String)>> {
@@ -178,6 +194,12 @@ fn number_sqlc_slices(sql: &str, param_by_name: &HashMap<&str, usize>) -> String
             output.push_str(name);
             output.push_str("*/?");
             output.push_str(&number.to_string());
+            let number_len = marker[end + 3..]
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .count();
+            rest = &marker[end + 3 + number_len..];
+            continue;
         } else {
             output.push_str(&marker[..end + 3]);
         }
@@ -407,12 +429,12 @@ mod tests {
     #[test]
     fn numbers_slice_markers() {
         let info = parse(
-            "SELECT * FROM t WHERE id IN (/*SLICE:team-ids*/?) -- :if @active",
-            &params(&["active", "team-ids"]),
+            "SELECT * FROM t WHERE id IN (/*SLICE:team-ids*/?7) -- :if @active",
+            &[("active".to_string(), 1), ("team-ids".to_string(), 7)],
         )
         .unwrap();
 
-        assert!(info.annotated_sql.contains("/*SLICE:team-ids*/?2"));
+        assert!(info.annotated_sql.contains("/*SLICE:team-ids*/?7"));
     }
 
     #[test]

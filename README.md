@@ -162,6 +162,11 @@ See below for examples with other supported crates.
 `sqlc.embed(table)` emits a nested model struct for the table and decodes its columns by their
 SELECT position. See the [embed examples](./examples/embed/) for joined rows.
 
+### `sqlc.slice`
+
+The builder API retains upstream slice expansion. SQLite queries using named (`@name`) parameters
+emit numbered slice markers that the builder API cannot expand; use `api: params_struct` instead.
+
 ## Options
 
 ### `db_crate`
@@ -182,6 +187,9 @@ Select the generated query API. `builder` is the default and preserves the exist
 builder structs. `params_struct` is available for `sqlx-postgres`, `sqlx-mysql`, and
 `sqlx-sqlite`; it generates SQL constants, free async functions, and public params/row structs
 instead of query builders. `:copyfrom` and `:batch*` are not supported with this API.
+For SQLite and MySQL `sqlc.slice()` queries, it also emits `pub mod dynfilter` and uses its
+runtime bind plan even when `emit_dynamic_filter` is off, so numbered slice markers are expanded
+and rebound correctly. PostgreSQL keeps array binding.
 
 ```yaml
 options:

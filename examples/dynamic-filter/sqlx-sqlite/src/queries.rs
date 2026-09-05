@@ -3,7 +3,7 @@
 //! sqlc-gen-rust version: v0.1.12
 
 pub mod dynfilter {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Arg {
         Active,
@@ -39,6 +39,38 @@ pub mod dynfilter {
         segments: Vec<Segment>,
         arg_count: usize,
         placeholders: Placeholders,
+    }
+    struct PlaceholderState<'a> {
+        next_arg_num: usize,
+        arg_order: Option<&'a [usize]>,
+        seen_arg_nums: HashSet<usize>,
+    }
+    impl<'a> PlaceholderState<'a> {
+        fn new(arg_order: Option<&'a [usize]>) -> Self {
+            Self {
+                next_arg_num: 1,
+                arg_order,
+                seen_arg_nums: HashSet::new(),
+            }
+        }
+        fn unnumbered(&self, placeholders: Placeholders) -> Option<usize> {
+            self.arg_order
+                .map(|arg_order| {
+                    arg_order
+                        .iter()
+                        .copied()
+                        .find(|number| !self.seen_arg_nums.contains(number))
+                })
+                .unwrap_or_else(|| {
+                    (placeholders == Placeholders::Question).then_some(self.next_arg_num)
+                })
+        }
+        fn register(&mut self, number: usize, placeholders: Placeholders) {
+            self.seen_arg_nums.insert(number);
+            if placeholders == Placeholders::Question && number >= self.next_arg_num {
+                self.next_arg_num = number + 1;
+            }
+        }
     }
     struct Segment {
         parts: Vec<String>,
@@ -125,10 +157,25 @@ pub mod dynfilter {
         }
     }
     pub fn compile(annotated_sql: &str, placeholders: Placeholders) -> Compiled {
+        compile_inner(annotated_sql, placeholders, None)
+    }
+    #[allow(dead_code)]
+    pub fn compile_with_arg_order(
+        annotated_sql: &str,
+        placeholders: Placeholders,
+        arg_order: &[usize],
+    ) -> Compiled {
+        compile_inner(annotated_sql, placeholders, Some(arg_order))
+    }
+    fn compile_inner(
+        annotated_sql: &str,
+        placeholders: Placeholders,
+        arg_order: Option<&[usize]>,
+    ) -> Compiled {
         let config = LexerConfig::new(annotated_sql, placeholders);
         let mut segments = Vec::new();
         let mut static_sql = String::new();
-        let mut next_arg_num = 1;
+        let mut placeholder_state = PlaceholderState::new(arg_order);
         let mut first_line = true;
         let mut state = LexState::default();
         let mut lines = annotated_sql.split('\n').peekable();
@@ -142,13 +189,18 @@ pub mod dynfilter {
                 continue;
             }
             if let Some(mut conditions) = standalone_conditions(line) {
-                flush_static(&mut segments, &mut static_sql, &mut next_arg_num, config);
+                flush_static(
+                    &mut segments,
+                    &mut static_sql,
+                    &mut placeholder_state,
+                    config,
+                );
                 if let Some(next_line) = lines.next() {
                     let (mut next_conditions, cleaned) = extract_conditions(next_line, config);
                     conditions.append(&mut next_conditions);
                     state = line_end_state(&cleaned, state, config);
                     let (parts, arg_nums) =
-                        split_placeholders(&format!("\n{cleaned}"), &mut next_arg_num, config);
+                        split_placeholders(&format!("\n{cleaned}"), &mut placeholder_state, config);
                     segments.push(Segment {
                         parts,
                         arg_nums,
@@ -159,10 +211,18 @@ pub mod dynfilter {
             }
             let (conditions, cleaned) = extract_conditions(line, config);
             if !conditions.is_empty() {
-                flush_static(&mut segments, &mut static_sql, &mut next_arg_num, config);
+                flush_static(
+                    &mut segments,
+                    &mut static_sql,
+                    &mut placeholder_state,
+                    config,
+                );
                 state = line_end_state(&cleaned, state, config);
-                let (parts, arg_nums) =
-                    split_placeholders(&format!("{separator}{cleaned}"), &mut next_arg_num, config);
+                let (parts, arg_nums) = split_placeholders(
+                    &format!("{separator}{cleaned}"),
+                    &mut placeholder_state,
+                    config,
+                );
                 segments.push(Segment {
                     parts,
                     arg_nums,
@@ -174,7 +234,12 @@ pub mod dynfilter {
             static_sql.push_str(separator);
             static_sql.push_str(line);
         }
-        flush_static(&mut segments, &mut static_sql, &mut next_arg_num, config);
+        flush_static(
+            &mut segments,
+            &mut static_sql,
+            &mut placeholder_state,
+            config,
+        );
         let arg_count = segments
             .iter()
             .flat_map(|segment| {
@@ -198,13 +263,13 @@ pub mod dynfilter {
     fn flush_static(
         segments: &mut Vec<Segment>,
         static_sql: &mut String,
-        next_arg_num: &mut usize,
+        placeholder_state: &mut PlaceholderState<'_>,
         config: LexerConfig,
     ) {
         if static_sql.is_empty() {
             return;
         }
-        let (parts, arg_nums) = split_placeholders(static_sql, next_arg_num, config);
+        let (parts, arg_nums) = split_placeholders(static_sql, placeholder_state, config);
         segments.push(Segment {
             parts,
             arg_nums,
@@ -318,7 +383,7 @@ pub mod dynfilter {
     }
     fn split_placeholders(
         text: &str,
-        next_arg_num: &mut usize,
+        placeholder_state: &mut PlaceholderState<'_>,
         config: LexerConfig,
     ) -> (Vec<String>, Vec<usize>) {
         let bytes = text.as_bytes();
@@ -344,16 +409,14 @@ pub mod dynfilter {
                 (b'$', true, _) => parse_number(&text[index + 1..end]),
                 (b'?', true, Placeholders::NumberedSqlite)
                 | (b'?', true, Placeholders::Question) => parse_number(&text[index + 1..end]),
-                (b'?', false, Placeholders::Question) => Some(*next_arg_num),
+                (b'?', false, _) => placeholder_state.unnumbered(config.placeholders),
                 _ => None,
             };
             let Some(number) = number.filter(|number| *number > 0) else {
                 index = end;
                 continue;
             };
-            if config.placeholders == Placeholders::Question && number >= *next_arg_num {
-                *next_arg_num = number + 1;
-            }
+            placeholder_state.register(number, config.placeholders);
             parts.push(text[part_start..index].to_string());
             arg_nums.push(number);
             part_start = end;
@@ -883,7 +946,11 @@ ORDER BY
 LIMIT ?5";
 static SEARCH_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
     std::sync::LazyLock::new(|| {
-        dynfilter::compile(SEARCH_USERS, dynfilter::Placeholders::NumberedSqlite)
+        dynfilter::compile_with_arg_order(
+            SEARCH_USERS,
+            dynfilter::Placeholders::NumberedSqlite,
+            &[1usize, 2usize, 3usize, 4usize, 5usize],
+        )
     });
 #[derive(Debug, Clone, Default)]
 pub struct SearchUsersParams<'a> {
@@ -923,11 +990,14 @@ pub async fn search_users<'e>(
     let mut q = sqlx::query_as::<_, SearchUsersRow>(&sql);
     for bind in binds {
         q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.as_ref().unwrap()),
-            dynfilter::Bind::Arg(1usize) => q.bind(params.phone.as_ref().unwrap()),
-            dynfilter::Bind::Arg(2usize) => q.bind(params.orders_since.as_ref().unwrap()),
-            dynfilter::Bind::Elem(3usize, element) => q.bind(&params.ids.unwrap()[element]),
-            dynfilter::Bind::Arg(4usize) => q.bind(&params.row_limit),
+            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
+            dynfilter::Bind::Arg(1usize) => q.bind(params.phone.unwrap()),
+            dynfilter::Bind::Arg(2usize) => q.bind(params.orders_since.unwrap()),
+            dynfilter::Bind::Elem(3usize, element) => {
+                let elem = &params.ids.unwrap()[element];
+                q.bind(elem)
+            }
+            dynfilter::Bind::Arg(4usize) => q.bind(params.row_limit),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         };
     }
@@ -941,7 +1011,11 @@ WHERE TRUE
   AND users.id IN (/*SLICE:ids*/?2) -- :if $2
   AND TRUE";
 static COUNT_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> = std::sync::LazyLock::new(|| {
-    dynfilter::compile(COUNT_USERS, dynfilter::Placeholders::NumberedSqlite)
+    dynfilter::compile_with_arg_order(
+        COUNT_USERS,
+        dynfilter::Placeholders::NumberedSqlite,
+        &[1usize, 2usize],
+    )
 });
 #[derive(Debug, Clone, Default)]
 pub struct CountUsersParams<'a> {
@@ -965,8 +1039,11 @@ pub async fn count_users<'e>(
     let mut q = sqlx::query_as::<_, CountUsersRow>(&sql);
     for bind in binds {
         q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.as_ref().unwrap()),
-            dynfilter::Bind::Elem(1usize, element) => q.bind(&params.ids.unwrap()[element]),
+            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
+            dynfilter::Bind::Elem(1usize, element) => {
+                let elem = &params.ids.unwrap()[element];
+                q.bind(elem)
+            }
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         };
     }
@@ -985,8 +1062,11 @@ pub async fn count_users_opt<'e>(
     let mut q = sqlx::query_as::<_, CountUsersRow>(&sql);
     for bind in binds {
         q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.as_ref().unwrap()),
-            dynfilter::Bind::Elem(1usize, element) => q.bind(&params.ids.unwrap()[element]),
+            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
+            dynfilter::Bind::Elem(1usize, element) => {
+                let elem = &params.ids.unwrap()[element];
+                q.bind(elem)
+            }
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         };
     }
@@ -999,7 +1079,11 @@ WHERE TRUE
   AND users.id IN (/*SLICE:ids*/?2) -- :if $2
   AND TRUE";
 static TOUCH_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> = std::sync::LazyLock::new(|| {
-    dynfilter::compile(TOUCH_USERS, dynfilter::Placeholders::NumberedSqlite)
+    dynfilter::compile_with_arg_order(
+        TOUCH_USERS,
+        dynfilter::Placeholders::NumberedSqlite,
+        &[1usize, 2usize],
+    )
 });
 #[derive(Debug, Clone, Default)]
 pub struct TouchUsersParams<'a> {
@@ -1018,8 +1102,11 @@ pub async fn touch_users<'e>(
     let mut q = sqlx::query(&sql);
     for bind in binds {
         q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.as_ref().unwrap()),
-            dynfilter::Bind::Elem(1usize, element) => q.bind(&params.ids.unwrap()[element]),
+            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
+            dynfilter::Bind::Elem(1usize, element) => {
+                let elem = &params.ids.unwrap()[element];
+                q.bind(elem)
+            }
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         };
     }

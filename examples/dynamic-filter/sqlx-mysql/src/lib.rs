@@ -1,2 +1,2 @@
-#[allow(warnings)]
+#[allow(dead_code)]
 mod queries;

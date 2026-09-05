@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arg {
@@ -40,6 +40,42 @@ pub struct Compiled {
     segments: Vec<Segment>,
     arg_count: usize,
     placeholders: Placeholders,
+}
+
+struct PlaceholderState<'a> {
+    next_arg_num: usize,
+    arg_order: Option<&'a [usize]>,
+    seen_arg_nums: HashSet<usize>,
+}
+
+impl<'a> PlaceholderState<'a> {
+    fn new(arg_order: Option<&'a [usize]>) -> Self {
+        Self {
+            next_arg_num: 1,
+            arg_order,
+            seen_arg_nums: HashSet::new(),
+        }
+    }
+
+    fn unnumbered(&self, placeholders: Placeholders) -> Option<usize> {
+        self.arg_order
+            .map(|arg_order| {
+                arg_order
+                    .iter()
+                    .copied()
+                    .find(|number| !self.seen_arg_nums.contains(number))
+            })
+            .unwrap_or_else(|| {
+                (placeholders == Placeholders::Question).then_some(self.next_arg_num)
+            })
+    }
+
+    fn register(&mut self, number: usize, placeholders: Placeholders) {
+        self.seen_arg_nums.insert(number);
+        if placeholders == Placeholders::Question && number >= self.next_arg_num {
+            self.next_arg_num = number + 1;
+        }
+    }
 }
 
 struct Segment {
@@ -132,10 +168,27 @@ impl Compiled {
 }
 
 pub fn compile(annotated_sql: &str, placeholders: Placeholders) -> Compiled {
+    compile_inner(annotated_sql, placeholders, None)
+}
+
+#[allow(dead_code)]
+pub fn compile_with_arg_order(
+    annotated_sql: &str,
+    placeholders: Placeholders,
+    arg_order: &[usize],
+) -> Compiled {
+    compile_inner(annotated_sql, placeholders, Some(arg_order))
+}
+
+fn compile_inner(
+    annotated_sql: &str,
+    placeholders: Placeholders,
+    arg_order: Option<&[usize]>,
+) -> Compiled {
     let config = LexerConfig::new(annotated_sql, placeholders);
     let mut segments = Vec::new();
     let mut static_sql = String::new();
-    let mut next_arg_num = 1;
+    let mut placeholder_state = PlaceholderState::new(arg_order);
     let mut first_line = true;
     let mut state = LexState::default();
     let mut lines = annotated_sql.split('\n').peekable();
@@ -154,7 +207,7 @@ pub fn compile(annotated_sql: &str, placeholders: Placeholders) -> Compiled {
             flush_static(
                 &mut segments,
                 &mut static_sql,
-                &mut next_arg_num,
+                &mut placeholder_state,
                 config,
             );
             if let Some(next_line) = lines.next() {
@@ -163,7 +216,7 @@ pub fn compile(annotated_sql: &str, placeholders: Placeholders) -> Compiled {
                 state = line_end_state(&cleaned, state, config);
                 let (parts, arg_nums) = split_placeholders(
                     &format!("\n{cleaned}"),
-                    &mut next_arg_num,
+                    &mut placeholder_state,
                     config,
                 );
                 segments.push(Segment {
@@ -180,13 +233,13 @@ pub fn compile(annotated_sql: &str, placeholders: Placeholders) -> Compiled {
             flush_static(
                 &mut segments,
                 &mut static_sql,
-                &mut next_arg_num,
+                &mut placeholder_state,
                 config,
             );
             state = line_end_state(&cleaned, state, config);
             let (parts, arg_nums) = split_placeholders(
                 &format!("{separator}{cleaned}"),
-                &mut next_arg_num,
+                &mut placeholder_state,
                 config,
             );
             segments.push(Segment {
@@ -205,7 +258,7 @@ pub fn compile(annotated_sql: &str, placeholders: Placeholders) -> Compiled {
     flush_static(
         &mut segments,
         &mut static_sql,
-        &mut next_arg_num,
+        &mut placeholder_state,
         config,
     );
     let arg_count = segments
@@ -234,13 +287,13 @@ pub fn nilable<T>(slice: &[T]) -> Option<&[T]> {
 fn flush_static(
     segments: &mut Vec<Segment>,
     static_sql: &mut String,
-    next_arg_num: &mut usize,
+    placeholder_state: &mut PlaceholderState<'_>,
     config: LexerConfig,
 ) {
     if static_sql.is_empty() {
         return;
     }
-    let (parts, arg_nums) = split_placeholders(static_sql, next_arg_num, config);
+    let (parts, arg_nums) = split_placeholders(static_sql, placeholder_state, config);
     segments.push(Segment {
         parts,
         arg_nums,
@@ -368,7 +421,7 @@ fn annotation_start(line: &str, config: LexerConfig) -> Option<usize> {
 
 fn split_placeholders(
     text: &str,
-    next_arg_num: &mut usize,
+    placeholder_state: &mut PlaceholderState<'_>,
     config: LexerConfig,
 ) -> (Vec<String>, Vec<usize>) {
     let bytes = text.as_bytes();
@@ -396,16 +449,14 @@ fn split_placeholders(
             | (b'?', true, Placeholders::Question) => {
                 parse_number(&text[index + 1..end])
             }
-            (b'?', false, Placeholders::Question) => Some(*next_arg_num),
+            (b'?', false, _) => placeholder_state.unnumbered(config.placeholders),
             _ => None,
         };
         let Some(number) = number.filter(|number| *number > 0) else {
             index = end;
             continue;
         };
-        if config.placeholders == Placeholders::Question && number >= *next_arg_num {
-            *next_arg_num = number + 1;
-        }
+        placeholder_state.register(number, config.placeholders);
         parts.push(text[part_start..index].to_string());
         arg_nums.push(number);
         part_start = end;

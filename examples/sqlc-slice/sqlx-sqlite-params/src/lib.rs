@@ -1,4 +1,4 @@
-#[allow(warnings)]
+#[allow(dead_code)]
 mod queries;
 
 #[cfg(test)]
@@ -155,5 +155,57 @@ mod tests {
         assert_eq!(authors.len(), 1);
         assert_eq!(authors[0].id, 3);
         assert_eq!(authors[0].name, "Charlie");
+    }
+
+    #[test_context(SqlxSqliteContext)]
+    #[tokio::test]
+    async fn test_list_authors_by_named_ids(ctx: &mut SqlxSqliteContext) {
+        let pool = &ctx.pool;
+        migrate_db(pool).await;
+        seed_authors(pool).await;
+
+        let authors = queries::list_authors_by_named_ids(
+            pool,
+            queries::ListAuthorsByNamedIDsParams {
+                min_id: 1,
+                ids: &[],
+                max_id: 3,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(authors.is_empty());
+
+        let ids = [2i64];
+        let authors = queries::list_authors_by_named_ids(
+            pool,
+            queries::ListAuthorsByNamedIDsParams {
+                min_id: 1,
+                ids: &ids,
+                max_id: 3,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            authors.iter().map(|author| author.id).collect::<Vec<_>>(),
+            [2]
+        );
+
+        let ids = [1i64, 2, 3];
+        let authors = queries::list_authors_by_named_ids(
+            pool,
+            queries::ListAuthorsByNamedIDsParams {
+                min_id: 1,
+                ids: &ids,
+                max_id: 3,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            authors.iter().map(|author| author.id).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
     }
 }

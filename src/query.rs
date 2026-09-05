@@ -314,6 +314,10 @@ impl RsColType {
         self.dim != 0 || self.rs_type.slice.is_some()
     }
 
+    pub(crate) fn copy_cheap(&self) -> bool {
+        self.rs_type.copy_cheap
+    }
+
     /// Convert to tokens for function parameter struct
     pub(crate) fn to_param_tokens(&self, life_time: &syn::Lifetime) -> proc_macro2::TokenStream {
         let wrapped_type = match self.dim {
@@ -1001,12 +1005,7 @@ impl Query {
     }
 
     pub(crate) fn apply_dynfilter(&mut self) {
-        let params = self
-            .fields
-            .iter()
-            .zip(&self.param_numbers)
-            .map(|(field, number)| (field.name_original.value(), *number))
-            .collect::<Vec<_>>();
+        let params = self.params();
         let Some(info) = crate::dynfilter::parse(&self.query_str, &params) else {
             return;
         };
@@ -1015,6 +1014,15 @@ impl Query {
                 field.scalar_type_mut().make_optional();
             }
         }
+        self.query_str = info.annotated_sql.clone();
+        self.dynfilter = Some(info);
+    }
+
+    pub(crate) fn apply_static_slices(&mut self) {
+        let params = self.params();
+        let Some(info) = crate::dynfilter::parse_static_slices(&self.query_str, &params) else {
+            return;
+        };
         self.query_str = info.annotated_sql.clone();
         self.dynfilter = Some(info);
     }
@@ -1030,6 +1038,14 @@ impl Query {
     pub(crate) fn is_sqlc_slice(&self, field_index: usize) -> bool {
         self.sqlc_slice_param_numbers
             .contains(&self.param_number(field_index))
+    }
+
+    fn params(&self) -> Vec<(String, usize)> {
+        self.fields
+            .iter()
+            .zip(&self.param_numbers)
+            .map(|(field, number)| (field.name_original.value(), *number))
+            .collect()
     }
 
     pub(crate) fn query_str(&self) -> proc_macro2::TokenStream {

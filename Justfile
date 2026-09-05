@@ -39,6 +39,7 @@ check-local:
     just generate
     git diff --exit-code
     cargo test -p sqlc-gen-rust -p authors-sqlx-sqlite -p authors-sqlx-sqlite-params -p dynamic-filter-sqlx-sqlite -p sqlc-slice-sqlx-sqlite -p sqlc-slice-sqlx-sqlite-params -p type-mapping-sqlx-sqlite -p embed-sqlx-sqlite -p embed-sqlx-sqlite-params -p embed-rusqlite
+    cargo clippy -p authors-sqlx-postgres -p authors-sqlx-sqlite-params -p dynamic-filter-sqlx-mysql -p dynamic-filter-sqlx-postgres -p dynamic-filter-sqlx-sqlite -p embed-sqlx-sqlite-params -p sqlc-slice-sqlx-sqlite-params --all-targets -- -D warnings
 
 # Run tests
 test:

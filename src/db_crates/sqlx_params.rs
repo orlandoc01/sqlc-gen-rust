@@ -19,9 +19,10 @@ pub(super) fn generate_queries(
     query_parameter_limit: usize,
     emit_dynamic_filter: bool,
 ) -> proc_macro2::TokenStream {
-    let dynfilter_runtime = emit_dynamic_filter
-        .then(dynfilter_runtime)
-        .unwrap_or_default();
+    let dynfilter_runtime = (emit_dynamic_filter
+        || queries.iter().any(|query| query.dynfilter().is_some()))
+    .then(dynfilter_runtime)
+    .unwrap_or_default();
     let query_tokens = rows
         .iter()
         .zip(queries)
@@ -95,9 +96,15 @@ fn dynamic_static(sqlx: &Sqlx, query: &Query, constant: &syn::Ident) -> proc_mac
         Sqlx::Postgres => quote::quote! {dynfilter::Placeholders::Numbered},
         Sqlx::Sqlite => quote::quote! {dynfilter::Placeholders::NumberedSqlite},
     };
+    let arg_order = query.fields.iter().enumerate().map(|(index, _)| {
+        let number = query.param_number(index);
+        quote::quote! {#number}
+    });
     quote::quote! {
         static #dynamic: std::sync::LazyLock<dynfilter::Compiled> =
-            std::sync::LazyLock::new(|| dynfilter::compile(#constant, #placeholders));
+            std::sync::LazyLock::new(|| {
+                dynfilter::compile_with_arg_order(#constant, #placeholders, &[#(#arg_order,)*])
+            });
     }
 }
 
@@ -465,14 +472,24 @@ fn dynamic_binds(query: &Query) -> Vec<proc_macro2::TokenStream> {
                     quote::quote! {&params.#name[element]}
                 };
                 return vec![quote::quote! {
-                    dynfilter::Bind::Elem(#arg_index, element) => q.bind(#elem),
+                    dynfilter::Bind::Elem(#arg_index, element) => {
+                        let elem = #elem;
+                        q.bind(elem)
+                    }
                 }];
             }
+            let borrowed = field.scalar_type().need_params_struct_lifetime();
             let value = if info
                 .conditional_param_numbers
                 .contains(&query.param_number(index))
             {
-                quote::quote! {params.#name.as_ref().unwrap()}
+                if field.scalar_type().copy_cheap() || borrowed {
+                    quote::quote! {params.#name.unwrap()}
+                } else {
+                    quote::quote! {params.#name.as_ref().unwrap()}
+                }
+            } else if field.scalar_type().copy_cheap() || borrowed {
+                quote::quote! {params.#name}
             } else {
                 quote::quote! {&params.#name}
             };
