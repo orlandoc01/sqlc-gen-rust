@@ -141,9 +141,11 @@ fn function_arguments(query: &Query, query_parameter_limit: usize) -> proc_macro
     });
     let fields = quote::quote! {#(#fields),*};
 
-    (!query.fields.is_empty())
-        .then(|| quote::quote! {, #fields})
-        .unwrap_or_default()
+    if query.fields.is_empty() {
+        proc_macro2::TokenStream::new()
+    } else {
+        quote::quote! {, #fields}
+    }
 }
 
 fn params_ident(query: &Query) -> syn::Ident {
@@ -161,9 +163,11 @@ fn query_functions(
 ) -> proc_macro2::TokenStream {
     let function = field_ident(&query.query_name);
     let database = sqlx.database_ident();
-    let access = uses_params_struct(query.fields.len(), query_parameter_limit)
-        .then_some(ParameterAccess::Struct)
-        .unwrap_or(ParameterAccess::Direct);
+    let access = if uses_params_struct(query.fields.len(), query_parameter_limit) {
+        ParameterAccess::Struct
+    } else {
+        ParameterAccess::Direct
+    };
 
     match query.annotation {
         Annotation::One => {
@@ -240,47 +244,34 @@ fn query_functions(
                 }
             }
         }
-        Annotation::ExecLastId => last_insert_id_function(
-            sqlx, query, query_ast, constant, arguments, &function, &database, access,
-        ),
+        Annotation::ExecLastId => {
+            let setup = make_query_setup(sqlx, query, query_ast, constant, access, None);
+            match sqlx {
+                Sqlx::Sqlite => quote::quote! {
+                    pub async fn #function<'e>(
+                        executor: impl sqlx::Executor<'e, Database = #database>
+                        #arguments
+                    ) -> Result<i64, sqlx::Error> {
+                        #setup
+                        q.execute(executor).await.map(|result| result.last_insert_rowid())
+                    }
+                },
+                Sqlx::MySql => quote::quote! {
+                    pub async fn #function<'e>(
+                        executor: impl sqlx::Executor<'e, Database = #database>
+                        #arguments
+                    ) -> Result<u64, sqlx::Error> {
+                        #setup
+                        q.execute(executor).await.map(|result| result.last_insert_id())
+                    }
+                },
+                Sqlx::Postgres => proc_macro2::TokenStream::new(),
+            }
+        }
         Annotation::BatchExec
         | Annotation::BatchMany
         | Annotation::BatchOne
         | Annotation::CopyFrom => proc_macro2::TokenStream::new(),
-    }
-}
-
-fn last_insert_id_function(
-    sqlx: &Sqlx,
-    query: &Query,
-    query_ast: &QueryAst<'_>,
-    constant: &syn::Ident,
-    arguments: &proc_macro2::TokenStream,
-    function: &syn::Ident,
-    database: &syn::Type,
-    access: ParameterAccess,
-) -> proc_macro2::TokenStream {
-    let query = make_query_setup(sqlx, query, query_ast, constant, access, None);
-    match sqlx {
-        Sqlx::Sqlite => quote::quote! {
-            pub async fn #function<'e>(
-                executor: impl sqlx::Executor<'e, Database = #database>
-                #arguments
-            ) -> Result<i64, sqlx::Error> {
-                #query
-                q.execute(executor).await.map(|result| result.last_insert_rowid())
-            }
-        },
-        Sqlx::MySql => quote::quote! {
-            pub async fn #function<'e>(
-                executor: impl sqlx::Executor<'e, Database = #database>
-                #arguments
-            ) -> Result<u64, sqlx::Error> {
-                #query
-                q.execute(executor).await.map(|result| result.last_insert_id())
-            }
-        },
-        Sqlx::Postgres => proc_macro2::TokenStream::new(),
     }
 }
 
