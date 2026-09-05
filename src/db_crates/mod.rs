@@ -18,6 +18,7 @@ pub(crate) enum Api {
 pub(crate) struct GenerationOptions {
     pub(crate) api: Api,
     pub(crate) query_parameter_limit: usize,
+    pub(crate) emit_dynamic_filter: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -105,6 +106,7 @@ impl DbCrate for SupportedDbCrate {
                 rows,
                 queries,
                 options.query_parameter_limit,
+                options.emit_dynamic_filter,
             );
         }
 

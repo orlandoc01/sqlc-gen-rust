@@ -32,6 +32,7 @@ pub enum Bind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Placeholders {
     Numbered,
+    NumberedSqlite,
     Question,
 }
 
@@ -105,7 +106,7 @@ impl Compiled {
                     continue;
                 };
                 let arg_index = arg_number - 1;
-                if self.placeholders == Placeholders::Numbered {
+                if self.placeholders != Placeholders::Question {
                     if let Some(number) = scalar_placeholders.get(&arg_index) {
                         write_placeholder(&mut query, self.placeholders, *number);
                     } else {
@@ -289,7 +290,7 @@ fn write_placeholders(query: &mut String, placeholders: Placeholders, numbers: &
 
 fn write_placeholder(query: &mut String, placeholders: Placeholders, number: usize) {
     match placeholders {
-        Placeholders::Numbered => {
+        Placeholders::Numbered | Placeholders::NumberedSqlite => {
             query.push('$');
             query.push_str(&number.to_string());
         }
@@ -391,7 +392,8 @@ fn split_placeholders(
         }
         let number = match (bytes[index], end > index + 1, config.placeholders) {
             (b'$', true, _) => parse_number(&text[index + 1..end]),
-            (b'?', true, Placeholders::Numbered) | (b'?', true, Placeholders::Question) => {
+            (b'?', true, Placeholders::NumberedSqlite)
+            | (b'?', true, Placeholders::Question) => {
                 parse_number(&text[index + 1..end])
             }
             (b'?', false, Placeholders::Question) => Some(*next_arg_num),
@@ -434,7 +436,7 @@ fn skip_quoted_or_block(text: &str, index: usize, config: LexerConfig) -> usize 
                     || (config.postgres && quote == b'\'' && escape_string_prefix(text, index)));
             quote_end(bytes, index + 1, quote, backslash).0
         }
-        b'[' if config.bracket_identifiers => text[index + 1..]
+        b'[' if is_bracket_identifier(text, index, config) => text[index + 1..]
             .find(']')
             .map_or(text.len(), |end| index + end + 2),
         b'$' if config.postgres => dollar_delimiter(text, index).map_or(index, |delimiter| {
@@ -445,6 +447,19 @@ fn skip_quoted_or_block(text: &str, index: usize, config: LexerConfig) -> usize 
         b'/' if bytes[index..].starts_with(b"/*") => skip_block_comment(text, index, config),
         _ => index,
     }
+}
+
+fn is_bracket_identifier(text: &str, start: usize, config: LexerConfig) -> bool {
+    if config.bracket_identifiers {
+        return true;
+    }
+    let Some(end) = text[start + 1..].find(']') else {
+        return true;
+    };
+    let content = &text[start + 1..start + 1 + end];
+    !content
+        .strip_prefix('$')
+        .is_some_and(|number| !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 fn skip_block_comment(text: &str, start: usize, config: LexerConfig) -> usize {
@@ -477,21 +492,14 @@ struct LexerConfig {
 }
 
 impl LexerConfig {
-    fn new(sql: &str, placeholders: Placeholders) -> Self {
-        let sqlite = placeholders == Placeholders::Numbered && has_numbered_question_mark(sql);
+    fn new(_sql: &str, placeholders: Placeholders) -> Self {
         Self {
             placeholders,
-            postgres: placeholders == Placeholders::Numbered && !sqlite,
-            bracket_identifiers: sqlite,
+            postgres: placeholders == Placeholders::Numbered,
+            bracket_identifiers: placeholders == Placeholders::NumberedSqlite,
             backslash_strings: placeholders == Placeholders::Question,
         }
     }
-}
-
-fn has_numbered_question_mark(sql: &str) -> bool {
-    sql.as_bytes()
-        .windows(2)
-        .any(|bytes| bytes[0] == b'?' && bytes[1].is_ascii_digit())
 }
 
 #[derive(Default)]
@@ -571,7 +579,7 @@ fn line_end_state(line: &str, mut state: LexState, config: LexerConfig) -> LexSt
                             && escape_string_prefix(line, index)));
                 index += 1;
             }
-            b'[' if config.bracket_identifiers => {
+            b'[' if is_bracket_identifier(line, index, config) => {
                 state.quote = Some(b'[');
                 index += 1;
             }
@@ -730,12 +738,26 @@ mod tests {
     }
 
     #[test]
+    fn mysql_expands_numbered_slice_markers() {
+        let (sql, binds) = build(
+            "SELECT * FROM t WHERE kind = ? AND id IN (/*SLICE:ids*/?2) -- :if $2",
+            Placeholders::Question,
+            &[Arg::Active, Arg::Slice(Some(2))],
+        );
+        assert_eq!(sql, "SELECT * FROM t WHERE kind = ? AND id IN (?,?)");
+        assert_eq!(
+            binds,
+            [Bind::Arg(0), Bind::Elem(1, 0), Bind::Elem(1, 1)]
+        );
+    }
+
+    #[test]
     fn expands_slices_and_preserves_nil_empty_distinction() {
         let sql = "SELECT * FROM t\nWHERE name = ?1\n  AND id IN (/*SLICE:ids*/?2) -- :if $2";
         assert_eq!(
             build(
                 sql,
-                Placeholders::Numbered,
+                Placeholders::NumberedSqlite,
                 &[Arg::Active, Arg::Slice(None)],
             )
             .0,
@@ -744,7 +766,7 @@ mod tests {
         assert_eq!(
             build(
                 sql,
-                Placeholders::Numbered,
+                Placeholders::NumberedSqlite,
                 &[Arg::Active, Arg::Slice(Some(0))],
             ),
             (
@@ -755,7 +777,7 @@ mod tests {
         assert_eq!(
             build(
                 sql,
-                Placeholders::Numbered,
+                Placeholders::NumberedSqlite,
                 &[Arg::Active, Arg::Slice(Some(2))],
             ),
             (
@@ -781,7 +803,7 @@ mod tests {
         assert_eq!(
             build(
                 "SELECT * FROM t WHERE id IN (/*SLICE:ids*/$1) OR parent_id IN (/*SLICE:ids*/$1)",
-                Placeholders::Numbered,
+                Placeholders::NumberedSqlite,
                 &[Arg::Slice(Some(0))],
             )
             .0,
@@ -794,7 +816,7 @@ mod tests {
         assert_eq!(
             build(
                 "SELECT * FROM t WHERE id IN (/*SLICE:ids*/?2) -- :if $1",
-                Placeholders::Numbered,
+                Placeholders::NumberedSqlite,
                 &[Arg::Active],
             ),
             ("SELECT * FROM t WHERE id IN (NULL)".into(), vec![])
@@ -805,7 +827,7 @@ mod tests {
     fn removes_trailing_order_by_and_where() {
         let (sql, binds) = build(
             "SELECT * FROM t\nWHERE\n  a = $1 -- :if $1\nORDER BY\n  id ASC, -- :if $2\n  id DESC -- :if $3",
-            Placeholders::Numbered,
+            Placeholders::NumberedSqlite,
             &[Arg::Inactive, Arg::Flag(false), Arg::Flag(false)],
         );
         assert_eq!(sql, "SELECT * FROM t");
@@ -837,6 +859,17 @@ mod tests {
     }
 
     #[test]
+    fn keeps_postgres_question_operators_as_text() {
+        let (sql, binds) = build(
+            "SELECT * FROM t WHERE json ? 'key' AND data?1 = 'x' AND a = $1",
+            Placeholders::Numbered,
+            &[Arg::Active],
+        );
+        assert_eq!(sql, "SELECT * FROM t WHERE json ? 'key' AND data?1 = 'x' AND a = $1");
+        assert_eq!(binds, [Bind::Arg(0)]);
+    }
+
+    #[test]
     fn handles_postgres_dollar_quotes_escape_strings_and_nested_comments() {
         let (sql, binds) = build(
             "SELECT E'it\\'s $2', $tag$ -- :if $3 $tag$ /* outer /* inner */ $4 */ FROM t WHERE a = $1",
@@ -862,7 +895,7 @@ mod tests {
     fn keeps_sqlite_bracket_identifiers_opaque() {
         let (sql, binds) = build(
             "SELECT [a?1b], [x$2y] FROM t WHERE a = ?1",
-            Placeholders::Numbered,
+            Placeholders::NumberedSqlite,
             &[Arg::Active],
         );
         assert_eq!(sql, "SELECT [a?1b], [x$2y] FROM t WHERE a = $1");
@@ -905,5 +938,7 @@ mod tests {
     fn nilable_turns_only_empty_slices_into_none() {
         assert_eq!(nilable::<i64>(&[]), None);
         assert_eq!(nilable(&[1_i64]), Some(&[1][..]));
+        assert_eq!(Arg::from_option(&Some(1)), Arg::Active);
+        assert_eq!(Arg::from_option::<i64>(&None), Arg::Inactive);
     }
 }

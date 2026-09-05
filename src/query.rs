@@ -259,6 +259,10 @@ impl RsColType {
         self.dim != 0
     }
 
+    pub(crate) fn make_optional(&mut self) {
+        self.optional = true;
+    }
+
     pub(crate) fn new_with_type(
         db_type: &DbTypeMap,
         column: &plugin::Column,
@@ -623,6 +627,15 @@ impl ColumnField {
         }
     }
 
+    fn scalar_type_mut(&mut self) -> &mut RsColType {
+        match &mut self.typ {
+            ColumnFieldType::Scalar(typ) => typ,
+            ColumnFieldType::Embed(_) => {
+                unreachable!("ColumnField::scalar_type parameters are never sqlc.embed columns")
+            }
+        }
+    }
+
     pub(crate) fn row_type(&self) -> proc_macro2::TokenStream {
         self.typ.to_row_tokens()
     }
@@ -910,6 +923,9 @@ pub(crate) struct Query {
     /// ^^^^^^^^^^^^^^^^^^^^^^
     /// ```
     query_str: String,
+    param_numbers: Vec<usize>,
+    sqlc_slice_param_numbers: std::collections::BTreeSet<usize>,
+    dynfilter: Option<crate::dynfilter::DynFilterInfo>,
 }
 
 impl Query {
@@ -955,6 +971,22 @@ impl Query {
 
         let query_str = query.text.clone();
         let insert_table = query.insert_into_table.as_ref().map(|t| t.name.clone());
+        let param_numbers = query
+            .params
+            .iter()
+            .map(|param| usize::try_from(param.number).unwrap_or_default())
+            .collect();
+        let sqlc_slice_param_numbers = query
+            .params
+            .iter()
+            .filter_map(|param| {
+                param
+                    .column
+                    .as_ref()
+                    .filter(|column| column.is_sqlc_slice)
+                    .map(|_| usize::try_from(param.number).unwrap_or_default())
+            })
+            .collect();
 
         Ok(Self {
             fields,
@@ -962,7 +994,42 @@ impl Query {
             insert_table,
             query_name,
             query_str,
+            param_numbers,
+            sqlc_slice_param_numbers,
+            dynfilter: None,
         })
+    }
+
+    pub(crate) fn apply_dynfilter(&mut self) {
+        let params = self
+            .fields
+            .iter()
+            .zip(&self.param_numbers)
+            .map(|(field, number)| (field.name_original.value(), *number))
+            .collect::<Vec<_>>();
+        let Some(info) = crate::dynfilter::parse(&self.query_str, &params) else {
+            return;
+        };
+        for (field, number) in self.fields.iter_mut().zip(&self.param_numbers) {
+            if info.conditional_param_numbers.contains(number) {
+                field.scalar_type_mut().make_optional();
+            }
+        }
+        self.query_str = info.annotated_sql.clone();
+        self.dynfilter = Some(info);
+    }
+
+    pub(crate) fn dynfilter(&self) -> Option<&crate::dynfilter::DynFilterInfo> {
+        self.dynfilter.as_ref()
+    }
+
+    pub(crate) fn param_number(&self, field_index: usize) -> usize {
+        self.param_numbers[field_index]
+    }
+
+    pub(crate) fn is_sqlc_slice(&self, field_index: usize) -> bool {
+        self.sqlc_slice_param_numbers
+            .contains(&self.param_number(field_index))
     }
 
     pub(crate) fn query_str(&self) -> proc_macro2::TokenStream {

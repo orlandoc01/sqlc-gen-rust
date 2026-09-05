@@ -17,7 +17,11 @@ pub(super) fn generate_queries(
     rows: &[ReturningRows],
     queries: &[Query],
     query_parameter_limit: usize,
+    emit_dynamic_filter: bool,
 ) -> proc_macro2::TokenStream {
+    let dynfilter_runtime = emit_dynamic_filter
+        .then(dynfilter_runtime)
+        .unwrap_or_default();
     let query_tokens = rows
         .iter()
         .zip(queries)
@@ -29,10 +33,22 @@ pub(super) fn generate_queries(
     });
 
     quote::quote! {
+        #dynfilter_runtime
         #(#query_tokens)*
         pub const QUERIES: &[(&str, &str)] = &[
             #(#query_index,)*
         ];
+    }
+}
+
+fn dynfilter_runtime() -> proc_macro2::TokenStream {
+    let runtime = include_str!("dynfilter_runtime.rs")
+        .parse::<proc_macro2::TokenStream>()
+        .expect("dynfilter runtime is valid Rust");
+    quote::quote! {
+        pub mod dynfilter {
+            #runtime
+        }
     }
 }
 
@@ -47,6 +63,7 @@ fn generate_query(
     let sql = query.query_str();
     let params = params_definition(&query_ast, query, query_parameter_limit);
     let arguments = function_arguments(query, query_parameter_limit);
+    let dynamic = dynamic_static(sqlx, query, &constant);
     let returns = matches!(query.annotation, Annotation::One | Annotation::Many)
         .then(|| sqlx.returning_row(row));
     let functions = query_functions(
@@ -61,9 +78,26 @@ fn generate_query(
 
     quote::quote! {
         pub const #constant: &str = #sql;
+        #dynamic
         #params
         #returns
         #functions
+    }
+}
+
+fn dynamic_static(sqlx: &Sqlx, query: &Query, constant: &syn::Ident) -> proc_macro2::TokenStream {
+    if query.dynfilter().is_none() {
+        return proc_macro2::TokenStream::new();
+    }
+    let dynamic = quote::format_ident!("{constant}_DYN");
+    let placeholders = match sqlx {
+        Sqlx::MySql => quote::quote! {dynfilter::Placeholders::Question},
+        Sqlx::Postgres => quote::quote! {dynfilter::Placeholders::Numbered},
+        Sqlx::Sqlite => quote::quote! {dynfilter::Placeholders::NumberedSqlite},
+    };
+    quote::quote! {
+        static #dynamic: std::sync::LazyLock<dynfilter::Compiled> =
+            std::sync::LazyLock::new(|| dynfilter::compile(#constant, #placeholders));
     }
 }
 
@@ -107,8 +141,8 @@ fn query_ident(query_name: &str, case: Case) -> syn::Ident {
     quote::format_ident!("{}", name.to_case(case))
 }
 
-fn uses_params_struct(parameter_count: usize, query_parameter_limit: usize) -> bool {
-    parameter_count > query_parameter_limit
+fn uses_params_struct(query: &Query, query_parameter_limit: usize) -> bool {
+    query.dynfilter().is_some() || query.fields.len() > query_parameter_limit
 }
 
 fn params_definition(
@@ -116,7 +150,7 @@ fn params_definition(
     query: &Query,
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
-    if !uses_params_struct(query.fields.len(), query_parameter_limit) {
+    if !uses_params_struct(query, query_parameter_limit) {
         return proc_macro2::TokenStream::new();
     }
 
@@ -126,6 +160,12 @@ fn params_definition(
         let name = &field.name;
         let typ = field.scalar_type().to_params_struct_tokens(Some(lifetime));
         quote::quote! {pub #name: #typ}
+    });
+    let flags = query.dynfilter().into_iter().flat_map(|info| {
+        info.flag_params.iter().map(|flag| {
+            let name = crate::field_ident(&flag.name);
+            quote::quote! {pub #name: bool}
+        })
     });
 
     if query
@@ -137,6 +177,7 @@ fn params_definition(
             #[derive(Debug, Clone, Default)]
             pub struct #params<#lifetime> {
                 #(#fields,)*
+                #(#flags,)*
             }
         }
     } else {
@@ -144,13 +185,14 @@ fn params_definition(
             #[derive(Debug, Clone, Default)]
             pub struct #params {
                 #(#fields,)*
+                #(#flags,)*
             }
         }
     }
 }
 
 fn function_arguments(query: &Query, query_parameter_limit: usize) -> proc_macro2::TokenStream {
-    if uses_params_struct(query.fields.len(), query_parameter_limit) {
+    if uses_params_struct(query, query_parameter_limit) {
         let params = params_ident(query);
         let params = if query
             .fields
@@ -193,7 +235,7 @@ fn query_functions(
 ) -> proc_macro2::TokenStream {
     let function = query_function_ident(query);
     let database = sqlx.database_ident();
-    let access = if uses_params_struct(query.fields.len(), query_parameter_limit) {
+    let access = if uses_params_struct(query, query_parameter_limit) {
         ParameterAccess::Struct
     } else {
         ParameterAccess::Direct
@@ -313,6 +355,9 @@ fn make_query_setup(
     access: ParameterAccess,
     row: Option<&syn::Ident>,
 ) -> proc_macro2::TokenStream {
+    if query.dynfilter().is_some() {
+        return make_dynamic_query_setup(query, constant, row);
+    }
     let query_ident = quote::format_ident!("q");
     let sql_ident = quote::format_ident!("sql");
     let bind = make_bind(sqlx, query, query_ident.clone(), access);
@@ -341,6 +386,101 @@ fn make_query_setup(
             #bind
         }
     }
+}
+
+fn make_dynamic_query_setup(
+    query: &Query,
+    constant: &syn::Ident,
+    row: Option<&syn::Ident>,
+) -> proc_macro2::TokenStream {
+    let dynamic = quote::format_ident!("{constant}_DYN");
+    let args = dynamic_args(query);
+    let binds = dynamic_binds(query);
+    let query = match row {
+        Some(row) => quote::quote! {sqlx::query_as::<_, #row>(&sql)},
+        None => quote::quote! {sqlx::query(&sql)},
+    };
+
+    quote::quote! {
+        let args = [#(#args,)*];
+        let (sql, binds) = #dynamic.build(&args);
+        let mut q = #query;
+        for bind in binds {
+            q = match bind {
+                #(#binds)*
+                _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+            };
+        }
+        let q = q.persistent(false);
+    }
+}
+
+fn dynamic_args(query: &Query) -> Vec<proc_macro2::TokenStream> {
+    let info = query.dynfilter().expect("dynamic query");
+    let mut fields = query.fields.iter().enumerate().collect::<Vec<_>>();
+    fields.sort_unstable_by_key(|(index, _)| query.param_number(*index));
+    let mut args = fields
+        .into_iter()
+        .map(|(index, field)| {
+            let name = &field.name;
+            let conditional = info
+                .conditional_param_numbers
+                .contains(&query.param_number(index));
+            if query.is_sqlc_slice(index) {
+                if conditional {
+                    quote::quote! {dynfilter::Arg::Slice(params.#name.map(<[_]>::len))}
+                } else {
+                    quote::quote! {dynfilter::Arg::Slice(Some(params.#name.len()))}
+                }
+            } else if conditional {
+                quote::quote! {dynfilter::Arg::from_option(&params.#name)}
+            } else {
+                quote::quote! {dynfilter::Arg::Active}
+            }
+        })
+        .collect::<Vec<_>>();
+    args.extend(info.flag_params.iter().map(|flag| {
+        let name = crate::field_ident(&flag.name);
+        quote::quote! {dynfilter::Arg::Flag(params.#name)}
+    }));
+    args
+}
+
+fn dynamic_binds(query: &Query) -> Vec<proc_macro2::TokenStream> {
+    let info = query.dynfilter().expect("dynamic query");
+    query
+        .fields
+        .iter()
+        .enumerate()
+        .flat_map(|(index, field)| {
+            let name = &field.name;
+            let arg_index = query.param_number(index) - 1;
+            if query.is_sqlc_slice(index) {
+                let elem = if info
+                    .conditional_param_numbers
+                    .contains(&query.param_number(index))
+                {
+                    quote::quote! {&params.#name.unwrap()[element]}
+                } else {
+                    quote::quote! {&params.#name[element]}
+                };
+                return vec![quote::quote! {
+                    dynfilter::Bind::Elem(#arg_index, element) => q.bind(#elem),
+                }];
+            }
+            let value = if info
+                .conditional_param_numbers
+                .contains(&query.param_number(index))
+            {
+                quote::quote! {params.#name.as_ref().unwrap()}
+            } else {
+                quote::quote! {&params.#name}
+            };
+            vec![quote::quote! {
+                dynfilter::Bind::Arg(#arg_index) => q.bind(#value),
+            }]
+        })
+        .collect()
 }
 
 fn make_bind(
@@ -378,17 +518,7 @@ fn make_expand(
 mod tests {
     use convert_case::Case;
 
-    use super::{query_ident, uses_params_struct};
-
-    #[test]
-    fn parameter_limit_uses_a_struct_only_above_the_limit() {
-        assert!(!uses_params_struct(0, 0));
-        assert!(uses_params_struct(1, 0));
-        assert!(!uses_params_struct(1, 1));
-        assert!(uses_params_struct(2, 1));
-        assert!(!uses_params_struct(3, 3));
-        assert!(uses_params_struct(4, 3));
-    }
+    use super::query_ident;
 
     #[test]
     fn query_identifiers_keep_plural_acronyms_intact() {
