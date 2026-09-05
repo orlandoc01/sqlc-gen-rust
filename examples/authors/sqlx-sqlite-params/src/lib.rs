@@ -38,5 +38,7 @@ mod tests {
         let _fetched_author = queries::get_author(pool, inserted_author.last_insert_rowid())
             .await
             .unwrap();
+
+        assert_eq!(queries::count_authors(pool).await.unwrap().count, 1);
     }
 }

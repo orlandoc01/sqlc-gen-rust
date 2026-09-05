@@ -6,6 +6,9 @@ WHERE id = ? LIMIT 1;
 SELECT * FROM authors
 ORDER BY name;
 
+-- name: CountAuthors :one
+SELECT COUNT(*) FROM authors;
+
 /* name: CreateAuthor :execresult */
 INSERT INTO authors (
   name, bio

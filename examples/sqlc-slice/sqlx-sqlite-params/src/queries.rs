@@ -944,12 +944,17 @@ static LIST_AUTHORS_BY_IDS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
 pub struct ListAuthorsByIDsParams<'a> {
     pub ids: &'a [i64],
 }
-#[derive(sqlx::FromRow)]
 pub struct ListAuthorsByIDsRow {
-    #[sqlx(rename = "id")]
     pub id: i64,
-    #[sqlx(rename = "name")]
     pub name: String,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListAuthorsByIDsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+        })
+    }
 }
 pub async fn list_authors_by_ids<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
@@ -988,12 +993,17 @@ pub struct ListAuthorsByTwoIdListsParams<'a> {
     pub ids: &'a [i64],
     pub backup_ids: &'a [i64],
 }
-#[derive(sqlx::FromRow)]
 pub struct ListAuthorsByTwoIdListsRow {
-    #[sqlx(rename = "id")]
     pub id: i64,
-    #[sqlx(rename = "name")]
     pub name: String,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListAuthorsByTwoIdListsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+        })
+    }
 }
 pub async fn list_authors_by_two_id_lists<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
@@ -1043,12 +1053,17 @@ pub struct ListAuthorsByIDsMixedParams<'a> {
     pub skip_ids: &'a [i64],
     pub name: &'a str,
 }
-#[derive(sqlx::FromRow)]
 pub struct ListAuthorsByIDsMixedRow {
-    #[sqlx(rename = "id")]
     pub id: i64,
-    #[sqlx(rename = "name")]
     pub name: String,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListAuthorsByIDsMixedRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+        })
+    }
 }
 pub async fn list_authors_by_ids_mixed<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
@@ -1100,12 +1115,17 @@ pub struct ListAuthorsByNamedIDsParams<'a> {
     pub ids: &'a [i64],
     pub max_id: i64,
 }
-#[derive(sqlx::FromRow)]
 pub struct ListAuthorsByNamedIDsRow {
-    #[sqlx(rename = "id")]
     pub id: i64,
-    #[sqlx(rename = "name")]
     pub name: String,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListAuthorsByNamedIDsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+        })
+    }
 }
 pub async fn list_authors_by_named_ids<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,

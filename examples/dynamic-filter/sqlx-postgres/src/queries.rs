@@ -962,14 +962,19 @@ pub struct SearchUsersParams<'a> {
     pub id_asc: bool,
     pub id_desc: bool,
 }
-#[derive(sqlx::FromRow)]
 pub struct SearchUsersRow {
-    #[sqlx(rename = "id")]
     pub id: i64,
-    #[sqlx(rename = "email")]
     pub email: String,
-    #[sqlx(rename = "phone")]
     pub phone: String,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for SearchUsersRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            email: sqlx::Row::try_get(row, 1)?,
+            phone: sqlx::Row::try_get(row, 2)?,
+        })
+    }
 }
 pub async fn search_users<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
@@ -1018,10 +1023,15 @@ pub struct CountUsersParams<'a> {
     pub email: Option<&'a str>,
     pub ids: Option<&'a [i64]>,
 }
-#[derive(sqlx::FromRow)]
 pub struct CountUsersRow {
-    #[sqlx(rename = "total")]
     pub total: i64,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for CountUsersRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            total: sqlx::Row::try_get(row, 0)?,
+        })
+    }
 }
 pub async fn count_users<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,

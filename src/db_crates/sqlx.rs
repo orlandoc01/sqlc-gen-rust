@@ -263,7 +263,7 @@ impl Sqlx {
             .iter()
             .any(|field| field.embedded_table().is_some())
         {
-            return self.returning_embedded_row(row);
+            return self.returning_ordinal_row(row);
         }
 
         let mut row = row.clone();
@@ -286,7 +286,7 @@ impl Sqlx {
         }
     }
 
-    fn returning_embedded_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
+    pub(super) fn returning_ordinal_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
         let struct_tt = super::make_return_row(row);
         let ident = row.struct_ident();
         let row_type = self.row_type();

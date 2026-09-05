@@ -4,14 +4,19 @@
 
 pub const GET_AUTHOR: &str = r"SELECT id, name, bio FROM authors
 WHERE id = ? LIMIT 1";
-#[derive(sqlx::FromRow)]
 pub struct GetAuthorRow {
-    #[sqlx(rename = "id")]
     pub id: i64,
-    #[sqlx(rename = "name")]
     pub name: String,
-    #[sqlx(rename = "bio")]
     pub bio: Option<String>,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for GetAuthorRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+            bio: sqlx::Row::try_get(row, 2)?,
+        })
+    }
 }
 pub async fn get_author<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
@@ -31,20 +36,48 @@ pub async fn get_author_opt<'e>(
 }
 pub const LIST_AUTHORS: &str = r"SELECT id, name, bio FROM authors
 ORDER BY name";
-#[derive(sqlx::FromRow)]
 pub struct ListAuthorsRow {
-    #[sqlx(rename = "id")]
     pub id: i64,
-    #[sqlx(rename = "name")]
     pub name: String,
-    #[sqlx(rename = "bio")]
     pub bio: Option<String>,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListAuthorsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+            bio: sqlx::Row::try_get(row, 2)?,
+        })
+    }
 }
 pub async fn list_authors<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
 ) -> Result<Vec<ListAuthorsRow>, sqlx::Error> {
     let q = sqlx::query_as::<_, ListAuthorsRow>(LIST_AUTHORS);
     q.fetch_all(executor).await
+}
+pub const COUNT_AUTHORS: &str = r"SELECT COUNT(*) FROM authors";
+pub struct CountAuthorsRow {
+    pub count: i64,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for CountAuthorsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            count: sqlx::Row::try_get(row, 0)?,
+        })
+    }
+}
+pub async fn count_authors<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+) -> Result<CountAuthorsRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, CountAuthorsRow>(COUNT_AUTHORS);
+    q.fetch_one(executor).await
+}
+pub async fn count_authors_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+) -> Result<Option<CountAuthorsRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, CountAuthorsRow>(COUNT_AUTHORS);
+    q.fetch_optional(executor).await
 }
 pub const CREATE_AUTHOR: &str = r"INSERT INTO authors (
   name, bio
@@ -78,6 +111,7 @@ pub async fn delete_author<'e>(
 pub const QUERIES: &[(&str, &str)] = &[
     ("GetAuthor", GET_AUTHOR),
     ("ListAuthors", LIST_AUTHORS),
+    ("CountAuthors", COUNT_AUTHORS),
     ("CreateAuthor", CREATE_AUTHOR),
     ("DeleteAuthor", DELETE_AUTHOR),
 ];

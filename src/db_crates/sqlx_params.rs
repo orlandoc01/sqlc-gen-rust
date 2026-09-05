@@ -66,7 +66,7 @@ fn generate_query(
     let arguments = function_arguments(query, query_parameter_limit);
     let dynamic = dynamic_static(sqlx, query, &constant);
     let returns = matches!(query.annotation, Annotation::One | Annotation::Many)
-        .then(|| sqlx.returning_row(row));
+        .then(|| sqlx.returning_ordinal_row(row));
     let functions = query_functions(
         sqlx,
         row,
