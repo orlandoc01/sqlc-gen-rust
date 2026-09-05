@@ -300,7 +300,7 @@ fn query_functions(
                     #setup
                     q.execute(executor)
                         .await
-                        .map(|result| sqlx::QueryResult::rows_affected(&result))
+                        .map(|result| result.rows_affected())
                 }
             }
         }

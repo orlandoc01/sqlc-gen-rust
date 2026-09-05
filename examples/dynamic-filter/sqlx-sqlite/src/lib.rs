@@ -44,6 +44,10 @@ mod tests {
         }
     }
 
+    fn count_users_params() -> queries::CountUsersParams<'static> {
+        Default::default()
+    }
+
     #[tokio::test]
     async fn searches_without_filters() {
         let pool = pool().await;
@@ -177,6 +181,118 @@ mod tests {
         assert_eq!(
             desc.iter().map(|user| user.id).collect::<Vec<_>>(),
             [3, 2, 1]
+        );
+    }
+
+    #[tokio::test]
+    async fn counts_users_with_dynamic_filters() {
+        let pool = pool().await;
+        migrate(&pool).await;
+
+        assert_eq!(
+            queries::count_users(&pool, count_users_params())
+                .await
+                .unwrap()
+                .total,
+            3
+        );
+        assert_eq!(
+            queries::count_users(
+                &pool,
+                queries::CountUsersParams {
+                    email: Some("alice@example.com"),
+                    ..count_users_params()
+                },
+            )
+            .await
+            .unwrap()
+            .total,
+            1
+        );
+
+        let empty = [];
+        assert_eq!(
+            queries::count_users(
+                &pool,
+                queries::CountUsersParams {
+                    ids: Some(&empty),
+                    ..count_users_params()
+                },
+            )
+            .await
+            .unwrap()
+            .total,
+            0
+        );
+        assert_eq!(
+            queries::count_users(
+                &pool,
+                queries::CountUsersParams {
+                    ids: None,
+                    ..count_users_params()
+                },
+            )
+            .await
+            .unwrap()
+            .total,
+            3
+        );
+        assert!(
+            queries::count_users_opt(&pool, count_users_params())
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn touches_users_with_dynamic_filters() {
+        let pool = pool().await;
+        migrate(&pool).await;
+
+        assert_eq!(
+            queries::touch_users(&pool, Default::default())
+                .await
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            queries::touch_users(
+                &pool,
+                queries::TouchUsersParams {
+                    email: Some("alice@example.com"),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap(),
+            1
+        );
+
+        let empty = [];
+        assert_eq!(
+            queries::touch_users(
+                &pool,
+                queries::TouchUsersParams {
+                    ids: Some(&empty),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            queries::touch_users(
+                &pool,
+                queries::TouchUsersParams {
+                    ids: None,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap(),
+            3
         );
     }
 }

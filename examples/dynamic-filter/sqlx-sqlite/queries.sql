@@ -15,3 +15,18 @@ ORDER BY
   users.id DESC, -- :if @id_desc
   TRUE
 LIMIT sqlc.arg(row_limit);
+
+-- name: CountUsers :one
+SELECT COUNT(*) AS total
+FROM users
+WHERE TRUE
+  AND email = @email -- :if @email
+  AND users.id IN (sqlc.slice('ids')) -- :if @ids
+  AND TRUE;
+
+-- name: TouchUsers :execrows
+UPDATE users SET phone = phone
+WHERE TRUE
+  AND email = @email -- :if @email
+  AND users.id IN (sqlc.slice('ids')) -- :if @ids
+  AND TRUE;

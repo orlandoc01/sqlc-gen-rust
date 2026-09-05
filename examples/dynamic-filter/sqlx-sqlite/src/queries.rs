@@ -934,4 +934,102 @@ pub async fn search_users<'e>(
     let q = q.persistent(false);
     q.fetch_all(executor).await
 }
-pub const QUERIES: &[(&str, &str)] = &[("SearchUsers", SEARCH_USERS)];
+pub const COUNT_USERS: &str = r"SELECT COUNT(*) AS total
+FROM users
+WHERE TRUE
+  AND email = ?1 -- :if $1
+  AND users.id IN (/*SLICE:ids*/?2) -- :if $2
+  AND TRUE";
+static COUNT_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> = std::sync::LazyLock::new(|| {
+    dynfilter::compile(COUNT_USERS, dynfilter::Placeholders::NumberedSqlite)
+});
+#[derive(Debug, Clone, Default)]
+pub struct CountUsersParams<'a> {
+    pub email: Option<&'a str>,
+    pub ids: Option<&'a [i64]>,
+}
+#[derive(sqlx::FromRow)]
+pub struct CountUsersRow {
+    #[sqlx(rename = "total")]
+    pub total: i64,
+}
+pub async fn count_users<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: CountUsersParams<'_>,
+) -> Result<CountUsersRow, sqlx::Error> {
+    let args = [
+        dynfilter::Arg::from_option(&params.email),
+        dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
+    ];
+    let (sql, binds) = COUNT_USERS_DYN.build(&args);
+    let mut q = sqlx::query_as::<_, CountUsersRow>(&sql);
+    for bind in binds {
+        q = match bind {
+            dynfilter::Bind::Arg(0usize) => q.bind(params.email.as_ref().unwrap()),
+            dynfilter::Bind::Elem(1usize, element) => q.bind(&params.ids.unwrap()[element]),
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        };
+    }
+    let q = q.persistent(false);
+    q.fetch_one(executor).await
+}
+pub async fn count_users_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: CountUsersParams<'_>,
+) -> Result<Option<CountUsersRow>, sqlx::Error> {
+    let args = [
+        dynfilter::Arg::from_option(&params.email),
+        dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
+    ];
+    let (sql, binds) = COUNT_USERS_DYN.build(&args);
+    let mut q = sqlx::query_as::<_, CountUsersRow>(&sql);
+    for bind in binds {
+        q = match bind {
+            dynfilter::Bind::Arg(0usize) => q.bind(params.email.as_ref().unwrap()),
+            dynfilter::Bind::Elem(1usize, element) => q.bind(&params.ids.unwrap()[element]),
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        };
+    }
+    let q = q.persistent(false);
+    q.fetch_optional(executor).await
+}
+pub const TOUCH_USERS: &str = r"UPDATE users SET phone = phone
+WHERE TRUE
+  AND email = ?1 -- :if $1
+  AND users.id IN (/*SLICE:ids*/?2) -- :if $2
+  AND TRUE";
+static TOUCH_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> = std::sync::LazyLock::new(|| {
+    dynfilter::compile(TOUCH_USERS, dynfilter::Placeholders::NumberedSqlite)
+});
+#[derive(Debug, Clone, Default)]
+pub struct TouchUsersParams<'a> {
+    pub email: Option<&'a str>,
+    pub ids: Option<&'a [i64]>,
+}
+pub async fn touch_users<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: TouchUsersParams<'_>,
+) -> Result<u64, sqlx::Error> {
+    let args = [
+        dynfilter::Arg::from_option(&params.email),
+        dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
+    ];
+    let (sql, binds) = TOUCH_USERS_DYN.build(&args);
+    let mut q = sqlx::query(&sql);
+    for bind in binds {
+        q = match bind {
+            dynfilter::Bind::Arg(0usize) => q.bind(params.email.as_ref().unwrap()),
+            dynfilter::Bind::Elem(1usize, element) => q.bind(&params.ids.unwrap()[element]),
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        };
+    }
+    let q = q.persistent(false);
+    q.execute(executor)
+        .await
+        .map(|result| result.rows_affected())
+}
+pub const QUERIES: &[(&str, &str)] = &[
+    ("SearchUsers", SEARCH_USERS),
+    ("CountUsers", COUNT_USERS),
+    ("TouchUsers", TOUCH_USERS),
+];
