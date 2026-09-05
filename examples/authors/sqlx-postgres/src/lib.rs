@@ -1,4 +1,6 @@
 #[allow(warnings)]
+mod params_query;
+#[allow(warnings)]
 mod queries;
 
 #[cfg(test)]

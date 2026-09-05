@@ -162,6 +162,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "authors-sqlx-sqlite-params"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "test-context",
+ "test-utils",
+ "tokio",
+]
+
+[[package]]
 name = "authors-tokio-postgres"
 version = "0.1.0"
 dependencies = [
@@ -552,6 +562,16 @@ dependencies = [
 
 [[package]]
 name = "embed-sqlx-sqlite"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "test-context",
+ "test-utils",
+ "tokio",
+]
+
+[[package]]
+name = "embed-sqlx-sqlite-params"
 version = "0.1.0"
 dependencies = [
  "sqlx",

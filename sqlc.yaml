@@ -60,6 +60,12 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-postgres
+      - plugin: sqlc-gen-rust
+        out: examples/authors/sqlx-postgres/src
+        options:
+          output: params_query.rs
+          db_crate: sqlx-postgres
+          api: params_struct
 
   - schema: examples/authors/sqlx-mysql/schema.sql
     queries: examples/authors/sqlx-mysql/queries.sql
@@ -85,6 +91,16 @@ sql:
         options:
           output: queries.rs
           db_crate: rusqlite
+  - schema: examples/authors/sqlx-sqlite-params/schema.sql
+    queries: examples/authors/sqlx-sqlite-params/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/sqlx-sqlite-params/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+          api: params_struct
   - schema: examples/embed/sqlx-sqlite/schema.sql
     queries: examples/embed/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -99,6 +115,17 @@ sql:
         options:
           output: queries.rs
           db_crate: rusqlite
+  - schema: examples/embed/sqlx-sqlite-params/schema.sql
+    queries: examples/embed/sqlx-sqlite-params/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/embed/sqlx-sqlite-params/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+          api: params_struct
+          query_parameter_limit: 0
   - schema: examples/embed/tokio-postgres/schema.sql
     queries: examples/embed/tokio-postgres/queries.sql
     engine: postgresql
