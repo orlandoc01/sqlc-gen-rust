@@ -1,4 +1,4 @@
-use crate::query::{self, DbEnum, DbTypeMap, Query, ReturningRows, TypeMapper};
+use crate::query::{self, DbEnum, DbTypeMap, EmbeddedTable, Query, ReturningRows, TypeMapper};
 
 mod postgres;
 mod rusqlite;
@@ -73,10 +73,31 @@ impl Default for SupportedDbCrate {
 
 fn make_return_row(row: &query::ReturningRows) -> proc_macro2::TokenStream {
     let ident = &row.struct_ident();
-    let row_attribute = &row.attributes;
-    let fields = row.fields.iter().map(|field| {
+    make_struct(ident, &row.attributes, &row.fields)
+}
+
+fn make_embedded_table(table: &EmbeddedTable) -> proc_macro2::TokenStream {
+    make_struct(&table.ident, &table.attributes, &table.fields)
+}
+
+pub(crate) fn make_embedded_tables(rows: &[ReturningRows]) -> proc_macro2::TokenStream {
+    let mut tables = std::collections::BTreeMap::new();
+    for table in rows.iter().flat_map(ReturningRows::embedded_tables) {
+        tables.entry(table.name.clone()).or_insert(table);
+    }
+
+    let tables = tables.values().map(|table| make_embedded_table(table));
+    quote::quote! {#(#tables)*}
+}
+
+fn make_struct(
+    ident: &syn::Ident,
+    attributes: &Option<proc_macro2::TokenStream>,
+    column_fields: &[query::ColumnField],
+) -> proc_macro2::TokenStream {
+    let fields = column_fields.iter().map(|field| {
         let field_name = &field.name;
-        let field_typ = field.typ.to_row_tokens();
+        let field_typ = field.row_type();
         let attribute = &field.attribute;
         quote::quote! {
             #attribute
@@ -84,7 +105,7 @@ fn make_return_row(row: &query::ReturningRows) -> proc_macro2::TokenStream {
         }
     });
     quote::quote! {
-        #row_attribute
+        #attributes
         pub struct #ident {
             #(#fields,)*
         }
@@ -121,7 +142,7 @@ impl<'a> QueryAst<'a> {
     }
 
     fn need_lifetime(&self) -> bool {
-        self.fields().any(|f| f.typ.need_lifetime())
+        self.fields().any(|f| f.scalar_type().need_lifetime())
     }
 
     fn need_expand_query(&self) -> bool {
@@ -129,7 +150,7 @@ impl<'a> QueryAst<'a> {
             return false;
         }
 
-        self.fields().any(|f| f.typ.is_array())
+        self.fields().any(|f| f.scalar_type().is_array())
     }
 
     fn make_builder_setter(&self) -> proc_macro2::TokenStream {
@@ -151,7 +172,7 @@ impl<'a> QueryAst<'a> {
 
         let typ_list = self
             .fields()
-            .map(|f| &f.typ)
+            .map(|f| f.scalar_type())
             .map(|typ| typ.to_param_tokens(lifetime))
             .collect::<Vec<_>>();
 
@@ -246,7 +267,7 @@ impl<'a> QueryAst<'a> {
 
         let typ_list = self
             .fields()
-            .map(|f| &f.typ)
+            .map(|f| f.scalar_type())
             .map(|typ| typ.to_param_tokens(lifetime))
             .collect::<Vec<_>>();
 
@@ -263,7 +284,7 @@ impl<'a> QueryAst<'a> {
                     self.query
                         .fields
                         .iter()
-                        .filter(|f| f.typ.is_array())
+                        .filter(|f| f.scalar_type().is_array())
                         .map(|f| {
                             let name = &f.name;
                             let marker = format!("/*SLICE:{}*/?", name);
@@ -327,7 +348,7 @@ impl<'a> quote::ToTokens for QueryAst<'a> {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let fields = self.fields().map(|f| {
             let name = &f.name;
-            let typ = f.typ.to_param_tokens(&self.lifetime);
+            let typ = f.scalar_type().to_param_tokens(&self.lifetime);
             quote::quote! {#name:#typ}
         });
         let ident = &self.ident;

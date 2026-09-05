@@ -1,6 +1,6 @@
 use crate::{
     db_crates::DbCrate,
-    query::{Annotation, RsType, TypeMapper},
+    query::{Annotation, ColumnField, RsType, TypeMapper},
 };
 
 struct SqliteTypeMap {
@@ -118,12 +118,11 @@ impl Rusqlite {
         let ident = row.struct_ident();
         let arg_ident = quote::format_ident!("row");
 
-        let from_fields = row.fields.iter().enumerate().map(|(idx, field)| {
-            let field_ident = &field.name;
-            let literal = proc_macro2::Literal::usize_unsuffixed(idx);
-            quote::quote! {#field_ident:#arg_ident.get(#literal)?}
-        });
-
+        let from_fields = row
+            .fields
+            .iter()
+            .zip(row.field_ordinals())
+            .map(|(field, ordinal)| Self::field_from_row(field, &arg_ident, ordinal));
         let from_tt = quote::quote! {
             impl #ident {
                 pub fn from_row(#arg_ident: &rusqlite::Row)->rusqlite::Result<Self>{
@@ -137,6 +136,33 @@ impl Rusqlite {
         quote::quote! {
             #row_struct
             #from_tt
+        }
+    }
+
+    fn field_from_row(
+        field: &ColumnField,
+        row: &syn::Ident,
+        ordinal: std::ops::Range<usize>,
+    ) -> proc_macro2::TokenStream {
+        let field_ident = &field.name;
+        let literal = proc_macro2::Literal::usize_unsuffixed(ordinal.start);
+
+        match field.embedded_table() {
+            None => quote::quote! {#field_ident:#row.get(#literal)?},
+            Some(table) => {
+                let table_ident = &table.ident;
+                let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
+                    let field_ident = &field.name;
+                    let literal = proc_macro2::Literal::usize_unsuffixed(index);
+                    quote::quote! {#field_ident:#row.get(#literal)?}
+                });
+
+                quote::quote! {
+                    #field_ident:#table_ident {
+                        #(#fields,)*
+                    }
+                }
+            }
         }
     }
 }
@@ -231,7 +257,7 @@ impl DbCrate for Rusqlite {
             let params: proc_macro2::TokenStream = if query_ast.need_expand_query() {
                 let param_it = query.fields.iter().map(|f| {
                     let name = &f.name;
-                    if f.typ.is_array() {
+                    if f.scalar_type().is_array() {
                         quote::quote! {
                             self.#name.iter().map(|v| v as &dyn rusqlite::ToSql)
                         }

@@ -16,6 +16,10 @@ pub enum QueryError {
         message: String,
         location: &'static std::panic::Location<'static>,
     },
+    MissingEmbeddedTable {
+        table_name: String,
+        location: &'static std::panic::Location<'static>,
+    },
     UnknownAnnotation {
         annotation: String,
         location: &'static std::panic::Location<'static>,
@@ -54,6 +58,20 @@ impl QueryError {
     }
 
     #[track_caller]
+    pub(crate) fn missing_embedded_table(table: &plugin::Identifier) -> Self {
+        let table_name = if table.schema.is_empty() {
+            table.name.clone()
+        } else {
+            format!("{}.{}", table.schema, table.name)
+        };
+
+        Self::MissingEmbeddedTable {
+            table_name,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
     pub(crate) fn unknown_annotation(annotation: String) -> Self {
         Self::UnknownAnnotation {
             annotation,
@@ -66,6 +84,7 @@ impl QueryError {
             QueryError::MissingColumnType { location, .. } => location,
             QueryError::MissingParamColumn { location, .. } => location,
             QueryError::CannotMapType { location, .. } => location,
+            QueryError::MissingEmbeddedTable { location, .. } => location,
             QueryError::UnknownAnnotation { location, .. } => location,
             QueryError::Stacked { location, .. } => location,
         }
@@ -88,6 +107,9 @@ impl std::fmt::Display for QueryError {
                 write!(f, "Unknown annotation `{annotation}` found")
             }
             QueryError::CannotMapType { message, .. } => message.fmt(f),
+            QueryError::MissingEmbeddedTable { table_name, .. } => {
+                write!(f, "Embedded table not found in catalog: `{table_name}`")
+            }
             QueryError::Stacked { source, .. } => source.fmt(f),
         }
     }
@@ -429,8 +451,144 @@ pub(crate) struct ColumnField {
     pub(crate) name: syn::Ident,
     /// original field name
     pub(crate) name_original: syn::LitStr,
-    pub(crate) typ: RsColType,
+    pub(crate) typ: ColumnFieldType,
     pub(crate) attribute: Option<proc_macro2::TokenStream>,
+}
+
+#[derive(Clone)]
+pub(crate) enum ColumnFieldType {
+    Scalar(Box<RsColType>),
+    Embed(EmbeddedTable),
+}
+
+impl ColumnFieldType {
+    fn to_row_tokens(&self) -> proc_macro2::TokenStream {
+        match self {
+            Self::Scalar(typ) => typ.to_row_tokens(),
+            Self::Embed(table) => {
+                let ident = &table.ident;
+                quote::quote! {#ident}
+            }
+        }
+    }
+
+    fn width(&self) -> usize {
+        match self {
+            Self::Scalar(_) => 1,
+            Self::Embed(table) => table.fields.len(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct EmbeddedTable {
+    pub(crate) name: String,
+    pub(crate) ident: syn::Ident,
+    pub(crate) fields: Vec<ColumnField>,
+    pub(crate) attributes: Option<proc_macro2::TokenStream>,
+}
+
+impl EmbeddedTable {
+    fn from_catalog(
+        db_type: &DbTypeMap,
+        attribute_map: &ReturnRowAttributes,
+        table: &plugin::Table,
+        identifier: &plugin::Identifier,
+    ) -> Result<Self, QueryError> {
+        let columns = table
+            .columns
+            .iter()
+            .cloned()
+            .map(|mut column| {
+                column.table = Some(identifier.clone());
+                column
+            })
+            .collect::<Vec<_>>();
+        let field_names = generate_column_names(&columns)
+            .into_iter()
+            .map(|name| field_ident(&name));
+        let attributes = columns
+            .iter()
+            .zip(field_names.clone())
+            .map(|(column, name)| {
+                attribute_map
+                    .column_attributes
+                    .find_best_match(&format!(".{}.{}", identifier.name, name))
+                    .or_else(|| {
+                        attribute_map
+                            .column_attributes
+                            .find_best_match(&make_column_name(column))
+                    })
+                    .cloned()
+            });
+        let fields = columns
+            .iter()
+            .zip(field_names)
+            .zip(attributes)
+            .map(|((column, name), attribute)| {
+                Ok(ColumnField {
+                    name_original: syn::LitStr::new(&column.name, proc_macro2::Span::call_site()),
+                    name,
+                    typ: ColumnFieldType::Scalar(Box::new(RsColType::new_with_type(
+                        db_type, column,
+                    )?)),
+                    attribute,
+                })
+            })
+            .collect::<Result<Vec<_>, QueryError>>()?;
+
+        Ok(Self {
+            name: identifier.name.clone(),
+            ident: value_ident(&identifier.name),
+            fields,
+            attributes: attribute_map
+                .row_attributes
+                .find_best_match(&format!(".{}", identifier.name))
+                .cloned(),
+        })
+    }
+}
+
+impl ColumnField {
+    pub(crate) fn scalar_type(&self) -> &RsColType {
+        match &self.typ {
+            ColumnFieldType::Scalar(typ) => typ,
+            ColumnFieldType::Embed(_) => unreachable!("query parameters cannot be embedded tables"),
+        }
+    }
+
+    pub(crate) fn row_type(&self) -> proc_macro2::TokenStream {
+        self.typ.to_row_tokens()
+    }
+
+    pub(crate) fn embedded_table(&self) -> Option<&EmbeddedTable> {
+        match &self.typ {
+            ColumnFieldType::Scalar(_) => None,
+            ColumnFieldType::Embed(table) => Some(table),
+        }
+    }
+
+    pub(crate) fn width(&self) -> usize {
+        self.typ.width()
+    }
+}
+
+pub(crate) fn find_embedded_table<'a>(
+    catalog: &'a plugin::Catalog,
+    identifier: &plugin::Identifier,
+) -> Result<&'a plugin::Table, QueryError> {
+    catalog
+        .schemas
+        .iter()
+        .flat_map(|schema| schema.tables.iter())
+        .find(|table| match &table.rel {
+            Some(rel) => {
+                rel.name == identifier.name
+                    && (identifier.schema.is_empty() || rel.schema == identifier.schema)
+            }
+            None => false,
+        })
+        .ok_or_else(|| QueryError::missing_embedded_table(identifier))
 }
 
 fn deserialize_path_map<'de, D>(
@@ -488,6 +646,7 @@ impl ReturningRows {
     pub(crate) fn from_query(
         db_type: &DbTypeMap,
         attribute_map: &ReturnRowAttributes,
+        catalog: Option<&plugin::Catalog>,
         query: &plugin::Query,
     ) -> Result<Self, QueryError> {
         let field_names = generate_column_names(&query.columns)
@@ -514,25 +673,36 @@ impl ReturningRows {
             })
             .collect::<Vec<_>>();
 
-        let column_types = query
-            .columns
-            .iter()
-            .map(|col| RsColType::new_with_type(db_type, col).stacked())
-            .collect::<Result<Vec<_>, _>>()?;
-
         let fields = column_names
             .into_iter()
-            .zip(column_types)
             .zip(column_attributes)
-            .map(
-                |(((col_name, col_name_original), col_type), col_attribute)| ColumnField {
+            .zip(query.columns.iter())
+            .map(|(((col_name, col_name_original), col_attribute), column)| {
+                let typ = match &column.embed_table {
+                    Some(identifier) => {
+                        let catalog = catalog
+                            .ok_or_else(|| QueryError::missing_embedded_table(identifier))?;
+                        let table = find_embedded_table(catalog, identifier)?;
+                        ColumnFieldType::Embed(EmbeddedTable::from_catalog(
+                            db_type,
+                            attribute_map,
+                            table,
+                            identifier,
+                        )?)
+                    }
+                    None => ColumnFieldType::Scalar(Box::new(RsColType::new_with_type(
+                        db_type, column,
+                    )?)),
+                };
+
+                Ok(ColumnField {
                     name: col_name,
                     name_original: col_name_original,
-                    typ: col_type,
+                    typ,
                     attribute: col_attribute.cloned(),
-                },
-            )
-            .collect::<Vec<_>>();
+                })
+            })
+            .collect::<Result<Vec<_>, QueryError>>()?;
 
         let row_attributes = attribute_map
             .row_attributes
@@ -547,6 +717,18 @@ impl ReturningRows {
 
     pub(crate) fn struct_ident(&self) -> syn::Ident {
         value_ident(&format!("{}Row", self.query_name))
+    }
+
+    pub(crate) fn embedded_tables(&self) -> impl Iterator<Item = &EmbeddedTable> {
+        self.fields.iter().filter_map(ColumnField::embedded_table)
+    }
+
+    pub(crate) fn field_ordinals(&self) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
+        self.fields.iter().scan(0, |ordinal, field| {
+            let range = *ordinal..*ordinal + field.width();
+            *ordinal += field.width();
+            Some(range)
+        })
     }
 }
 
@@ -697,7 +879,7 @@ impl Query {
             .map(|((par_name, par_name_original), par_type)| ColumnField {
                 name: par_name,
                 name_original: par_name_original,
-                typ: par_type,
+                typ: ColumnFieldType::Scalar(Box::new(par_type)),
                 attribute: None,
             })
             .collect::<Vec<_>>();
@@ -852,6 +1034,59 @@ mod tests {
         }
     }
 
+    fn identifier(name: &str) -> plugin::Identifier {
+        plugin::Identifier {
+            name: name.to_string(),
+            schema: String::new(),
+            catalog: String::new(),
+        }
+    }
+
+    fn integer_column(name: &str) -> plugin::Column {
+        let mut column = create_test_column(None, name);
+        column.r#type = Some(identifier("integer"));
+        column
+    }
+
+    fn test_catalog() -> plugin::Catalog {
+        plugin::Catalog {
+            comment: String::new(),
+            default_schema: String::new(),
+            name: String::new(),
+            schemas: vec![plugin::Schema {
+                comment: String::new(),
+                name: String::new(),
+                tables: vec![
+                    plugin::Table {
+                        rel: Some(identifier("authors")),
+                        columns: vec![integer_column("id"), integer_column("name")],
+                        comment: String::new(),
+                    },
+                    plugin::Table {
+                        rel: Some(identifier("books")),
+                        columns: vec![
+                            integer_column("id"),
+                            integer_column("author_id"),
+                            integer_column("title"),
+                        ],
+                        comment: String::new(),
+                    },
+                ],
+                enums: Vec::new(),
+                composite_types: Vec::new(),
+            }],
+        }
+    }
+
+    fn test_type_map() -> DbTypeMap {
+        let mut type_map = SimpleTypeMap::default();
+        type_map.insert_db_type(
+            "integer",
+            RsType::new(syn::parse_str("i64").unwrap(), None, true),
+        );
+        DbTypeMap::from_dyn(Box::new(type_map))
+    }
+
     #[test]
     fn test_empty_columns() {
         let columns = vec![create_test_column(None, ""), create_test_column(None, "")];
@@ -938,6 +1173,57 @@ mod tests {
                 "name_1",
                 "name_2"
             ]
+        );
+    }
+
+    #[test]
+    fn finds_embedded_table_in_catalog() {
+        let catalog = test_catalog();
+
+        let table = find_embedded_table(&catalog, &identifier("authors")).unwrap();
+        assert_eq!(table.rel.as_ref().unwrap().name, "authors");
+
+        let error = find_embedded_table(&catalog, &identifier("missing")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Embedded table not found in catalog: `missing`"
+        );
+    }
+
+    #[test]
+    fn assigns_embed_ordinals_in_flattened_order() {
+        let catalog = test_catalog();
+        let mut authors = create_test_column(None, "authors");
+        authors.embed_table = Some(identifier("authors"));
+        let mut books = create_test_column(None, "books");
+        books.embed_table = Some(identifier("books"));
+        let query = plugin::Query {
+            text: String::new(),
+            name: "Embedded".to_string(),
+            cmd: ":one".to_string(),
+            columns: vec![
+                integer_column("before"),
+                authors,
+                integer_column("after"),
+                books,
+            ],
+            params: Vec::new(),
+            comments: Vec::new(),
+            filename: String::new(),
+            insert_into_table: None,
+        };
+
+        let row = ReturningRows::from_query(
+            &test_type_map(),
+            &ReturnRowAttributes::default(),
+            Some(&catalog),
+            &query,
+        )
+        .unwrap();
+
+        assert_eq!(
+            row.field_ordinals().collect::<Vec<_>>(),
+            vec![0..1, 1..3, 3..4, 4..7]
         );
     }
 }

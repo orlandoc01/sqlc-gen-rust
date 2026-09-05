@@ -2,7 +2,7 @@ use quote::ToTokens;
 
 use super::DbCrate;
 use crate::{
-    query::{Annotation, DbEnum, Query, ReturningRows, RsType, TypeMapper},
+    query::{Annotation, ColumnField, DbEnum, Query, ReturningRows, RsType, TypeMapper},
     value_ident,
 };
 
@@ -88,11 +88,11 @@ impl Postgres {
         let error_typ = self.error_type();
         let row_typ = self.row_type();
         let arg_ident = quote::format_ident!("row");
-        let from_fields = row.fields.iter().enumerate().map(|(idx, field)| {
-            let field_ident = &field.name;
-            let literal = proc_macro2::Literal::usize_unsuffixed(idx);
-            quote::quote! {#field_ident:#arg_ident.try_get(#literal)?}
-        });
+        let from_fields = row
+            .fields
+            .iter()
+            .zip(row.field_ordinals())
+            .map(|(field, ordinal)| Self::field_from_row(field, &arg_ident, ordinal));
         let from_tt = quote::quote! {
             impl #ident {
                 pub fn from_row(#arg_ident: &#row_typ)->Result<Self,#error_typ>{
@@ -106,6 +106,33 @@ impl Postgres {
         quote::quote! {
             #row_struct
             #from_tt
+        }
+    }
+
+    fn field_from_row(
+        field: &ColumnField,
+        row: &syn::Ident,
+        ordinal: std::ops::Range<usize>,
+    ) -> proc_macro2::TokenStream {
+        let field_ident = &field.name;
+        let literal = proc_macro2::Literal::usize_unsuffixed(ordinal.start);
+
+        match field.embedded_table() {
+            None => quote::quote! {#field_ident:#row.try_get(#literal)?},
+            Some(table) => {
+                let table_ident = &table.ident;
+                let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
+                    let field_ident = &field.name;
+                    let literal = proc_macro2::Literal::usize_unsuffixed(index);
+                    quote::quote! {#field_ident:#row.try_get(#literal)?}
+                });
+
+                quote::quote! {
+                    #field_ident:#table_ident {
+                        #(#fields,)*
+                    }
+                }
+            }
         }
     }
 }

@@ -381,7 +381,14 @@ pub fn try_main() -> Result<(), Error> {
     let returning_rows = request
         .queries
         .iter()
-        .map(|q| ReturningRows::from_query(&db_type, &config.return_row_attributes, q))
+        .map(|q| {
+            ReturningRows::from_query(
+                &db_type,
+                &config.return_row_attributes,
+                request.catalog.as_ref(),
+                q,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let queries = request
@@ -395,6 +402,7 @@ pub fn try_main() -> Result<(), Error> {
         .map(|e| config.db_crate.defined_enum(e))
         .collect::<Vec<_>>();
     let enums_tt = quote::quote! {#(#enums_ts)*};
+    let embedded_tables_tt = db_crates::make_embedded_tables(&returning_rows);
 
     let queries_ts = returning_rows
         .iter()
@@ -407,6 +415,7 @@ pub fn try_main() -> Result<(), Error> {
     let tt = quote::quote! {
         #init_tt
         #enums_tt
+        #embedded_tables_tt
         #queries_tt
     };
     let mut response = plugin::GenerateResponse::default();

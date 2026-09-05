@@ -1,6 +1,8 @@
 use super::DbCrate;
 use crate::{
-    query::{Annotation, DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper},
+    query::{
+        Annotation, ColumnField, DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper,
+    },
     value_ident,
 };
 
@@ -256,6 +258,14 @@ impl From<Sqlx> for crate::db_crates::DataBaseKind {
 
 impl Sqlx {
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
+        if row
+            .fields
+            .iter()
+            .any(|field| field.embedded_table().is_some())
+        {
+            return self.returning_embedded_row(row);
+        }
+
         let mut row = row.clone();
 
         for field in row.fields.iter_mut() {
@@ -273,6 +283,60 @@ impl Sqlx {
         quote::quote! {
             #derive_tt
             #struct_tt
+        }
+    }
+
+    fn returning_embedded_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
+        let struct_tt = super::make_return_row(row);
+        let ident = row.struct_ident();
+        let row_type = self.row_type();
+        let arg_ident = quote::format_ident!("row");
+        let fields = row
+            .fields
+            .iter()
+            .zip(row.field_ordinals())
+            .map(|(field, ordinal)| Self::field_from_row(field, &arg_ident, ordinal));
+
+        quote::quote! {
+            #struct_tt
+            impl<'r> sqlx::FromRow<'r, #row_type> for #ident {
+                fn from_row(#arg_ident: &'r #row_type) -> Result<Self, sqlx::Error> {
+                    Ok(Self {
+                        #(#fields,)*
+                    })
+                }
+            }
+        }
+    }
+
+    fn field_from_row(
+        field: &ColumnField,
+        row: &syn::Ident,
+        ordinal: std::ops::Range<usize>,
+    ) -> proc_macro2::TokenStream {
+        let field_ident = &field.name;
+        let literal = proc_macro2::Literal::usize_unsuffixed(ordinal.start);
+
+        match field.embedded_table() {
+            None => quote::quote! {
+                #field_ident: sqlx::Row::try_get(#row, #literal)?
+            },
+            Some(table) => {
+                let table_ident = &table.ident;
+                let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
+                    let field_ident = &field.name;
+                    let literal = proc_macro2::Literal::usize_unsuffixed(index);
+                    quote::quote! {
+                        #field_ident: sqlx::Row::try_get(#row, #literal)?
+                    }
+                });
+
+                quote::quote! {
+                    #field_ident: #table_ident {
+                        #(#fields,)*
+                    }
+                }
+            }
         }
     }
 
@@ -436,6 +500,14 @@ impl Sqlx {
         }
     }
 
+    fn row_type(&self) -> syn::Type {
+        match self {
+            Sqlx::Postgres => syn::parse_quote! {sqlx::postgres::PgRow},
+            Sqlx::MySql => syn::parse_quote! {sqlx::mysql::MySqlRow},
+            Sqlx::Sqlite => syn::parse_quote! {sqlx::sqlite::SqliteRow},
+        }
+    }
+
     fn query_bind(&self, query: &Query, query_ident: syn::Ident) -> proc_macro2::TokenStream {
         match self {
             Self::Postgres => query
@@ -454,7 +526,7 @@ impl Sqlx {
                 .map(|f| {
                     let name = &f.name;
 
-                    if f.typ.is_array() {
+                    if f.scalar_type().is_array() {
                         quote::quote! {
                             let #query_ident =  self.#name.iter().fold(#query_ident, |q, item| q.bind(item));
                         }
