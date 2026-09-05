@@ -32,6 +32,14 @@ lint-fix:
 lint-ci:
     RUSTFLAGS="--deny warnings" cargo clippy --workspace --all-targets --all-features
 
+# Run required local checks
+check-local:
+    just format-ci
+    just lint-ci
+    just generate
+    git diff --exit-code
+    cargo test -p sqlc-gen-rust -p authors-sqlx-sqlite -p sqlc-slice-sqlx-sqlite -p type-mapping-sqlx-sqlite
+
 # Run tests
 test:
     cargo test --workspace
@@ -70,4 +78,3 @@ build-release:
     cargo build --target wasm32-wasip1 --release --locked
     WASM_SHA256=$(sha256sum target/wasm32-wasip1/release/sqlc-gen-rust.wasm | awk '{print $1}');
     echo ${WASM_SHA256}
-    
