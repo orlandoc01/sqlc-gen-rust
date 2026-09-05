@@ -35,14 +35,14 @@ mod tests {
         seed_authors(pool).await;
 
         let authors =
-            queries::list_authors_by_i_ds(pool, queries::ListAuthorsByIDsParams { ids: &[] })
+            queries::list_authors_by_ids(pool, queries::ListAuthorsByIDsParams { ids: &[] })
                 .await
                 .unwrap();
         assert_eq!(authors.len(), 0);
 
         let ids = [2i64];
         let authors =
-            queries::list_authors_by_i_ds(pool, queries::ListAuthorsByIDsParams { ids: &ids })
+            queries::list_authors_by_ids(pool, queries::ListAuthorsByIDsParams { ids: &ids })
                 .await
                 .unwrap();
         assert_eq!(authors.len(), 1);
@@ -50,7 +50,7 @@ mod tests {
 
         let ids = [1i64, 3i64];
         let authors =
-            queries::list_authors_by_i_ds(pool, queries::ListAuthorsByIDsParams { ids: &ids })
+            queries::list_authors_by_ids(pool, queries::ListAuthorsByIDsParams { ids: &ids })
                 .await
                 .unwrap();
         assert_eq!(authors.len(), 2);
@@ -110,7 +110,7 @@ mod tests {
         migrate_db(pool).await;
         seed_authors(pool).await;
 
-        let authors = queries::list_authors_by_i_ds_mixed(
+        let authors = queries::list_authors_by_ids_mixed(
             pool,
             queries::ListAuthorsByIDsMixedParams {
                 ids: &[],
@@ -125,7 +125,7 @@ mod tests {
 
         let ids = [1i64];
         let skip_ids = [2i64];
-        let authors = queries::list_authors_by_i_ds_mixed(
+        let authors = queries::list_authors_by_ids_mixed(
             pool,
             queries::ListAuthorsByIDsMixedParams {
                 ids: &ids,
@@ -141,7 +141,7 @@ mod tests {
 
         let ids = [1i64, 2i64, 3i64];
         let skip_ids = [2i64];
-        let authors = queries::list_authors_by_i_ds_mixed(
+        let authors = queries::list_authors_by_ids_mixed(
             pool,
             queries::ListAuthorsByIDsMixedParams {
                 ids: &ids,

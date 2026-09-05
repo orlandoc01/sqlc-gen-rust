@@ -2,7 +2,6 @@ use convert_case::{Case, Casing as _};
 
 use super::{QueryAst, sqlx::Sqlx};
 use crate::{
-    field_ident,
     query::{Annotation, Query, ReturningRows},
     value_ident,
 };
@@ -69,10 +68,43 @@ fn generate_query(
 }
 
 fn query_const_ident(query: &Query) -> syn::Ident {
-    let name = crate::normalize_str(&query.query_name)
-        .to_case(Case::Snake)
-        .to_ascii_uppercase();
-    quote::format_ident!("{name}")
+    query_ident(&query.query_name, Case::UpperSnake)
+}
+
+fn query_function_ident(query: &Query) -> syn::Ident {
+    query_ident(&query.query_name, Case::Snake)
+}
+
+fn query_ident(query_name: &str, case: Case) -> syn::Ident {
+    let query_name = crate::normalize_str(query_name);
+    let mut name = String::with_capacity(query_name.len());
+    let bytes = query_name.as_bytes();
+    let mut position = 0;
+
+    while position < bytes.len() {
+        let start = position;
+        while position < bytes.len() && bytes[position].is_ascii_uppercase() {
+            position += 1;
+        }
+
+        if position - start >= 2 && bytes.get(position) == Some(&b's') {
+            name.push(bytes[start] as char);
+            name.extend(
+                bytes[start + 1..position]
+                    .iter()
+                    .map(|byte| (*byte as char).to_ascii_lowercase()),
+            );
+            name.push('s');
+            position += 1;
+        } else if start != position {
+            name.push_str(&query_name[start..position]);
+        } else {
+            name.push(bytes[position] as char);
+            position += 1;
+        }
+    }
+
+    quote::format_ident!("{}", name.to_case(case))
 }
 
 fn uses_params_struct(parameter_count: usize, query_parameter_limit: usize) -> bool {
@@ -159,7 +191,7 @@ fn query_functions(
     arguments: &proc_macro2::TokenStream,
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
-    let function = field_ident(&query.query_name);
+    let function = query_function_ident(query);
     let database = sqlx.database_ident();
     let access = if uses_params_struct(query.fields.len(), query_parameter_limit) {
         ParameterAccess::Struct
@@ -344,7 +376,9 @@ fn make_expand(
 
 #[cfg(test)]
 mod tests {
-    use super::uses_params_struct;
+    use convert_case::Case;
+
+    use super::{query_ident, uses_params_struct};
 
     #[test]
     fn parameter_limit_uses_a_struct_only_above_the_limit() {
@@ -354,5 +388,48 @@ mod tests {
         assert!(uses_params_struct(2, 1));
         assert!(!uses_params_struct(3, 3));
         assert!(uses_params_struct(4, 3));
+    }
+
+    #[test]
+    fn query_identifiers_keep_plural_acronyms_intact() {
+        for (query_name, function, constant) in [
+            (
+                "ListAuthorsByIDs",
+                "list_authors_by_ids",
+                "LIST_AUTHORS_BY_IDS",
+            ),
+            (
+                "TransactionIDsByFilter",
+                "transaction_ids_by_filter",
+                "TRANSACTION_IDS_BY_FILTER",
+            ),
+            (
+                "ClearStagedForLLMByIDs",
+                "clear_staged_for_llm_by_ids",
+                "CLEAR_STAGED_FOR_LLM_BY_IDS",
+            ),
+            (
+                "AccountByExternalID",
+                "account_by_external_id",
+                "ACCOUNT_BY_EXTERNAL_ID",
+            ),
+            (
+                "DeleteEVMWalletByID",
+                "delete_evm_wallet_by_id",
+                "DELETE_EVM_WALLET_BY_ID",
+            ),
+            ("GetAuthor", "get_author", "GET_AUTHOR"),
+            (
+                "ListAuthorsByTwoIdLists",
+                "list_authors_by_two_id_lists",
+                "LIST_AUTHORS_BY_TWO_ID_LISTS",
+            ),
+        ] {
+            assert_eq!(query_ident(query_name, Case::Snake).to_string(), function);
+            assert_eq!(
+                query_ident(query_name, Case::UpperSnake).to_string(),
+                constant
+            );
+        }
     }
 }

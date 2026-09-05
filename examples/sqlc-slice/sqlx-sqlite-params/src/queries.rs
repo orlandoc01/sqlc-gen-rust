@@ -2,7 +2,7 @@
 //! sqlc version: v1.31.1
 //! sqlc-gen-rust version: v0.1.12
 
-pub const LIST_AUTHORS_BY_I_DS: &str = r"SELECT id, name
+pub const LIST_AUTHORS_BY_IDS: &str = r"SELECT id, name
 FROM authors
 WHERE id IN (/*SLICE:ids*/?)
 ORDER BY id";
@@ -17,11 +17,11 @@ pub struct ListAuthorsByIDsRow {
     #[sqlx(rename = "name")]
     pub name: String,
 }
-pub async fn list_authors_by_i_ds<'e>(
+pub async fn list_authors_by_ids<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
     params: ListAuthorsByIDsParams<'_>,
 ) -> Result<Vec<ListAuthorsByIDsRow>, sqlx::Error> {
-    let sql = LIST_AUTHORS_BY_I_DS;
+    let sql = LIST_AUTHORS_BY_IDS;
     let sql = match params.ids.len() {
         0 => sql.replace("/*SLICE:ids*/?", "NULL"),
         1 => sql.replace("/*SLICE:ids*/?", "?"),
@@ -85,7 +85,7 @@ pub async fn list_authors_by_two_id_lists<'e>(
     let q = q.persistent(false);
     q.fetch_all(executor).await
 }
-pub const LIST_AUTHORS_BY_I_DS_MIXED: &str = r"SELECT id, name
+pub const LIST_AUTHORS_BY_IDS_MIXED: &str = r"SELECT id, name
 FROM authors
 WHERE id IN (/*SLICE:ids*/?)
   AND id >= ?
@@ -106,11 +106,11 @@ pub struct ListAuthorsByIDsMixedRow {
     #[sqlx(rename = "name")]
     pub name: String,
 }
-pub async fn list_authors_by_i_ds_mixed<'e>(
+pub async fn list_authors_by_ids_mixed<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
     params: ListAuthorsByIDsMixedParams<'_>,
 ) -> Result<Vec<ListAuthorsByIDsMixedRow>, sqlx::Error> {
-    let sql = LIST_AUTHORS_BY_I_DS_MIXED;
+    let sql = LIST_AUTHORS_BY_IDS_MIXED;
     let sql = match params.ids.len() {
         0 => sql.replace("/*SLICE:ids*/?", "NULL"),
         1 => sql.replace("/*SLICE:ids*/?", "?"),
@@ -139,17 +139,17 @@ pub async fn list_authors_by_i_ds_mixed<'e>(
     let q = q.persistent(false);
     q.fetch_all(executor).await
 }
-pub const DELETE_AUTHORS_BY_I_DS: &str = r"DELETE FROM authors
+pub const DELETE_AUTHORS_BY_IDS: &str = r"DELETE FROM authors
 WHERE id IN (/*SLICE:ids*/?)";
 #[derive(Debug, Clone, Default)]
 pub struct DeleteAuthorsByIDsParams<'a> {
     pub ids: &'a [i64],
 }
-pub async fn delete_authors_by_i_ds<'e>(
+pub async fn delete_authors_by_ids<'e>(
     executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
     params: DeleteAuthorsByIDsParams<'_>,
 ) -> Result<(), sqlx::Error> {
-    let sql = DELETE_AUTHORS_BY_I_DS;
+    let sql = DELETE_AUTHORS_BY_IDS;
     let sql = match params.ids.len() {
         0 => sql.replace("/*SLICE:ids*/?", "NULL"),
         1 => sql.replace("/*SLICE:ids*/?", "?"),
@@ -166,8 +166,8 @@ pub async fn delete_authors_by_i_ds<'e>(
     q.execute(executor).await.map(|_| ())
 }
 pub const QUERIES: &[(&str, &str)] = &[
-    ("ListAuthorsByIDs", LIST_AUTHORS_BY_I_DS),
+    ("ListAuthorsByIDs", LIST_AUTHORS_BY_IDS),
     ("ListAuthorsByTwoIDLists", LIST_AUTHORS_BY_TWO_ID_LISTS),
-    ("ListAuthorsByIDsMixed", LIST_AUTHORS_BY_I_DS_MIXED),
-    ("DeleteAuthorsByIDs", DELETE_AUTHORS_BY_I_DS),
+    ("ListAuthorsByIDsMixed", LIST_AUTHORS_BY_IDS_MIXED),
+    ("DeleteAuthorsByIDs", DELETE_AUTHORS_BY_IDS),
 ];
