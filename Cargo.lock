@@ -542,6 +542,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "embed-rusqlite"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "test-context",
+ "test-utils",
+]
+
+[[package]]
+name = "embed-sqlx-sqlite"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "test-context",
+ "test-utils",
+ "tokio",
+]
+
+[[package]]
+name = "embed-tokio-postgres"
+version = "0.1.0"
+dependencies = [
+ "test-context",
+ "test-utils",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

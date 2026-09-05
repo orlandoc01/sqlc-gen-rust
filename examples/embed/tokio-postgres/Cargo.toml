@@ -1,0 +1,12 @@
+[package]
+name = "embed-tokio-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio-postgres = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+test-context = { workspace = true }
+test-utils = { workspace = true }

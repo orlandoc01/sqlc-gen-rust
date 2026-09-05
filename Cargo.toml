@@ -10,6 +10,7 @@ members = [
     "examples/authors/*",
     "examples/booktest",
     "examples/copyfrom",
+    "examples/embed/*",
     "examples/e-commerce",
     "examples/jets",
     "examples/ondeck",

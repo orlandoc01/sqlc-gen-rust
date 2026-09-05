@@ -38,7 +38,7 @@ check-local:
     just lint-ci
     just generate
     git diff --exit-code
-    cargo test -p sqlc-gen-rust -p authors-sqlx-sqlite -p sqlc-slice-sqlx-sqlite -p type-mapping-sqlx-sqlite
+    cargo test -p sqlc-gen-rust -p authors-sqlx-sqlite -p sqlc-slice-sqlx-sqlite -p type-mapping-sqlx-sqlite -p embed-sqlx-sqlite -p embed-rusqlite
 
 # Run tests
 test:

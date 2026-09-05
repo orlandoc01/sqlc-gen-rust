@@ -85,6 +85,29 @@ sql:
         options:
           output: queries.rs
           db_crate: rusqlite
+  - schema: examples/embed/sqlx-sqlite/schema.sql
+    queries: examples/embed/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/embed/sqlx-sqlite/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+      - plugin: sqlc-gen-rust
+        out: examples/embed/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+  - schema: examples/embed/tokio-postgres/schema.sql
+    queries: examples/embed/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/embed/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
   - schema: examples/jets/schema.sql
     queries: examples/jets/queries.sql
     engine: postgresql

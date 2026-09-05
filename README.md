@@ -153,9 +153,14 @@ See below for examples with other supported crates.
 | Macro        | Status |
 | ------------ | ------ |
 | `sqlc.arg`   | ✅      |
-| `sqlc.embed` | ❌      |
+| `sqlc.embed` | ✅      |
 | `sqlc.narg`  | ✅      |
 | `sqlc.slice` | ✅      |
+
+### `sqlc.embed`
+
+`sqlc.embed(table)` emits a nested model struct for the table and decodes its columns by their
+SELECT position. See the [embed examples](./examples/embed/) for joined rows.
 
 ## Options
 
