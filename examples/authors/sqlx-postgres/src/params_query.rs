@@ -94,9 +94,35 @@ pub async fn delete_author<'e>(
     let q = q.bind(id);
     q.execute(executor).await.map(|_| ())
 }
+pub const GET_KEYWORD_IDENT: &str = r"SELECT id, type FROM keyword_idents
+WHERE type = $1 LIMIT 1";
+#[derive(sqlx::FromRow)]
+pub struct GetKeywordIdentRow {
+    #[sqlx(rename = "id")]
+    pub id: i64,
+    #[sqlx(rename = "type")]
+    pub r#type: String,
+}
+pub async fn get_keyword_ident<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    r#type: &str,
+) -> Result<GetKeywordIdentRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetKeywordIdentRow>(GET_KEYWORD_IDENT);
+    let q = q.bind(r#type);
+    q.fetch_one(executor).await
+}
+pub async fn get_keyword_ident_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    r#type: &str,
+) -> Result<Option<GetKeywordIdentRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetKeywordIdentRow>(GET_KEYWORD_IDENT);
+    let q = q.bind(r#type);
+    q.fetch_optional(executor).await
+}
 pub const QUERIES: &[(&str, &str)] = &[
     ("GetAuthor", GET_AUTHOR),
     ("ListAuthors", LIST_AUTHORS),
     ("CreateAuthor", CREATE_AUTHOR),
     ("DeleteAuthor", DELETE_AUTHOR),
+    ("GetKeywordIdent", GET_KEYWORD_IDENT),
 ];

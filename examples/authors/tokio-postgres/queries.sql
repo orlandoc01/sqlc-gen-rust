@@ -17,3 +17,7 @@ RETURNING *;
 -- name: DeleteAuthor :exec
 DELETE FROM authors
 WHERE id = $1;
+
+-- name: GetKeywordIdent :one
+SELECT id, type FROM keyword_idents
+WHERE type = sqlc.arg('type') LIMIT 1;

@@ -236,7 +236,23 @@ pub(crate) fn value_ident(ident: &str) -> syn::Ident {
 
 pub(crate) fn field_ident(ident: &str) -> syn::Ident {
     let ident = normalize_str(ident).to_case(Case::Snake);
-    quote::format_ident!("{}", ident)
+    const RAW_IDENTIFIER_EXCEPTIONS: &[&str] = &["crate", "self", "super", "Self"];
+    const KEYWORDS: &[&str] = &[
+        "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
+        "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
+        "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "union",
+        "unsafe", "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box",
+        "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
+        "gen",
+    ];
+
+    if RAW_IDENTIFIER_EXCEPTIONS.contains(&ident.as_str()) {
+        quote::format_ident!("{}_", ident)
+    } else if KEYWORDS.contains(&ident.as_str()) {
+        syn::Ident::new_raw(&ident, proc_macro2::Span::call_site())
+    } else {
+        quote::format_ident!("{}", ident)
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize, Default)]
@@ -532,6 +548,19 @@ pub fn try_main() -> Result<(), Error> {
     std::io::stdout().write_all(&serialized_response)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod identifier_tests {
+    use super::*;
+
+    #[test]
+    fn escapes_keyword_field_identifiers() {
+        assert_eq!(field_ident("type").to_string(), "r#type");
+        assert_eq!(field_ident("union").to_string(), "r#union");
+        assert_eq!(field_ident("crate").to_string(), "crate_");
+        assert_eq!(field_ident("id").to_string(), "id");
+    }
 }
 
 #[cfg(test)]

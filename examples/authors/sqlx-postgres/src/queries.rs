@@ -372,3 +372,88 @@ impl<'a> DeleteAuthorBuilder<'a, (i64,)> {
         DeleteAuthor { id }
     }
 }
+#[derive(sqlx::FromRow)]
+pub struct GetKeywordIdentRow {
+    #[sqlx(rename = "id")]
+    pub id: i64,
+    #[sqlx(rename = "type")]
+    pub r#type: String,
+}
+pub struct GetKeywordIdent<'a> {
+    r#type: &'a str,
+}
+impl<'a> GetKeywordIdent<'a> {
+    pub const QUERY: &'static str = r"SELECT id, type FROM keyword_idents
+WHERE type = $1 LIMIT 1";
+    pub fn query_str(&self) -> &str {
+        Self::QUERY
+    }
+}
+impl<'a> GetKeywordIdent<'a> {
+    pub fn query_as(
+        &'a self,
+    ) -> sqlx::query::QueryAs<
+        'a,
+        sqlx::Postgres,
+        GetKeywordIdentRow,
+        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
+    > {
+        let q = sqlx::query_as(self.query_str());
+        let q = q.bind(self.r#type);
+        q
+    }
+    pub fn query_one<'b, A>(
+        &'a self,
+        conn: A,
+    ) -> impl Future<Output = Result<GetKeywordIdentRow, sqlx::Error>> + Send + 'a
+    where
+        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
+    {
+        async move {
+            let mut conn = conn.acquire().await?;
+            let val = self.query_as().fetch_one(&mut *conn).await?;
+            Ok(val)
+        }
+    }
+    pub fn query_opt<'b, A>(
+        &'a self,
+        conn: A,
+    ) -> impl Future<Output = Result<Option<GetKeywordIdentRow>, sqlx::Error>> + Send + 'a
+    where
+        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
+    {
+        async move {
+            let mut conn = conn.acquire().await?;
+            let val = self.query_as().fetch_optional(&mut *conn).await?;
+            Ok(val)
+        }
+    }
+}
+impl<'a> GetKeywordIdent<'a> {
+    pub const fn builder() -> GetKeywordIdentBuilder<'a, ((),)> {
+        GetKeywordIdentBuilder {
+            fields: ((),),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+pub struct GetKeywordIdentBuilder<'a, Fields = ((),)> {
+    fields: Fields,
+    _phantom: std::marker::PhantomData<&'a ()>,
+}
+impl<'a> GetKeywordIdentBuilder<'a, ((),)> {
+    pub fn r#type(self, r#type: &'a str) -> GetKeywordIdentBuilder<'a, (&'a str,)> {
+        let ((),) = self.fields;
+        let _phantom = self._phantom;
+        GetKeywordIdentBuilder {
+            fields: (r#type,),
+            _phantom,
+        }
+    }
+}
+impl<'a> GetKeywordIdentBuilder<'a, (&'a str,)> {
+    pub fn build(self) -> GetKeywordIdent<'a> {
+        let (r#type,) = self.fields;
+        GetKeywordIdent { r#type }
+    }
+}

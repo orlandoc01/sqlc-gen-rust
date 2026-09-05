@@ -328,3 +328,88 @@ impl<'a> DeleteAuthorBuilder<'a, (i64,)> {
         DeleteAuthor { id }
     }
 }
+pub struct GetKeywordIdentRow {
+    pub id: i64,
+    pub r#type: String,
+}
+impl GetKeywordIdentRow {
+    pub fn from_row(
+        row: &deadpool_postgres::tokio_postgres::Row,
+    ) -> Result<Self, deadpool_postgres::tokio_postgres::Error> {
+        Ok(Self {
+            id: row.try_get(0)?,
+            r#type: row.try_get(1)?,
+        })
+    }
+}
+pub struct GetKeywordIdent<'a> {
+    r#type: &'a str,
+}
+impl<'a> GetKeywordIdent<'a> {
+    pub const QUERY: &'static str = r"SELECT id, type FROM keyword_idents
+WHERE type = $1 LIMIT 1";
+    pub fn query_str(&self) -> &str {
+        Self::QUERY
+    }
+}
+impl<'a> GetKeywordIdent<'a> {
+    pub async fn query_one(
+        &self,
+        client: &impl deadpool_postgres::GenericClient,
+    ) -> Result<GetKeywordIdentRow, deadpool_postgres::tokio_postgres::Error> {
+        let stmt = self.prepare(client).await?;
+        let row = client.query_one(&stmt, &self.as_params()).await?;
+        GetKeywordIdentRow::from_row(&row)
+    }
+    pub async fn query_opt(
+        &self,
+        client: &impl deadpool_postgres::GenericClient,
+    ) -> Result<Option<GetKeywordIdentRow>, deadpool_postgres::tokio_postgres::Error> {
+        let stmt = self.prepare(client).await?;
+        let row = client.query_opt(&stmt, &self.as_params()).await?;
+        match row {
+            Some(row) => Ok(Some(GetKeywordIdentRow::from_row(&row)?)),
+            None => Ok(None),
+        }
+    }
+    pub async fn prepare(
+        &self,
+        client: &impl deadpool_postgres::GenericClient,
+    ) -> Result<
+        deadpool_postgres::tokio_postgres::Statement,
+        deadpool_postgres::tokio_postgres::Error,
+    > {
+        client.prepare_cached(self.query_str()).await
+    }
+    pub fn as_params(&self) -> [&(dyn ToSql + Sync); 1] {
+        [&self.r#type]
+    }
+}
+impl<'a> GetKeywordIdent<'a> {
+    pub const fn builder() -> GetKeywordIdentBuilder<'a, ((),)> {
+        GetKeywordIdentBuilder {
+            fields: ((),),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+pub struct GetKeywordIdentBuilder<'a, Fields = ((),)> {
+    fields: Fields,
+    _phantom: std::marker::PhantomData<&'a ()>,
+}
+impl<'a> GetKeywordIdentBuilder<'a, ((),)> {
+    pub fn r#type(self, r#type: &'a str) -> GetKeywordIdentBuilder<'a, (&'a str,)> {
+        let ((),) = self.fields;
+        let _phantom = self._phantom;
+        GetKeywordIdentBuilder {
+            fields: (r#type,),
+            _phantom,
+        }
+    }
+}
+impl<'a> GetKeywordIdentBuilder<'a, (&'a str,)> {
+    pub fn build(self) -> GetKeywordIdent<'a> {
+        let (r#type,) = self.fields;
+        GetKeywordIdent { r#type }
+    }
+}

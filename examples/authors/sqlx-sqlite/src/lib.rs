@@ -40,5 +40,18 @@ mod tests {
             .query_one(pool)
             .await
             .unwrap();
+
+        sqlx::query("INSERT INTO keyword_idents (type) VALUES (?)")
+            .bind("draft")
+            .execute(pool)
+            .await
+            .unwrap();
+        let row = queries::GetKeywordIdent::builder()
+            .r#type("draft")
+            .build()
+            .query_one(pool)
+            .await
+            .unwrap();
+        assert_eq!(row.r#type, "draft");
     }
 }

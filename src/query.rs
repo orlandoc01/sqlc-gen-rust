@@ -1038,7 +1038,7 @@ impl Query {
                 let params = self
                     .fields
                     .iter()
-                    .map(|x| x.name.to_string())
+                    .map(|x| x.name_original.value())
                     .reduce(|acc, x| format!("{acc},{x}"))
                     .unwrap_or_default();
                 let table = self.insert_table.as_deref().unwrap_or("table");

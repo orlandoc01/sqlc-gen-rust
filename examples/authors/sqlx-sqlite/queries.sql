@@ -16,3 +16,7 @@ INSERT INTO authors (
 /* name: DeleteAuthor :exec */
 DELETE FROM authors
 WHERE id = ?;
+
+/* name: GetKeywordIdent :one */
+SELECT id, type FROM keyword_idents
+WHERE type = sqlc.arg('type') LIMIT 1;

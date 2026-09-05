@@ -37,5 +37,14 @@ mod tests {
             .build()
             .query_one(conn)
             .unwrap();
+
+        conn.execute("INSERT INTO keyword_idents (type) VALUES (?)", ["draft"])
+            .unwrap();
+        let row = queries::GetKeywordIdent::builder()
+            .r#type("draft")
+            .build()
+            .query_one(conn)
+            .unwrap();
+        assert_eq!(row.r#type, "draft");
     }
 }
