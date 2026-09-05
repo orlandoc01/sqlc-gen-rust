@@ -402,7 +402,7 @@ pub fn try_main() -> Result<(), Error> {
         .map(|e| config.db_crate.defined_enum(e))
         .collect::<Vec<_>>();
     let enums_tt = quote::quote! {#(#enums_ts)*};
-    let embedded_tables_tt = db_crates::make_embedded_tables(&returning_rows);
+    let embedded_tables_tt = db_crates::make_embedded_tables(&returning_rows)?;
 
     let queries_ts = returning_rows
         .iter()

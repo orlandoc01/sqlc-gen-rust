@@ -80,14 +80,29 @@ fn make_embedded_table(table: &EmbeddedTable) -> proc_macro2::TokenStream {
     make_struct(&table.ident, &table.attributes, &table.fields)
 }
 
-pub(crate) fn make_embedded_tables(rows: &[ReturningRows]) -> proc_macro2::TokenStream {
+pub(crate) fn make_embedded_tables(
+    rows: &[ReturningRows],
+) -> Result<proc_macro2::TokenStream, query::QueryError> {
     let mut tables = std::collections::BTreeMap::new();
+    let mut idents = std::collections::BTreeMap::new();
     for table in rows.iter().flat_map(ReturningRows::embedded_tables) {
-        tables.entry(table.name.clone()).or_insert(table);
+        if tables.contains_key(&table.qualified_name) {
+            continue;
+        }
+
+        let ident = table.ident.to_string();
+        if let Some(existing_table) = idents.insert(ident.clone(), &table.qualified_name) {
+            return Err(query::QueryError::conflicting_embedded_table(
+                existing_table.clone(),
+                table.qualified_name.clone(),
+                ident,
+            ));
+        }
+        tables.insert(table.qualified_name.clone(), table);
     }
 
     let tables = tables.values().map(|table| make_embedded_table(table));
-    quote::quote! {#(#tables)*}
+    Ok(quote::quote! {#(#tables)*})
 }
 
 fn make_struct(
@@ -416,5 +431,46 @@ impl<'a> quote::ToTokens for QueryAst<'a> {
         };
 
         tokens.extend(tt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(table: EmbeddedTable) -> ReturningRows {
+        ReturningRows {
+            fields: vec![query::ColumnField {
+                name: crate::field_ident("users"),
+                name_original: syn::LitStr::new("users", proc_macro2::Span::call_site()),
+                typ: query::ColumnFieldType::Embed(table),
+                attribute: None,
+            }],
+            query_name: String::new(),
+            attributes: None,
+        }
+    }
+
+    fn embedded_table(qualified_name: &str) -> EmbeddedTable {
+        EmbeddedTable {
+            qualified_name: qualified_name.to_string(),
+            ident: crate::value_ident("users"),
+            fields: Vec::new(),
+            attributes: None,
+        }
+    }
+
+    #[test]
+    fn rejects_embedded_tables_with_conflicting_struct_idents() {
+        let error = make_embedded_tables(&[
+            row(embedded_table("first.users")),
+            row(embedded_table("second.users")),
+        ])
+        .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Embedded tables `first.users` and `second.users` both generate Rust struct `Users`"
+        );
     }
 }

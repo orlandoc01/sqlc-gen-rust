@@ -20,6 +20,12 @@ pub enum QueryError {
         table_name: String,
         location: &'static std::panic::Location<'static>,
     },
+    ConflictingEmbeddedTable {
+        first_table_name: String,
+        second_table_name: String,
+        struct_ident: String,
+        location: &'static std::panic::Location<'static>,
+    },
     UnknownAnnotation {
         annotation: String,
         location: &'static std::panic::Location<'static>,
@@ -72,6 +78,20 @@ impl QueryError {
     }
 
     #[track_caller]
+    pub(crate) fn conflicting_embedded_table(
+        first_table_name: String,
+        second_table_name: String,
+        struct_ident: String,
+    ) -> Self {
+        Self::ConflictingEmbeddedTable {
+            first_table_name,
+            second_table_name,
+            struct_ident,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
     pub(crate) fn unknown_annotation(annotation: String) -> Self {
         Self::UnknownAnnotation {
             annotation,
@@ -85,6 +105,7 @@ impl QueryError {
             QueryError::MissingParamColumn { location, .. } => location,
             QueryError::CannotMapType { location, .. } => location,
             QueryError::MissingEmbeddedTable { location, .. } => location,
+            QueryError::ConflictingEmbeddedTable { location, .. } => location,
             QueryError::UnknownAnnotation { location, .. } => location,
             QueryError::Stacked { location, .. } => location,
         }
@@ -110,6 +131,15 @@ impl std::fmt::Display for QueryError {
             QueryError::MissingEmbeddedTable { table_name, .. } => {
                 write!(f, "Embedded table not found in catalog: `{table_name}`")
             }
+            QueryError::ConflictingEmbeddedTable {
+                first_table_name,
+                second_table_name,
+                struct_ident,
+                ..
+            } => write!(
+                f,
+                "Embedded tables `{first_table_name}` and `{second_table_name}` both generate Rust struct `{struct_ident}`"
+            ),
             QueryError::Stacked { source, .. } => source.fmt(f),
         }
     }
@@ -482,7 +512,7 @@ impl ColumnFieldType {
 
 #[derive(Clone)]
 pub(crate) struct EmbeddedTable {
-    pub(crate) name: String,
+    pub(crate) qualified_name: String,
     pub(crate) ident: syn::Ident,
     pub(crate) fields: Vec<ColumnField>,
     pub(crate) attributes: Option<proc_macro2::TokenStream>,
@@ -538,7 +568,11 @@ impl EmbeddedTable {
             .collect::<Result<Vec<_>, QueryError>>()?;
 
         Ok(Self {
-            name: identifier.name.clone(),
+            qualified_name: if identifier.schema.is_empty() {
+                identifier.name.clone()
+            } else {
+                format!("{}.{}", identifier.schema, identifier.name)
+            },
             ident: value_ident(&identifier.name),
             fields,
             attributes: attribute_map
@@ -553,7 +587,9 @@ impl ColumnField {
     pub(crate) fn scalar_type(&self) -> &RsColType {
         match &self.typ {
             ColumnFieldType::Scalar(typ) => typ,
-            ColumnFieldType::Embed(_) => unreachable!("query parameters cannot be embedded tables"),
+            ColumnFieldType::Embed(_) => {
+                unreachable!("ColumnField::scalar_type parameters are never sqlc.embed columns")
+            }
         }
     }
 
