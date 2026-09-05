@@ -212,6 +212,71 @@ pub struct CreateAuthorParams<'a> {
 }
 ```
 
+### `emit_dynamic_filter`
+
+Enables runtime-selectable SQL lines with `-- :if @param` annotations. It requires
+`api: params_struct` and supports `sqlx-postgres`, `sqlx-sqlite`, and `sqlx-mysql`.
+
+```yaml
+options:
+  db_crate: sqlx-sqlite
+  api: params_struct
+  emit_dynamic_filter: true
+```
+
+Conditional SQL parameters become `Option<T>` (`None` skips the line), and names that
+appear only in an annotation become appended `bool` fields. Conditional `sqlc.slice()`
+parameters become `Option<&[T]>`: `None` skips the line, while `Some(&[])` keeps it and
+renders `NULL`, matching zero rows. Use `dynfilter::nilable(ids)` when an empty slice
+should mean "no filter".
+
+```sql
+-- name: SearchUsers :many
+SELECT * FROM users
+WHERE TRUE
+  AND email = @email -- :if @email
+  -- :if @phone
+  AND phone = @phone
+  AND EXISTS ( -- :if @has_orders
+    SELECT 1 FROM orders WHERE orders.user_id = users.id
+  )
+ORDER BY
+  id ASC,  -- :if @id_asc
+  id DESC, -- :if @id_desc
+  TRUE;
+```
+
+```rust
+pub struct SearchUsersParams<'a> {
+    pub email: Option<&'a str>,
+    pub phone: Option<&'a str>,
+    pub has_orders: bool,
+    pub id_asc: bool,
+    pub id_desc: bool,
+}
+
+let ids = dynfilter::nilable(&ids);
+```
+
+Inline annotations drop their own line. A standalone annotation drops the next line;
+when that line opens a parenthesized block, the whole block is dropped. Multiple names on
+one annotation require every parameter to be active. An annotation must be last on its
+line.
+
+The generated `pub mod dynfilter` precompiles every dynamic query with `LazyLock`, drops
+inactive segments, renumbers remaining placeholders, and returns a typed bind plan. Input
+and output placeholders follow the configured engine:
+
+| Engine | Input placeholders | Output placeholders |
+| ------ | ------------------ | ------------------- |
+| PostgreSQL | `$N` | `$N` |
+| SQLite | `?N` or `$N` | `$N` |
+| MySQL | `?` by appearance | `?` |
+
+Annotations and placeholders inside string literals, quoted identifiers, or comments are
+ignored. PostgreSQL dollar-quoted and escape strings, MySQL backslash escapes, SQLite
+bracket identifiers, and PostgreSQL nested block comments are supported.
+
 ### `query_parameter_limit`
 
 The maximum number of parameters emitted as individual function arguments with

@@ -299,3 +299,36 @@ sql:
           db_crate: sqlx-sqlite
           api: params_struct
           query_parameter_limit: 0
+  - schema: examples/dynamic-filter/sqlx-sqlite/schema.sql
+    queries: examples/dynamic-filter/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/sqlx-sqlite/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+          api: params_struct
+          emit_dynamic_filter: true
+  - schema: examples/dynamic-filter/sqlx-postgres/schema.sql
+    queries: examples/dynamic-filter/sqlx-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/sqlx-postgres/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-postgres
+          api: params_struct
+          emit_dynamic_filter: true
+  - schema: examples/dynamic-filter/sqlx-mysql/schema.sql
+    queries: examples/dynamic-filter/sqlx-mysql/queries.sql
+    engine: mysql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/sqlx-mysql/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-mysql
+          api: params_struct
+          emit_dynamic_filter: true
