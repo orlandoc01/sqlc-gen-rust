@@ -1,0 +1,909 @@
+use std::collections::HashMap;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arg {
+    Active,
+    Inactive,
+    Slice(Option<usize>),
+    Flag(bool),
+}
+
+impl Arg {
+    pub fn from_option<T>(value: &Option<T>) -> Self {
+        value.as_ref().map_or(Self::Inactive, |_| Self::Active)
+    }
+
+    fn active(self) -> bool {
+        match self {
+            Self::Active => true,
+            Self::Inactive => false,
+            Self::Slice(length) => length.is_some(),
+            Self::Flag(value) => value,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bind {
+    Arg(usize),
+    Elem(usize, usize),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placeholders {
+    Numbered,
+    Question,
+}
+
+pub struct Compiled {
+    segments: Vec<Segment>,
+    arg_count: usize,
+    placeholders: Placeholders,
+}
+
+struct Segment {
+    parts: Vec<String>,
+    arg_nums: Vec<usize>,
+    cond_idxs: Vec<usize>,
+}
+
+impl Compiled {
+    pub fn build(&self, args: &[Arg]) -> (String, Vec<Bind>) {
+        let mut query = String::new();
+        let mut binds = Vec::new();
+        let mut next_placeholder = 1;
+        let mut scalar_placeholders = HashMap::new();
+        let mut slice_placeholders: HashMap<usize, Vec<usize>> = HashMap::new();
+
+        for segment in &self.segments {
+            if segment
+                .cond_idxs
+                .iter()
+                .any(|index| !args.get(*index).is_some_and(|arg| arg.active()))
+            {
+                continue;
+            }
+
+            for (index, part) in segment.parts.iter().enumerate() {
+                if let Some(before) = slice_prefix(part).filter(|_| index < segment.arg_nums.len()) {
+                    let arg_index = segment.arg_nums[index] - 1;
+                    if let Some(Arg::Slice(Some(length))) = args.get(arg_index) {
+                        query.push_str(before);
+                        if self.placeholders == Placeholders::Question {
+                            write_slice(
+                                &mut query,
+                                &mut binds,
+                                &mut next_placeholder,
+                                self.placeholders,
+                                arg_index,
+                                *length,
+                            );
+                        } else if let Some(numbers) = slice_placeholders.get(&arg_index) {
+                            write_placeholders(&mut query, self.placeholders, numbers);
+                        } else {
+                            let numbers = write_slice(
+                                &mut query,
+                                &mut binds,
+                                &mut next_placeholder,
+                                self.placeholders,
+                                arg_index,
+                                *length,
+                            );
+                            slice_placeholders.insert(arg_index, numbers);
+                        }
+                        continue;
+                    }
+                    if args.get(arg_index).is_none() {
+                        query.push_str(before);
+                        query.push_str("NULL");
+                        continue;
+                    }
+                }
+
+                query.push_str(part);
+                let Some(arg_number) = segment.arg_nums.get(index) else {
+                    continue;
+                };
+                let arg_index = arg_number - 1;
+                if self.placeholders == Placeholders::Numbered {
+                    if let Some(number) = scalar_placeholders.get(&arg_index) {
+                        write_placeholder(&mut query, self.placeholders, *number);
+                    } else {
+                        write_placeholder(&mut query, self.placeholders, next_placeholder);
+                        scalar_placeholders.insert(arg_index, next_placeholder);
+                        next_placeholder += 1;
+                        binds.push(Bind::Arg(arg_index));
+                    }
+                } else {
+                    write_placeholder(&mut query, self.placeholders, next_placeholder);
+                    next_placeholder += 1;
+                    binds.push(Bind::Arg(arg_index));
+                }
+            }
+        }
+
+        (finalize_query(query), binds)
+    }
+
+    pub fn arg_count(&self) -> usize {
+        self.arg_count
+    }
+}
+
+pub fn compile(annotated_sql: &str, placeholders: Placeholders) -> Compiled {
+    let config = LexerConfig::new(annotated_sql, placeholders);
+    let mut segments = Vec::new();
+    let mut static_sql = String::new();
+    let mut next_arg_num = 1;
+    let mut first_line = true;
+    let mut state = LexState::default();
+    let mut lines = annotated_sql.split('\n').peekable();
+
+    while let Some(line) = lines.next() {
+        let separator = if first_line { "" } else { "\n" };
+        first_line = false;
+        if state.open() {
+            state = line_end_state(line, state, config);
+            static_sql.push_str(separator);
+            static_sql.push_str(line);
+            continue;
+        }
+
+        if let Some(mut conditions) = standalone_conditions(line) {
+            flush_static(
+                &mut segments,
+                &mut static_sql,
+                &mut next_arg_num,
+                config,
+            );
+            if let Some(next_line) = lines.next() {
+                let (mut next_conditions, cleaned) = extract_conditions(next_line, config);
+                conditions.append(&mut next_conditions);
+                state = line_end_state(&cleaned, state, config);
+                let (parts, arg_nums) = split_placeholders(
+                    &format!("\n{cleaned}"),
+                    &mut next_arg_num,
+                    config,
+                );
+                segments.push(Segment {
+                    parts,
+                    arg_nums,
+                    cond_idxs: conditions,
+                });
+            }
+            continue;
+        }
+
+        let (conditions, cleaned) = extract_conditions(line, config);
+        if !conditions.is_empty() {
+            flush_static(
+                &mut segments,
+                &mut static_sql,
+                &mut next_arg_num,
+                config,
+            );
+            state = line_end_state(&cleaned, state, config);
+            let (parts, arg_nums) = split_placeholders(
+                &format!("{separator}{cleaned}"),
+                &mut next_arg_num,
+                config,
+            );
+            segments.push(Segment {
+                parts,
+                arg_nums,
+                cond_idxs: conditions,
+            });
+            continue;
+        }
+
+        state = line_end_state(line, state, config);
+        static_sql.push_str(separator);
+        static_sql.push_str(line);
+    }
+
+    flush_static(
+        &mut segments,
+        &mut static_sql,
+        &mut next_arg_num,
+        config,
+    );
+    let arg_count = segments
+        .iter()
+        .flat_map(|segment| {
+            segment
+                .arg_nums
+                .iter()
+                .map(|number| number - 1)
+                .chain(segment.cond_idxs.iter().copied())
+        })
+        .max()
+        .map_or(0, |index| index + 1);
+
+    Compiled {
+        segments,
+        arg_count,
+        placeholders,
+    }
+}
+
+pub fn nilable<T>(slice: &[T]) -> Option<&[T]> {
+    (!slice.is_empty()).then_some(slice)
+}
+
+fn flush_static(
+    segments: &mut Vec<Segment>,
+    static_sql: &mut String,
+    next_arg_num: &mut usize,
+    config: LexerConfig,
+) {
+    if static_sql.is_empty() {
+        return;
+    }
+    let (parts, arg_nums) = split_placeholders(static_sql, next_arg_num, config);
+    segments.push(Segment {
+        parts,
+        arg_nums,
+        cond_idxs: Vec::new(),
+    });
+    static_sql.clear();
+}
+
+fn write_slice(
+    query: &mut String,
+    binds: &mut Vec<Bind>,
+    next_placeholder: &mut usize,
+    placeholders: Placeholders,
+    arg_index: usize,
+    length: usize,
+) -> Vec<usize> {
+    if length == 0 {
+        query.push_str("NULL");
+        return Vec::new();
+    }
+    let mut numbers = Vec::with_capacity(length);
+    for element_index in 0..length {
+        if element_index > 0 {
+            query.push(',');
+        }
+        let number = *next_placeholder;
+        write_placeholder(query, placeholders, number);
+        *next_placeholder += 1;
+        numbers.push(number);
+        binds.push(Bind::Elem(arg_index, element_index));
+    }
+    numbers
+}
+
+fn write_placeholders(query: &mut String, placeholders: Placeholders, numbers: &[usize]) {
+    if numbers.is_empty() {
+        query.push_str("NULL");
+        return;
+    }
+    for (index, number) in numbers.iter().enumerate() {
+        if index > 0 {
+            query.push(',');
+        }
+        write_placeholder(query, placeholders, *number);
+    }
+}
+
+fn write_placeholder(query: &mut String, placeholders: Placeholders, number: usize) {
+    match placeholders {
+        Placeholders::Numbered => {
+            query.push('$');
+            query.push_str(&number.to_string());
+        }
+        Placeholders::Question => query.push('?'),
+    }
+}
+
+fn slice_prefix(part: &str) -> Option<&str> {
+    let start = part.rfind("/*SLICE:")?;
+    part.ends_with("*/").then_some(&part[..start])
+}
+
+fn standalone_conditions(line: &str) -> Option<Vec<usize>> {
+    let mut rest = line.trim();
+    let mut conditions = Vec::new();
+    while let Some(after_marker) = rest.strip_prefix("-- :if $") {
+        let digits = after_marker
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count();
+        let number = after_marker[..digits].parse::<usize>().ok()?;
+        if number == 0 {
+            return None;
+        }
+        conditions.push(number - 1);
+        rest = after_marker[digits..].trim_start();
+    }
+    (!conditions.is_empty() && rest.is_empty()).then_some(conditions)
+}
+
+fn extract_conditions(line: &str, config: LexerConfig) -> (Vec<usize>, String) {
+    let Some(start) = annotation_start(line, config) else {
+        return (Vec::new(), line.to_string());
+    };
+    let mut conditions = Vec::new();
+    let mut rest = &line[start..];
+    while let Some(position) = rest.find(" -- :if $") {
+        let after_marker = &rest[position + 9..];
+        let digits = after_marker
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count();
+        if let Ok(number) = after_marker[..digits].parse::<usize>()
+            && number > 0
+        {
+            conditions.push(number - 1);
+        }
+        rest = &rest[position + 1..];
+    }
+    (conditions, line[..start].trim_end().to_string())
+}
+
+fn annotation_start(line: &str, config: LexerConfig) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut in_line_comment = false;
+    while index < bytes.len() {
+        if line[index..].starts_with(" -- :if $") {
+            return Some(index);
+        }
+        if in_line_comment {
+            index += 1;
+            continue;
+        }
+        if bytes[index..].starts_with(b"--") {
+            in_line_comment = true;
+            index += 2;
+            continue;
+        }
+        let next = skip_quoted_or_block(line, index, config);
+        index = if next > index { next } else { index + 1 };
+    }
+    None
+}
+
+fn split_placeholders(
+    text: &str,
+    next_arg_num: &mut usize,
+    config: LexerConfig,
+) -> (Vec<String>, Vec<usize>) {
+    let bytes = text.as_bytes();
+    let mut parts = Vec::new();
+    let mut arg_nums = Vec::new();
+    let mut part_start = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        let next = skip_token(text, index, config);
+        if next > index {
+            index = next;
+            continue;
+        }
+        if bytes[index] != b'$' && bytes[index] != b'?' {
+            index += 1;
+            continue;
+        }
+        let mut end = index + 1;
+        while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+            end += 1;
+        }
+        let number = match (bytes[index], end > index + 1, config.placeholders) {
+            (b'$', true, _) => parse_number(&text[index + 1..end]),
+            (b'?', true, Placeholders::Numbered) | (b'?', true, Placeholders::Question) => {
+                parse_number(&text[index + 1..end])
+            }
+            (b'?', false, Placeholders::Question) => Some(*next_arg_num),
+            _ => None,
+        };
+        let Some(number) = number.filter(|number| *number > 0) else {
+            index = end;
+            continue;
+        };
+        if config.placeholders == Placeholders::Question && number >= *next_arg_num {
+            *next_arg_num = number + 1;
+        }
+        parts.push(text[part_start..index].to_string());
+        arg_nums.push(number);
+        part_start = end;
+        index = end;
+    }
+    parts.push(text[part_start..].to_string());
+    (parts, arg_nums)
+}
+
+fn parse_number(text: &str) -> Option<usize> {
+    text.parse().ok()
+}
+
+fn skip_token(text: &str, index: usize, config: LexerConfig) -> usize {
+    if text.as_bytes()[index..].starts_with(b"--") {
+        return text[index..].find('\n').map_or(text.len(), |end| index + end);
+    }
+    skip_quoted_or_block(text, index, config)
+}
+
+fn skip_quoted_or_block(text: &str, index: usize, config: LexerConfig) -> usize {
+    let bytes = text.as_bytes();
+    match bytes[index] {
+        b'\'' | b'"' | b'`' => {
+            let quote = bytes[index];
+            let backslash = quote != b'`'
+                && (config.backslash_strings
+                    || (config.postgres && quote == b'\'' && escape_string_prefix(text, index)));
+            quote_end(bytes, index + 1, quote, backslash).0
+        }
+        b'[' if config.bracket_identifiers => text[index + 1..]
+            .find(']')
+            .map_or(text.len(), |end| index + end + 2),
+        b'$' if config.postgres => dollar_delimiter(text, index).map_or(index, |delimiter| {
+            text[index + delimiter.len()..]
+                .find(&delimiter)
+                .map_or(text.len(), |end| index + delimiter.len() + end + delimiter.len())
+        }),
+        b'/' if bytes[index..].starts_with(b"/*") => skip_block_comment(text, index, config),
+        _ => index,
+    }
+}
+
+fn skip_block_comment(text: &str, start: usize, config: LexerConfig) -> usize {
+    let bytes = text.as_bytes();
+    let mut depth = 0;
+    let mut index = start;
+    while index + 1 < bytes.len() {
+        if bytes[index..].starts_with(b"/*") && (config.postgres || depth == 0) {
+            depth += 1;
+            index += 2;
+        } else if bytes[index..].starts_with(b"*/") {
+            depth -= 1;
+            index += 2;
+            if depth == 0 {
+                return index;
+            }
+        } else {
+            index += 1;
+        }
+    }
+    text.len()
+}
+
+#[derive(Clone, Copy)]
+struct LexerConfig {
+    placeholders: Placeholders,
+    postgres: bool,
+    bracket_identifiers: bool,
+    backslash_strings: bool,
+}
+
+impl LexerConfig {
+    fn new(sql: &str, placeholders: Placeholders) -> Self {
+        let sqlite = placeholders == Placeholders::Numbered && has_numbered_question_mark(sql);
+        Self {
+            placeholders,
+            postgres: placeholders == Placeholders::Numbered && !sqlite,
+            bracket_identifiers: sqlite,
+            backslash_strings: placeholders == Placeholders::Question,
+        }
+    }
+}
+
+fn has_numbered_question_mark(sql: &str) -> bool {
+    sql.as_bytes()
+        .windows(2)
+        .any(|bytes| bytes[0] == b'?' && bytes[1].is_ascii_digit())
+}
+
+#[derive(Default)]
+struct LexState {
+    quote: Option<u8>,
+    backslash: bool,
+    comment_depth: usize,
+    dollar: Option<String>,
+}
+
+impl LexState {
+    fn open(&self) -> bool {
+        self.quote.is_some() || self.comment_depth > 0 || self.dollar.is_some()
+    }
+}
+
+fn line_end_state(line: &str, mut state: LexState, config: LexerConfig) -> LexState {
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if let Some(delimiter) = &state.dollar {
+            let Some(end) = line[index..].find(delimiter) else {
+                return state;
+            };
+            index += end + delimiter.len();
+            state.dollar = None;
+            continue;
+        }
+        if state.comment_depth > 0 {
+            while index < bytes.len() && state.comment_depth > 0 {
+                if config.postgres && bytes[index..].starts_with(b"/*") {
+                    state.comment_depth += 1;
+                    index += 2;
+                } else if bytes[index..].starts_with(b"*/") {
+                    state.comment_depth -= 1;
+                    index += 2;
+                } else {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+        if let Some(quote) = state.quote {
+            if quote == b'[' {
+                let Some(end) = line[index..].find(']') else {
+                    return state;
+                };
+                index += end + 1;
+                state.quote = None;
+                continue;
+            }
+            let (end, closed) = quote_end(bytes, index, quote, state.backslash);
+            if !closed {
+                return state;
+            }
+            index = end;
+            state.quote = None;
+            continue;
+        }
+
+        if bytes[index..].starts_with(b"--") {
+            return state;
+        }
+        if bytes[index..].starts_with(b"/*") {
+            state.comment_depth = 1;
+            index += 2;
+            continue;
+        }
+        match bytes[index] {
+            b'\'' | b'"' | b'`' => {
+                let quote = bytes[index];
+                state.quote = Some(quote);
+                state.backslash = quote != b'`'
+                    && (config.backslash_strings
+                        || (config.postgres
+                            && quote == b'\''
+                            && escape_string_prefix(line, index)));
+                index += 1;
+            }
+            b'[' if config.bracket_identifiers => {
+                state.quote = Some(b'[');
+                index += 1;
+            }
+            b'$' if config.postgres => {
+                if let Some(delimiter) = dollar_delimiter(line, index) {
+                    index += delimiter.len();
+                    state.dollar = Some(delimiter);
+                } else {
+                    index += 1;
+                }
+            }
+            _ => index += 1,
+        }
+    }
+    state
+}
+
+fn quote_end(bytes: &[u8], mut index: usize, quote: u8, backslash: bool) -> (usize, bool) {
+    while index < bytes.len() {
+        if backslash && bytes[index] == b'\\' {
+            index += 2;
+            continue;
+        }
+        if bytes[index] != quote {
+            index += 1;
+            continue;
+        }
+        if bytes.get(index + 1) == Some(&quote) {
+            index += 2;
+            continue;
+        }
+        return (index + 1, true);
+    }
+    (bytes.len(), false)
+}
+
+fn escape_string_prefix(text: &str, quote_index: usize) -> bool {
+    if quote_index == 0 || !matches!(text.as_bytes()[quote_index - 1], b'e' | b'E') {
+        return false;
+    }
+    if quote_index == 1 {
+        return true;
+    }
+    let previous = text.as_bytes()[quote_index - 2];
+    !(previous == b'_'
+        || previous == b'$'
+        || previous.is_ascii_alphanumeric())
+}
+
+fn dollar_delimiter(text: &str, start: usize) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut index = start + 1;
+    while let Some(byte) = bytes.get(index) {
+        if *byte == b'$' {
+            return Some(text[start..=index].to_string());
+        }
+        let is_identifier = *byte == b'_'
+            || byte.is_ascii_alphabetic()
+            || (index > start + 1 && byte.is_ascii_digit());
+        if !is_identifier {
+            return None;
+        }
+        index += 1;
+    }
+    None
+}
+
+fn finalize_query(mut query: String) -> String {
+    loop {
+        let end = query.trim_end_matches([' ', '\t', '\n']).len();
+        if end == 0 {
+            return query;
+        }
+        let start = query[..end].rfind('\n').map_or(0, |index| index + 1);
+        let trimmed = query[start..end].trim();
+        if trimmed.ends_with(',') {
+            let comma = query[start..end].rfind(',').unwrap();
+            query.remove(start + comma);
+            continue;
+        }
+        if ["ORDER BY", "WHERE", "GROUP BY", "HAVING"]
+            .iter()
+            .any(|keyword| trimmed.eq_ignore_ascii_case(keyword))
+        {
+            let new_end = query[..start].trim_end_matches([' ', '\t', '\n']).len();
+            query.truncate(new_end);
+            continue;
+        }
+        return query;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build(sql: &str, placeholders: Placeholders, args: &[Arg]) -> (String, Vec<Bind>) {
+        compile(sql, placeholders).build(args)
+    }
+
+    #[test]
+    fn drops_inactive_conditions_and_remaps_gaps() {
+        let (sql, binds) = build(
+            "SELECT * FROM t\nWHERE a = $1\n  AND b = $2 -- :if $2\n  AND c = $3",
+            Placeholders::Numbered,
+            &[Arg::Active, Arg::Inactive, Arg::Active],
+        );
+        assert_eq!(sql, "SELECT * FROM t\nWHERE a = $1\n  AND c = $2");
+        assert_eq!(binds, [Bind::Arg(0), Bind::Arg(2)]);
+    }
+
+    #[test]
+    fn keeps_multi_parameter_lines_only_when_all_are_active() {
+        let sql = "SELECT * FROM t\nWHERE a = $1 -- :if $1 -- :if $2";
+        assert_eq!(
+            build(sql, Placeholders::Numbered, &[Arg::Active, Arg::Inactive]).0,
+            "SELECT * FROM t"
+        );
+        assert_eq!(
+            build(sql, Placeholders::Numbered, &[Arg::Active, Arg::Active]).0,
+            "SELECT * FROM t\nWHERE a = $1"
+        );
+    }
+
+    #[test]
+    fn standalone_annotations_apply_to_the_next_line() {
+        let (sql, binds) = build(
+            "SELECT * FROM t\nWHERE a = $1\n-- :if $2\n  AND b = $2",
+            Placeholders::Numbered,
+            &[Arg::Active, Arg::Inactive],
+        );
+        assert_eq!(sql, "SELECT * FROM t\nWHERE a = $1");
+        assert_eq!(binds, [Bind::Arg(0)]);
+    }
+
+    #[test]
+    fn numbered_placeholders_reuse_repeated_arguments() {
+        let (sql, binds) = build(
+            "SELECT * FROM t WHERE a = $1 OR b = $1",
+            Placeholders::Numbered,
+            &[Arg::Active],
+        );
+        assert_eq!(sql, "SELECT * FROM t WHERE a = $1 OR b = $1");
+        assert_eq!(binds, [Bind::Arg(0)]);
+    }
+
+    #[test]
+    fn mysql_reemits_repeated_arguments() {
+        let (sql, binds) = build(
+            "SELECT * FROM t WHERE a = ? OR b = ?",
+            Placeholders::Question,
+            &[Arg::Active, Arg::Active],
+        );
+        assert_eq!(sql, "SELECT * FROM t WHERE a = ? OR b = ?");
+        assert_eq!(binds, [Bind::Arg(0), Bind::Arg(1)]);
+    }
+
+    #[test]
+    fn expands_slices_and_preserves_nil_empty_distinction() {
+        let sql = "SELECT * FROM t\nWHERE name = ?1\n  AND id IN (/*SLICE:ids*/?2) -- :if $2";
+        assert_eq!(
+            build(
+                sql,
+                Placeholders::Numbered,
+                &[Arg::Active, Arg::Slice(None)],
+            )
+            .0,
+            "SELECT * FROM t\nWHERE name = $1"
+        );
+        assert_eq!(
+            build(
+                sql,
+                Placeholders::Numbered,
+                &[Arg::Active, Arg::Slice(Some(0))],
+            ),
+            (
+                "SELECT * FROM t\nWHERE name = $1\n  AND id IN (NULL)".into(),
+                vec![Bind::Arg(0)]
+            )
+        );
+        assert_eq!(
+            build(
+                sql,
+                Placeholders::Numbered,
+                &[Arg::Active, Arg::Slice(Some(2))],
+            ),
+            (
+                "SELECT * FROM t\nWHERE name = $1\n  AND id IN ($2,$3)".into(),
+                vec![Bind::Arg(0), Bind::Elem(1, 0), Bind::Elem(1, 1)]
+            )
+        );
+    }
+
+    #[test]
+    fn repeated_numbered_slices_replay_expansion() {
+        let (sql, binds) = build(
+            "SELECT * FROM t WHERE id IN (/*SLICE:ids*/$1) OR parent_id IN (/*SLICE:ids*/$1)",
+            Placeholders::Numbered,
+            &[Arg::Slice(Some(2))],
+        );
+        assert_eq!(sql, "SELECT * FROM t WHERE id IN ($1,$2) OR parent_id IN ($1,$2)");
+        assert_eq!(binds, [Bind::Elem(0, 0), Bind::Elem(0, 1)]);
+    }
+
+    #[test]
+    fn empty_repeated_slices_render_null_each_time() {
+        assert_eq!(
+            build(
+                "SELECT * FROM t WHERE id IN (/*SLICE:ids*/$1) OR parent_id IN (/*SLICE:ids*/$1)",
+                Placeholders::Numbered,
+                &[Arg::Slice(Some(0))],
+            )
+            .0,
+            "SELECT * FROM t WHERE id IN (NULL) OR parent_id IN (NULL)"
+        );
+    }
+
+    #[test]
+    fn missing_slice_argument_renders_null() {
+        assert_eq!(
+            build(
+                "SELECT * FROM t WHERE id IN (/*SLICE:ids*/?2) -- :if $1",
+                Placeholders::Numbered,
+                &[Arg::Active],
+            ),
+            ("SELECT * FROM t WHERE id IN (NULL)".into(), vec![])
+        );
+    }
+
+    #[test]
+    fn removes_trailing_order_by_and_where() {
+        let (sql, binds) = build(
+            "SELECT * FROM t\nWHERE\n  a = $1 -- :if $1\nORDER BY\n  id ASC, -- :if $2\n  id DESC -- :if $3",
+            Placeholders::Numbered,
+            &[Arg::Inactive, Arg::Flag(false), Arg::Flag(false)],
+        );
+        assert_eq!(sql, "SELECT * FROM t");
+        assert!(binds.is_empty());
+    }
+
+    #[test]
+    fn removes_a_trailing_comma_after_toggling_order_by() {
+        assert_eq!(
+            build(
+                "SELECT * FROM t\nORDER BY\n  id ASC, -- :if $1\n  id DESC -- :if $2",
+                Placeholders::Numbered,
+                &[Arg::Flag(true), Arg::Flag(false)],
+            )
+            .0,
+            "SELECT * FROM t\nORDER BY\n  id ASC"
+        );
+    }
+
+    #[test]
+    fn ignores_markers_in_literals_and_comments() {
+        let (sql, binds) = build(
+            "SELECT '?1', '$2' /* $3 */ FROM t WHERE a = $1 -- ignore $2",
+            Placeholders::Numbered,
+            &[Arg::Active],
+        );
+        assert_eq!(sql, "SELECT '?1', '$2' /* $3 */ FROM t WHERE a = $1 -- ignore $2");
+        assert_eq!(binds, [Bind::Arg(0)]);
+    }
+
+    #[test]
+    fn handles_postgres_dollar_quotes_escape_strings_and_nested_comments() {
+        let (sql, binds) = build(
+            "SELECT E'it\\'s $2', $tag$ -- :if $3 $tag$ /* outer /* inner */ $4 */ FROM t WHERE a = $1",
+            Placeholders::Numbered,
+            &[Arg::Active],
+        );
+        assert_eq!(sql, "SELECT E'it\\'s $2', $tag$ -- :if $3 $tag$ /* outer /* inner */ $4 */ FROM t WHERE a = $1");
+        assert_eq!(binds, [Bind::Arg(0)]);
+    }
+
+    #[test]
+    fn keeps_postgres_array_subscripts_as_placeholders() {
+        let (sql, binds) = build(
+            "SELECT tags[$1] FROM t WHERE a = $2",
+            Placeholders::Numbered,
+            &[Arg::Active, Arg::Active],
+        );
+        assert_eq!(sql, "SELECT tags[$1] FROM t WHERE a = $2");
+        assert_eq!(binds, [Bind::Arg(0), Bind::Arg(1)]);
+    }
+
+    #[test]
+    fn keeps_sqlite_bracket_identifiers_opaque() {
+        let (sql, binds) = build(
+            "SELECT [a?1b], [x$2y] FROM t WHERE a = ?1",
+            Placeholders::Numbered,
+            &[Arg::Active],
+        );
+        assert_eq!(sql, "SELECT [a?1b], [x$2y] FROM t WHERE a = $1");
+        assert_eq!(binds, [Bind::Arg(0)]);
+    }
+
+    #[test]
+    fn respects_mysql_backslash_escaped_strings() {
+        let sql = "SELECT a FROM t\nWHERE cond = 1\n  AND name = 'O\\'Brien' AND status = ? -- :if $1";
+        assert_eq!(
+            build(sql, Placeholders::Question, &[Arg::Active]).0,
+            "SELECT a FROM t\nWHERE cond = 1\n  AND name = 'O\\'Brien' AND status = ?"
+        );
+        assert_eq!(
+            build(sql, Placeholders::Question, &[Arg::Inactive]).0,
+            "SELECT a FROM t\nWHERE cond = 1"
+        );
+    }
+
+    #[test]
+    fn ignores_annotations_on_multiline_literal_continuations() {
+        let (sql, binds) = build(
+            "SELECT * FROM t\nWHERE note = 'hello\n-- :if $1\nworld' AND active = $2",
+            Placeholders::Numbered,
+            &[Arg::Inactive, Arg::Active],
+        );
+        assert_eq!(sql, "SELECT * FROM t\nWHERE note = 'hello\n-- :if $1\nworld' AND active = $1");
+        assert_eq!(binds, [Bind::Arg(1)]);
+    }
+
+    #[test]
+    fn reports_the_highest_referenced_argument() {
+        assert_eq!(
+            compile("SELECT $1 -- :if $4", Placeholders::Numbered).arg_count(),
+            4
+        );
+    }
+
+    #[test]
+    fn nilable_turns_only_empty_slices_into_none() {
+        assert_eq!(nilable::<i64>(&[]), None);
+        assert_eq!(nilable(&[1_i64]), Some(&[1][..]));
+    }
+}

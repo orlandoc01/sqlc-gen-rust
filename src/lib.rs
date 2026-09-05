@@ -6,8 +6,13 @@ pub(crate) mod plugin {
     include!(concat!(env!("OUT_DIR"), "/plugin.rs"));
 }
 pub(crate) mod db_crates;
+pub(crate) mod dynfilter;
 pub(crate) mod path_map;
 pub(crate) mod query;
+#[cfg(test)]
+mod dynfilter_runtime {
+    include!("db_crates/dynfilter_runtime.rs");
+}
 use db_crates::DbCrate as _;
 use query::{Query, ReturningRows, RsType, collect_enums};
 pub trait StackError: std::error::Error {
