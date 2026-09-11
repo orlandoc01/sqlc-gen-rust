@@ -12,7 +12,7 @@ RUN curl https://github.com/protocolbuffers/protobuf/releases/download/v29.3/pro
 RUN unzip -q protoc.zip bin/protoc 'include/*' -d /usr/local && rm protoc.zip
 
 # Copy sqlc bin
-COPY --from=sqlc/sqlc:1.28.0 /workspace/sqlc /usr/bin/sqlc
+COPY --from=sqlc/sqlc:1.31.1 /workspace/sqlc /usr/bin/sqlc
 
 ARG USERNAME=vscode
 USER ${USERNAME}

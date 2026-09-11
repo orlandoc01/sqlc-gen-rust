@@ -2,7 +2,7 @@
 
 ## Scope
 
-This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust.
+This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust. It is published from `github.com/orlandoc01/sqlc-gen-rust`; a Forgejo remote mirrors it.
 
 - `main` carries upstream plus `sqlc.embed` support, the `api: params_struct` output, and `-- :if` dynamic filters.
 - New behavior must be behind an opt-in config option; upstream behavior remains the default. Dynamic filters are opted into per query by the `-- :if` annotation under `api: params_struct`, not by a separate option.
@@ -10,18 +10,23 @@ This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that gen
 
 ## Layout
 
-- `src/lib.rs`: plugin entry point, `Config` parsing, and override types.
+- `src/lib.rs`: plugin entry point, `Config` parsing and validation, and override types.
 - `src/query.rs`: query, parameter, and row models; annotations; and `SLICE` expansion.
-- `src/db_crates/{mod,sqlx,postgres,rusqlite}.rs`: per-crate code generation. `sqlx.rs` covers sqlx-postgres, sqlx-mysql, and sqlx-sqlite.
+- `src/dynfilter.rs`: parses `-- :if @param` annotations and static `sqlc.slice()` markers into a bind plan.
+- `src/db_crates/{mod,sqlx,postgres,rusqlite}.rs`: per-crate code generation for the default `builder` API. `sqlx.rs` covers sqlx-postgres, sqlx-mysql, and sqlx-sqlite.
+- `src/db_crates/sqlx_params.rs`: the `api: params_struct` generator (SQL constants, free async functions, params/row structs).
+- `src/db_crates/dynfilter_runtime.rs`: the `pub mod dynfilter` runtime that is inlined into generated code when a query needs it. It is also compiled into the plugin's own tests.
 - `src/path_map.rs`: SQL-to-Rust path mapping.
 - `src/protos/codegen.proto`: sqlc plugin protocol. `build.rs` compiles it with `prost-build`, which requires `protoc`.
 - Root `sqlc.yaml`: drives regeneration for every `examples/*` package.
-- `examples/test-utils`: PostgreSQL/MySQL test contexts reading `POSTGRES_DATABASE_URL` and `MYSQL_DATABASE_URL` from `.dev.env`; they need Docker Compose.
+- `examples/dynamic-filter/*`: one crate per sqlx engine exercising `-- :if`. `examples/*-params/`: `params_struct` variants of the builder examples.
+- `examples/test-utils`: PostgreSQL/MySQL test contexts reading `POSTGRES_DATABASE_URL` and `MYSQL_DATABASE_URL`.
 - `rust-toolchain.toml`: pins Rust 1.89.0 and the `wasm32-wasip1` target.
+- `.devcontainer/` + `Dockerfile` + `compose.yaml`: upstream's VS Code container with `postgres` and `mysql` services. `.dev.env` uses the compose hostnames, which only resolve inside that container.
 
 ## Tools
 
-`mise` globally installs `protoc` 36.1, `just` 1.58.0, and `sqlc` 1.31.1. If one is not on `PATH`, invoke it with `mise exec -- <cmd>`.
+`mise` globally installs `protoc` 36.1, `just` 1.58.0, and `sqlc` 1.31.1. If one is not on `PATH`, invoke it with `mise exec -- <cmd>`. CI and the devcontainer pin the same sqlc version; keep the three in sync when bumping.
 
 ## Gates
 
@@ -31,19 +36,32 @@ Before a commit is done, run the one-command gate:
 just check-local
 ```
 
-It runs `just format-ci`, `just lint-ci`, `just generate && git diff --exit-code`, and:
+It runs `just format-ci`, `just lint-ci`, `just generate && git diff --exit-code`, then `cargo test` and `cargo clippy` over the plugin and the SQLite-backed example crates listed in the `check-local` recipe in `Justfile`. That recipe is the source of truth for which crates are covered locally.
+
+PostgreSQL/MySQL example tests need running databases. From the host, `.dev.env` does not work; start the databases with published ports and export the URLs yourself, for example:
 
 ```sh
-cargo test -p sqlc-gen-rust -p authors-sqlx-sqlite -p sqlc-slice-sqlx-sqlite -p type-mapping-sqlx-sqlite
+docker run -d --rm --name sqlcrust-pg -p 127.0.0.1:5433:5432 -e POSTGRES_USER=root -e POSTGRES_PASSWORD=password -e POSTGRES_DB=app postgres:17.0-bookworm
+docker run -d --rm --name sqlcrust-mysql -p 127.0.0.1:3307:3306 -e MYSQL_ROOT_PASSWORD=password -e MYSQL_DATABASE=app mysql:9.4
+export POSTGRES_DATABASE_URL=postgres://root:password@127.0.0.1:5433/app
+export MYSQL_DATABASE_URL=mysql://root:password@127.0.0.1:3307/app
+cargo test --workspace
 ```
 
-The current baseline is 9 plugin tests and 5 SQLite example tests passing. PostgreSQL/MySQL example tests are optional locally; run `docker compose up -d postgres mysql` first. This fork has no CI yet.
+## CI
+
+`.github/workflows/pull_request.yaml` runs on PRs and pushes to `main`: format, clippy, then a test job with Postgres and MySQL service containers that runs `just generate-release`, fails on any diff in generated output, and runs `just test` (the whole workspace). `dependabot_automerge.yaml` auto-merges grouped minor/patch updates.
+
+## Releases
+
+`.github/workflows/release.yaml` runs on a `v*` tag push. It builds the wasm with `--locked`, attaches `sqlc-gen-rust.wasm` and its `.sha256` to a GitHub release, and generates notes. To cut a release: bump `version` in `Cargo.toml`, run `just generate` (the generated file headers embed the version), run `just build-release` and put its sha256 and the new tag into the README install snippet, commit, then `git tag vX.Y.Z && git push github main vX.Y.Z`. After CI finishes, confirm the sha256 in the release assets matches the README.
 
 ## Machine Traps
 
 - Shell output may be rewritten by an `rtk` hook. When parsing command output, use `rtk proxy <cmd>` or absolute binary paths.
 - Do not write scratch files outside the repository except under `/tmp`.
 - Do not hand-edit generated output, including `examples/*/src/queries.rs`.
+- Bumping `version` in `Cargo.toml` changes every generated `queries.rs` header; regenerate in the same commit or the CI drift check fails.
 
 ## Style
 
