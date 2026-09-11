@@ -17,8 +17,11 @@ jobs:
         with:
           github-token: '${{ secrets.GITHUB_TOKEN }}'
       - name: Enable auto-merge for Dependabot PRs
+        # Cargo bumps of [workspace.dependencies] only rewrite Cargo.lock and
+        # leave the manifest behind, so they need a human to update Cargo.toml.
         if: |
-          steps.metadata.outputs.dependency-group == 'minor-and-patch'
+          steps.metadata.outputs.dependency-group == 'minor-and-patch' &&
+          steps.metadata.outputs.package-ecosystem == 'github_actions'
         run: |
           gh pr merge --auto --squash "$PR_URL"
         env:
