@@ -648,6 +648,56 @@ pub mod dynfilter {
         None
     }
     fn finalize_query(mut query: String) -> String {
+        let mut lines = query.lines().map(str::to_string).collect::<Vec<_>>();
+        let mut index = 0;
+        while index < lines.len() {
+            if !lines[index].trim().eq_ignore_ascii_case("ORDER BY") {
+                index += 1;
+                continue;
+            }
+            let fallback = lines[index + 1..]
+                .iter()
+                .position(|line| line.trim().eq_ignore_ascii_case("TRUE"))
+                .map(|offset| index + offset + 1);
+            let Some(fallback) = fallback else {
+                index += 1;
+                continue;
+            };
+            if fallback == index + 1 {
+                lines.drain(index..=fallback);
+                continue;
+            }
+            let previous = &mut lines[fallback - 1];
+            let end = previous.trim_end_matches([' ', '\t']).len();
+            if previous[..end].ends_with(',') {
+                previous.remove(end - 1);
+            }
+            lines.remove(fallback);
+            index += 1;
+        }
+        index = 0;
+        while index < lines.len() {
+            let trimmed = lines[index].trim();
+            let next_is_query_suffix = lines.get(index + 1).is_none_or(|line| {
+                ["ORDER", "LIMIT", "OFFSET", "FETCH", "RETURNING"]
+                    .iter()
+                    .any(|keyword| {
+                        line.split_whitespace()
+                            .next()
+                            .is_some_and(|word| word.eq_ignore_ascii_case(keyword))
+                    })
+            });
+            if ["ORDER BY", "WHERE", "GROUP BY", "HAVING"]
+                .iter()
+                .any(|keyword| trimmed.eq_ignore_ascii_case(keyword))
+                && next_is_query_suffix
+            {
+                lines.remove(index);
+                continue;
+            }
+            index += 1;
+        }
+        query = lines.join("\n");
         loop {
             let end = query.trim_end_matches([' ', '\t', '\n']).len();
             if end == 0 {
@@ -809,23 +859,19 @@ pub mod dynfilter {
         #[test]
         fn removes_trailing_order_by_and_where() {
             let (sql, binds) = build(
-                "SELECT * FROM t\nWHERE\n  a = $1 -- :if $1\nORDER BY\n  id ASC, -- :if $2\n  id DESC -- :if $3",
+                "SELECT * FROM t\nWHERE\n  a = $1 -- :if $1\nORDER BY\n  id ASC, -- :if $2\n  id DESC -- :if $3\n  TRUE\nLIMIT 10",
                 Placeholders::NumberedSqlite,
                 &[Arg::Inactive, Arg::Flag(false), Arg::Flag(false)],
             );
-            assert_eq!(sql, "SELECT * FROM t");
+            assert_eq!(sql, "SELECT * FROM t\nLIMIT 10");
             assert!(binds.is_empty());
         }
         #[test]
         fn removes_a_trailing_comma_after_toggling_order_by() {
             assert_eq!(
-                build(
-                    "SELECT * FROM t\nORDER BY\n  id ASC, -- :if $1\n  id DESC -- :if $2",
-                    Placeholders::Numbered,
-                    &[Arg::Flag(true), Arg::Flag(false)],
-                )
-                .0,
-                "SELECT * FROM t\nORDER BY\n  id ASC"
+                build("SELECT * FROM t\nORDER BY\n  id ASC, -- :if $1\n  id DESC -- :if $2\n  TRUE\nLIMIT 10",
+                Placeholders::Numbered, & [Arg::Flag(true), Arg::Flag(false)],).0,
+                "SELECT * FROM t\nORDER BY\n  id ASC\nLIMIT 10"
             );
         }
         #[test]
