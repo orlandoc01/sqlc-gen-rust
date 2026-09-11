@@ -1,8 +1,6 @@
 # sqlc-gen-rust
 
-sqlc plugin for Rust database crates.
-
-This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
+sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
 
 It adds the following new features on top of the original plugin:
 * [`params_struct` API](#api) 
