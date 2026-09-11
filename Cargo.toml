@@ -1,8 +1,9 @@
 [package]
 name = "sqlc-gen-rust"
-version = "0.1.12"
+version = "0.1.0"
 edition = "2024"
-authors = ["tunamaguro"]
+authors = ["Orlando Castillo"]
+repository = "https://github.com/orlandoc01/sqlc-gen-rust"
 license = "MIT OR Apache-2.0"
 
 [workspace]
