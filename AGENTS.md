@@ -2,11 +2,10 @@
 
 ## Scope
 
-This is a private fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust.
+This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust.
 
-- Keep `main` limited to upstream parity plus `sqlc.embed` support, so it remains suitable for a future upstream PR.
-- Put opinionated features, including params-struct output and `-- :if` dynamic filters, on `dynfilter`.
-- New behavior must be behind an opt-in config option; upstream behavior remains the default.
+- `main` carries upstream plus `sqlc.embed` support, the `api: params_struct` output, and `-- :if` dynamic filters.
+- New behavior must be behind an opt-in config option; upstream behavior remains the default. Dynamic filters are opted into per query by the `-- :if` annotation under `api: params_struct`, not by a separate option.
 - Never hand-edit committed generated output. Run `just generate`, including for files such as `examples/*/src/queries.rs`.
 
 ## Layout

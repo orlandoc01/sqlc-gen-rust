@@ -277,7 +277,6 @@ struct Config {
     db_crate: db_crates::SupportedDbCrate,
     api: db_crates::Api,
     query_parameter_limit: usize,
-    emit_dynamic_filter: bool,
     overrides: Vec<OverrideType>,
     debug: bool,
     #[serde(flatten)]
@@ -292,7 +291,6 @@ impl Default for Config {
             db_crate: Default::default(),
             api: Default::default(),
             query_parameter_limit: 1,
-            emit_dynamic_filter: false,
             overrides: Default::default(),
             debug: false,
             return_row_attributes: Default::default(),
@@ -307,11 +305,6 @@ impl Config {
     }
 
     fn validate(&self, queries: &[Query]) -> Result<(), Error> {
-        if self.emit_dynamic_filter && self.api != db_crates::Api::ParamsStruct {
-            return Err(Error::any(
-                "emit_dynamic_filter: true requires api: params_struct.".into(),
-            ));
-        }
         if self.api != db_crates::Api::ParamsStruct {
             return Ok(());
         }
@@ -480,19 +473,14 @@ pub fn try_main() -> Result<(), Error> {
         .map(|q| Query::from_query(&db_type, q))
         .collect::<Result<Vec<_>, _>>()?;
 
-    if config.emit_dynamic_filter {
-        for query in &mut queries {
-            query.apply_dynfilter();
-        }
-    }
-    if config.api == db_crates::Api::ParamsStruct
-        && matches!(
+    if config.api == db_crates::Api::ParamsStruct {
+        let static_slices = matches!(
             config.db_crate,
             db_crates::SupportedDbCrate::Sqlx(db_crates::Sqlx::MySql | db_crates::Sqlx::Sqlite)
-        )
-    {
+        );
         for query in &mut queries {
-            if query.dynfilter().is_none() {
+            query.apply_dynfilter();
+            if static_slices && query.dynfilter().is_none() {
                 query.apply_static_slices();
             }
         }
@@ -510,7 +498,6 @@ pub fn try_main() -> Result<(), Error> {
     let options = db_crates::GenerationOptions {
         api: config.api,
         query_parameter_limit: config.query_parameter_limit,
-        emit_dynamic_filter: config.emit_dynamic_filter,
     };
     let queries_tt = config
         .db_crate
@@ -594,11 +581,5 @@ mod tests {
 
             assert!(config.validate(&[]).is_err(), "{db_crate}");
         }
-    }
-
-    #[test]
-    fn dynamic_filter_requires_params_struct_api() {
-        let config = Config::from_option(br#"{"emit_dynamic_filter":true}"#).unwrap();
-        assert!(config.validate(&[]).is_err());
     }
 }

@@ -188,8 +188,8 @@ builder structs. `params_struct` is available for `sqlx-postgres`, `sqlx-mysql`,
 `sqlx-sqlite`; it generates SQL constants, free async functions, and public params/row structs
 instead of query builders. `:copyfrom` and `:batch*` are not supported with this API.
 For SQLite and MySQL `sqlc.slice()` queries, it also emits `pub mod dynfilter` and uses its
-runtime bind plan even when `emit_dynamic_filter` is off, so numbered slice markers are expanded
-and rebound correctly. PostgreSQL keeps array binding.
+runtime bind plan so numbered slice markers are expanded and rebound correctly. PostgreSQL
+keeps array binding.
 
 ```yaml
 options:
@@ -220,17 +220,11 @@ pub struct CreateAuthorParams<'a> {
 }
 ```
 
-### `emit_dynamic_filter`
+#### Dynamic filters with `-- :if`
 
-Enables runtime-selectable SQL lines with `-- :if @param` annotations. It requires
-`api: params_struct` and supports `sqlx-postgres`, `sqlx-sqlite`, and `sqlx-mysql`.
-
-```yaml
-options:
-  db_crate: sqlx-sqlite
-  api: params_struct
-  emit_dynamic_filter: true
-```
+With `api: params_struct`, any SQL line annotated with `-- :if @param` becomes
+runtime-selectable. No extra option is needed: queries without annotations are generated
+as usual, and the `dynfilter` runtime module is only emitted when a query uses it.
 
 Conditional SQL parameters become `Option<T>` (`None` skips the line), and names that
 appear only in an annotation become appended `bool` fields. Conditional `sqlc.slice()`
@@ -398,6 +392,12 @@ sql:
 ### `output`
 
 Generated code destination. Default is `queries.rs`.
+
+## Credits
+
+This project is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust),
+which provides the core plugin, type mapping, and query builder API. The `params_struct` API and
+`-- :if` dynamic filters were added in this fork.
 
 ## License
 

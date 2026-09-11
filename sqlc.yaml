@@ -313,7 +313,6 @@ sql:
           output: queries.rs
           db_crate: sqlx-sqlite
           api: params_struct
-          emit_dynamic_filter: true
   - schema: examples/dynamic-filter/sqlx-postgres/schema.sql
     queries: examples/dynamic-filter/sqlx-postgres/queries.sql
     engine: postgresql
@@ -324,7 +323,6 @@ sql:
           output: queries.rs
           db_crate: sqlx-postgres
           api: params_struct
-          emit_dynamic_filter: true
   - schema: examples/dynamic-filter/sqlx-mysql/schema.sql
     queries: examples/dynamic-filter/sqlx-mysql/queries.sql
     engine: mysql
@@ -335,4 +333,3 @@ sql:
           output: queries.rs
           db_crate: sqlx-mysql
           api: params_struct
-          emit_dynamic_filter: true

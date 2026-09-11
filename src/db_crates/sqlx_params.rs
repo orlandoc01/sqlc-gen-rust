@@ -17,12 +17,12 @@ pub(super) fn generate_queries(
     rows: &[ReturningRows],
     queries: &[Query],
     query_parameter_limit: usize,
-    emit_dynamic_filter: bool,
 ) -> proc_macro2::TokenStream {
-    let dynfilter_runtime = (emit_dynamic_filter
-        || queries.iter().any(|query| query.dynfilter().is_some()))
-    .then(dynfilter_runtime)
-    .unwrap_or_default();
+    let dynfilter_runtime = queries
+        .iter()
+        .any(|query| query.dynfilter().is_some())
+        .then(dynfilter_runtime)
+        .unwrap_or_default();
     let query_tokens = rows
         .iter()
         .zip(queries)
