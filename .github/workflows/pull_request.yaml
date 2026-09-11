@@ -108,10 +108,12 @@ jobs:
       - name: Setup sqlc
         uses: sqlc-dev/setup-sqlc@bac53b7fb28c039a6c7f5736fd1e89744021bdd6 # v5.0.0
         with:
-          sqlc-version: '1.28.0'
+          sqlc-version: '1.31.1'
       - name: Regenerate query
         run: |
           just generate-release
+      - name: Check generated output is committed
+        run: git diff --exit-code
       - name: Run test
         env:
           POSTGRES_DATABASE_URL: postgres://root:password@localhost:5432/app

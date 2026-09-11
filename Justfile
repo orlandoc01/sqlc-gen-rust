@@ -71,6 +71,7 @@ generate-release:
     sqlc generate -f _sqlc_dev.yaml
 
     rm _sqlc_dev.yaml
+    cargo fmt --all
 
 build-release:
     #!/usr/bin/env bash
