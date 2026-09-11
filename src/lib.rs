@@ -443,11 +443,11 @@ pub fn try_main() -> Result<(), Error> {
         db_type.insert_db_type(
             &e.name,
             RsType::new(
-                syn::TypePath {
+                syn::Type::Path(syn::TypePath {
+                    attrs: Vec::new(),
                     qself: None,
                     path: e.ident().clone().into(),
-                }
-                .into(),
+                }),
                 None,
                 true,
             ),

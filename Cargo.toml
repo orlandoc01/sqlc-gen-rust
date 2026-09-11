@@ -27,12 +27,12 @@ lto = true
 [dependencies]
 prost = { version = "0.14" }
 
-prettyplease = { version = "0.2" }
+prettyplease = { version = "0.3" }
 proc-macro2 = { version = "1.0" }
 quote = { version = "1.0" }
-syn = { version = "2" }
+syn = { version = "3" }
 
-convert_case = { version = "0.8.0" }
+convert_case = { version = "0.12" }
 regex-lite = "0.1.6"
 
 serde = { version = "1.0.219", features = ["derive"] }
