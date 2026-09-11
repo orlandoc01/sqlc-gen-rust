@@ -3,8 +3,10 @@
 sqlc plugin for Rust database crates.
 
 This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
-It adds the [`params_struct` API](#api) and [`-- :if` dynamic filters](#dynamic-filters-with---if)
-on top of the original plugin.
+
+It adds the following new features on top of the original plugin:
+* [`params_struct` API](#api) 
+* [`-- :if` dynamic filters](#dynamic-filters-with---if)
 
 ## Usage
 
