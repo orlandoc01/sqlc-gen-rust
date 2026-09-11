@@ -231,7 +231,9 @@ runtime-selectable. No extra option is needed: queries without annotations are g
 as usual, and the `dynfilter` runtime module is only emitted when a query uses it.
 
 Conditional SQL parameters become `Option<T>` (`None` skips the line), and names that
-appear only in an annotation become appended `bool` fields. Conditional `sqlc.slice()`
+appear only in an annotation become appended `bool` fields. End an `ORDER BY` list with a
+trailing `TRUE` so the SQL stays valid for sqlc; the runtime strips it, and drops the whole
+`ORDER BY` when no direction is selected. Conditional `sqlc.slice()`
 parameters become `Option<&[T]>`: `None` skips the line, while `Some(&[])` keeps it and
 renders `NULL`, matching zero rows. Use `dynfilter::nilable(ids)` when an empty slice
 should mean "no filter".
