@@ -2,7 +2,7 @@
 
 sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
 
-It generates SQLx, rusqlite, and tokio-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
+It generates SQLx, rusqlite, tokio-postgres, and deadpool-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
 
 ## Usage
 
@@ -31,11 +31,11 @@ sql:
 - [sqlx-sqlite](https://docs.rs/sqlx/latest/sqlx/sqlite/index.html)
 - [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/)
 - [tokio-postgres](https://docs.rs/tokio-postgres/latest/tokio_postgres/)
+- [deadpool-postgres](https://docs.rs/deadpool-postgres/latest/deadpool_postgres/)
 
 The upstream builder API and its remaining non-sqlx backends were removed. Support for these
 crates will return on top of the params-struct API:
 
-- TODO: [deadpool-postgres](https://crates.io/crates/deadpool-postgres)
 - TODO: [postgres](https://crates.io/crates/postgres)
 
 > [!NOTE]
@@ -125,6 +125,7 @@ async fn main() {
 - [`sqlx-sqlite` example](./examples/authors/sqlx-sqlite/src/lib.rs)
 - [`rusqlite` example](./examples/authors/rusqlite/src/lib.rs)
 - [`tokio-postgres` example](./examples/authors/tokio-postgres/src/lib.rs)
+- [`deadpool-postgres` example](./examples/authors/deadpool-postgres/src/lib.rs)
 
 Rusqlite functions are synchronous and accept connections, transactions, and savepoints through the generated trait:
 
@@ -153,8 +154,10 @@ let author = queries::get_author_with(&client, &statement, id).await?;
 let stream = queries::list_authors_stream(&client).await?;
 ```
 
+`deadpool-postgres` generates the same API with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`.
+
 Dynamic (`-- :if`) queries do not expose `prepare_*` or `*_with` variants. On tokio-postgres, both
-`:execrows` and `:execresult` return `u64`.
+and deadpool-postgres, both `:execrows` and `:execresult` return `u64`.
 
 PostgreSQL infers untyped `LIMIT` and `OFFSET` parameters as `bigint`. Cast them explicitly
 (`::int` or `::bigint`) or add an override so the generated Rust parameter type matches. A bare
@@ -175,7 +178,7 @@ LIMIT sqlc.arg('limit')::int OFFSET sqlc.arg('offset')::int
 | sqlx-mysql     | ✅       | ✅             | ✅       | ✅      | ❌          |
 | sqlx-sqlite    | ✅       | ✅             | ✅       | ✅      | ❌          |
 | rusqlite       | ✅       | ✅             | ✅       | ✅      | ❌          |
-| tokio-postgres | ✅       | ❌             | ✅       | ✅      | ❌          |
+| tokio-postgres / deadpool-postgres | ✅       | ❌             | ✅       | ✅      | ❌          |
 
 ### Macros
 
@@ -212,6 +215,7 @@ The crate used in the generated code. Default is `sqlx-postgres`.
 - `sqlx-sqlite`
 - `rusqlite`
 - `tokio-postgres`
+- `deadpool-postgres`
 
 For example, a `:one` query with one `id` parameter generates a direct argument, while a query
 with two parameters generates a params struct:

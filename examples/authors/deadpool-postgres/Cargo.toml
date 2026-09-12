@@ -1,14 +1,13 @@
 [package]
-name = "test-utils"
+name = "authors-deadpool-postgres"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-sqlx = { workspace = true }
-rusqlite = { workspace = true }
 deadpool-postgres = { workspace = true }
-tokio-postgres = { workspace = true }
+
+[dev-dependencies]
+futures-util = { workspace = true }
 tokio = { workspace = true }
-fastrand = "2.4.1"
 test-context = { workspace = true }
-url = "2.5.8"
+test-utils = { workspace = true }

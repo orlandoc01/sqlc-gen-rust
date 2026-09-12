@@ -1,9 +1,9 @@
 use crate::query::Annotation;
 
-use super::{Function, TokioPostgres, params_common};
+use super::{Function, params_common};
 
 pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
-    let paths = TokioPostgres.paths();
+    let paths = function.backend.paths();
     let name = &function.name;
     let helper = quote::format_ident!("{name}_query");
     let client = &function.client;

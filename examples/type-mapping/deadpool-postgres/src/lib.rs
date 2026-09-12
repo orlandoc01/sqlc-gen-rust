@@ -18,22 +18,22 @@ mod tests {
 
     use chrono::TimeZone;
     use test_context::test_context;
-    use test_utils::PgTokioContext;
+    use test_utils::PgDeadpoolContext;
 
     use super::*;
 
-    async fn migrate_db(client: &tokio_postgres::Client) {
+    async fn migrate_db(client: &deadpool_postgres::Client) {
         client
             .batch_execute(include_str!("../schema.sql"))
             .await
             .unwrap();
     }
 
-    #[test_context(PgTokioContext)]
+    #[test_context(PgDeadpoolContext)]
     #[tokio::test]
-    async fn maps_types(ctx: &mut PgTokioContext) {
-        let client = &ctx.client;
-        migrate_db(client).await;
+    async fn maps_types(ctx: &mut PgDeadpoolContext) {
+        let client = ctx.pool.get().await.unwrap();
+        migrate_db(&client).await;
 
         let bool_array_val = [true, false];
         let bytea_val = [1, 2, 3, 4, 5];
@@ -43,9 +43,9 @@ mod tests {
         let timestamptz_val = chrono::Utc.with_ymd_and_hms(2025, 1, 23, 4, 5, 6).unwrap();
         let date_val = chrono::NaiveDate::from_ymd_opt(2025, 1, 23).unwrap();
         let time_val = chrono::NaiveTime::from_hms_opt(1, 23, 45).unwrap();
-        let statement = queries::prepare_insert_mapping(client).await.unwrap();
+        let statement = queries::prepare_insert_mapping(&client).await.unwrap();
         queries::insert_mapping_with(
-            client,
+            &client,
             &statement,
             queries::InsertMappingParams {
                 bool_val: true,
@@ -77,7 +77,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mapping = queries::get_mapping(client).await.unwrap();
+        let mapping = queries::get_mapping(&client).await.unwrap();
 
         assert!(mapping.bool_val);
         assert_eq!(mapping.bool_array_val, bool_array_val);

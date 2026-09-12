@@ -27,11 +27,12 @@ impl ParamsGenerator for TokioPostgres {
         row: &ReturningRows,
         parts: &QueryParts,
     ) -> proc_macro2::TokenStream {
-        Function::new(query, row, parts).generate()
+        Function::new(*self, query, row, parts).generate()
     }
 }
 
 struct Function<'a> {
+    backend: TokioPostgres,
     query: &'a Query,
     row: &'a ReturningRows,
     parts: &'a QueryParts,
@@ -46,17 +47,23 @@ struct Function<'a> {
 }
 
 impl<'a> Function<'a> {
-    fn new(query: &'a Query, row: &'a ReturningRows, parts: &'a QueryParts) -> Self {
+    fn new(
+        backend: TokioPostgres,
+        query: &'a Query,
+        row: &'a ReturningRows,
+        parts: &'a QueryParts,
+    ) -> Self {
         let name = params_common::query_function_ident(query);
         let client = parts.local("client");
         let statement = parts.local("statement");
         let values_ident = parts.local("values");
-        let paths = TokioPostgres.paths();
+        let paths = backend.paths();
         let values = Self::static_values(query, parts, &values_ident, &paths.to_sql);
         let forwarded = Self::forwarded_args(query, parts);
-        let prepare = Self::prepare_function(&name, &client, &parts.constant, &paths);
+        let prepare = Self::prepare_function(backend, &name, &client, &parts.constant, &paths);
 
         Self {
+            backend,
             query,
             row,
             parts,
@@ -234,13 +241,14 @@ impl<'a> Function<'a> {
     }
 
     fn prepare_function(
+        backend: TokioPostgres,
         name: &syn::Ident,
         client: &syn::Ident,
         sql: &syn::Ident,
         paths: &TokioPostgresPaths,
     ) -> proc_macro2::TokenStream {
         let prepare = quote::format_ident!("prepare_{name}");
-        let prepare_statement = TokioPostgres.prepare_statement(client, sql);
+        let prepare_statement = backend.prepare_statement(client, sql);
         let generic_client = &paths.client;
         let statement = &paths.statement;
         let error = &paths.error;
