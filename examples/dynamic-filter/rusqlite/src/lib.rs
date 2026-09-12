@@ -4,36 +4,18 @@ mod queries;
 #[cfg(test)]
 mod tests {
     use super::queries;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
-    async fn pool() -> sqlx::SqlitePool {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "sqlc-gen-rust-dynfilter-{}-{}.db",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed),
-        ));
-        sqlx::SqlitePool::connect(&format!("sqlite://{}?mode=rwc", path.display()))
-            .await
-            .unwrap()
+    fn connection() -> rusqlite::Connection {
+        rusqlite::Connection::open_in_memory().unwrap()
     }
 
-    async fn migrate(pool: &sqlx::SqlitePool) {
-        sqlx::raw_sql(include_str!("../schema.sql"))
-            .execute(pool)
-            .await
+    fn migrate(conn: &rusqlite::Connection) {
+        conn.execute_batch(include_str!("../../sqlx-sqlite/schema.sql"))
             .unwrap();
-        sqlx::query(
-            "INSERT INTO users (id, email, phone) VALUES (1, 'alice@example.com', '111'), (2, 'bob@example.com', '222'), (3, 'carol@example.com', '333')",
+        conn.execute_batch(
+            "INSERT INTO users (id, email, phone) VALUES (1, 'alice@example.com', '111'), (2, 'bob@example.com', '222'), (3, 'carol@example.com', '333');
+             INSERT INTO orders (id, user_id, created_at) VALUES (1, 1, '2024-01-01'), (2, 2, '2025-01-01');",
         )
-        .execute(pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO orders (id, user_id, created_at) VALUES (1, 1, '2024-01-01'), (2, 2, '2025-01-01')",
-        )
-        .execute(pool)
-        .await
         .unwrap();
     }
 
@@ -48,121 +30,109 @@ mod tests {
         Default::default()
     }
 
-    #[tokio::test]
-    async fn searches_without_filters() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn searches_without_filters() {
+        let conn = connection();
+        migrate(&conn);
 
-        let users = queries::search_users(&pool, params()).await.unwrap();
-        assert_eq!(users.len(), 3);
+        assert_eq!(queries::search_users(&conn, params()).unwrap().len(), 3);
     }
 
-    #[tokio::test]
-    async fn applies_each_scalar_filter() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn applies_each_scalar_filter() {
+        let conn = connection();
+        migrate(&conn);
 
         let users = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 email: Some("alice@example.com"),
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert_eq!(users.iter().map(|user| user.id).collect::<Vec<_>>(), [1]);
 
         let users = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 phone: Some("222"),
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert_eq!(users.iter().map(|user| user.id).collect::<Vec<_>>(), [2]);
     }
 
-    #[tokio::test]
-    async fn distinguishes_none_empty_and_populated_slices() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn distinguishes_none_empty_and_populated_slices() {
+        let conn = connection();
+        migrate(&conn);
 
-        assert_eq!(
-            queries::search_users(&pool, params()).await.unwrap().len(),
-            3
-        );
-
+        assert_eq!(queries::search_users(&conn, params()).unwrap().len(), 3);
         let empty = [];
         let users = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 ids: Some(&empty),
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert!(users.is_empty());
 
         let ids = [1, 3];
         let users = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 ids: Some(&ids),
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert_eq!(users.iter().map(|user| user.id).collect::<Vec<_>>(), [1, 3]);
         assert_eq!(queries::dynfilter::nilable(&empty), None);
     }
 
-    #[tokio::test]
-    async fn toggles_the_orders_block_and_its_filter() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn toggles_the_orders_block_and_its_filter() {
+        let conn = connection();
+        migrate(&conn);
 
         let users = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 has_orders: true,
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert_eq!(users.iter().map(|user| user.id).collect::<Vec<_>>(), [1, 2]);
 
         let users = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 has_orders: true,
                 orders_since: Some("2025-01-01"),
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert_eq!(users.iter().map(|user| user.id).collect::<Vec<_>>(), [2]);
     }
 
-    #[tokio::test]
-    async fn toggles_each_order_by_direction() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn toggles_each_order_by_direction() {
+        let conn = connection();
+        migrate(&conn);
 
         let asc = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 id_asc: true,
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert_eq!(
             asc.iter().map(|user| user.id).collect::<Vec<_>>(),
@@ -170,13 +140,12 @@ mod tests {
         );
 
         let desc = queries::search_users(
-            &pool,
+            &conn,
             queries::SearchUsersParams {
                 id_desc: true,
                 ..params()
             },
         )
-        .await
         .unwrap();
         assert_eq!(
             desc.iter().map(|user| user.id).collect::<Vec<_>>(),
@@ -184,27 +153,25 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn counts_users_with_dynamic_filters() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn counts_users_with_dynamic_filters() {
+        let conn = connection();
+        migrate(&conn);
 
         assert_eq!(
-            queries::count_users(&pool, count_users_params())
-                .await
+            queries::count_users(&conn, count_users_params())
                 .unwrap()
                 .total,
             3
         );
         assert_eq!(
             queries::count_users(
-                &pool,
+                &conn,
                 queries::CountUsersParams {
                     email: Some("alice@example.com"),
                     ..count_users_params()
                 },
             )
-            .await
             .unwrap()
             .total,
             1
@@ -213,58 +180,49 @@ mod tests {
         let empty = [];
         assert_eq!(
             queries::count_users(
-                &pool,
+                &conn,
                 queries::CountUsersParams {
                     ids: Some(&empty),
                     ..count_users_params()
                 },
             )
-            .await
             .unwrap()
             .total,
             0
         );
         assert_eq!(
             queries::count_users(
-                &pool,
+                &conn,
                 queries::CountUsersParams {
                     ids: None,
                     ..count_users_params()
                 },
             )
-            .await
             .unwrap()
             .total,
             3
         );
         assert!(
-            queries::count_users_opt(&pool, count_users_params())
-                .await
+            queries::count_users_opt(&conn, count_users_params())
                 .unwrap()
                 .is_some()
         );
     }
 
-    #[tokio::test]
-    async fn touches_users_with_dynamic_filters() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn touches_users_with_dynamic_filters() {
+        let conn = connection();
+        migrate(&conn);
 
-        assert_eq!(
-            queries::touch_users(&pool, Default::default())
-                .await
-                .unwrap(),
-            3
-        );
+        assert_eq!(queries::touch_users(&conn, Default::default()).unwrap(), 3);
         assert_eq!(
             queries::touch_users(
-                &pool,
+                &conn,
                 queries::TouchUsersParams {
                     email: Some("alice@example.com"),
                     ..Default::default()
                 },
             )
-            .await
             .unwrap(),
             1
         );
@@ -272,63 +230,79 @@ mod tests {
         let empty = [];
         assert_eq!(
             queries::touch_users(
-                &pool,
+                &conn,
                 queries::TouchUsersParams {
                     ids: Some(&empty),
                     ..Default::default()
                 },
             )
-            .await
             .unwrap(),
             0
         );
         assert_eq!(
             queries::touch_users(
-                &pool,
+                &conn,
                 queries::TouchUsersParams {
                     ids: None,
                     ..Default::default()
                 },
             )
-            .await
             .unwrap(),
             3
         );
     }
 
-    async fn user_ids(
-        pool: &sqlx::SqlitePool,
-        params: queries::SearchUsersByEmailsParams<'_>,
-    ) -> Vec<i64> {
-        queries::search_users_by_emails(pool, params)
-            .await
-            .unwrap()
-            .iter()
-            .map(|user| user.id)
-            .collect()
-    }
-
-    #[tokio::test]
-    async fn filters_by_owned_string_slices_and_repeated_scalars() {
-        let pool = pool().await;
-        migrate(&pool).await;
+    #[test]
+    fn filters_by_owned_string_slices_and_repeated_scalars() {
+        let conn = connection();
+        migrate(&conn);
+        let ids = |params| {
+            queries::search_users_by_emails(&conn, params)
+                .unwrap()
+                .iter()
+                .map(|user| user.id)
+                .collect::<Vec<_>>()
+        };
         let emails = [
             "alice@example.com".to_string(),
             "carol@example.com".to_string(),
         ];
-        let params = |emails, contact| queries::SearchUsersByEmailsParams { emails, contact };
 
-        assert_eq!(user_ids(&pool, Default::default()).await, [1, 2, 3]);
-        assert_eq!(user_ids(&pool, params(Some(&emails), None)).await, [1, 3]);
-        assert_eq!(user_ids(&pool, params(None, Some("222"))).await, [2]);
+        assert_eq!(ids(Default::default()), [1, 2, 3]);
         assert_eq!(
-            user_ids(&pool, params(None, Some("bob@example.com"))).await,
+            ids(queries::SearchUsersByEmailsParams {
+                emails: Some(&emails),
+                contact: None,
+            }),
+            [1, 3]
+        );
+        assert_eq!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: None,
+                contact: Some("222"),
+            }),
             [2]
         );
         assert_eq!(
-            user_ids(&pool, params(Some(&emails), Some("111"))).await,
+            ids(queries::SearchUsersByEmailsParams {
+                emails: None,
+                contact: Some("bob@example.com"),
+            }),
+            [2]
+        );
+        assert_eq!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: Some(&emails),
+                contact: Some("111"),
+            }),
             [1]
         );
-        assert!(user_ids(&pool, params(Some(&[]), None)).await.is_empty());
+        assert!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: Some(&[]),
+                contact: None,
+            })
+            .is_empty()
+        );
     }
 }

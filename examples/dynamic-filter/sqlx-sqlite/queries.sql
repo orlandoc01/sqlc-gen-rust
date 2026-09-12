@@ -30,3 +30,11 @@ WHERE TRUE
   AND email = @email -- :if @email
   AND users.id IN (sqlc.slice('ids')) -- :if @ids
   AND TRUE;
+
+-- name: SearchUsersByEmails :many
+SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email IN (sqlc.slice('emails')) -- :if @emails
+  AND (phone = @contact OR email = @contact) -- :if @contact
+ORDER BY id;

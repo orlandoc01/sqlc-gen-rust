@@ -40,5 +40,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(queries::count_authors(pool).await.unwrap().count, 1);
+
+        assert_eq!(
+            queries::authors_by_executor(pool, "Brian Kernighan")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            queries::authors_by_q(
+                pool,
+                Some("Co-author of The C Programming Language and The Go Programming Language")
+            )
+            .await
+            .unwrap()
+            .len(),
+            1
+        );
     }
 }

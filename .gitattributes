@@ -1,0 +1,3 @@
+# sqlc output; GitHub collapses these in PR diffs and excludes them from language stats.
+examples/**/src/queries.rs linguist-generated=true
+examples/e-commerce/src/sqlx_query.rs linguist-generated=true

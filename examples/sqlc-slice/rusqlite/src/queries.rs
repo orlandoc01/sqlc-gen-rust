@@ -2,6 +2,24 @@
 //! sqlc version: v1.31.1
 //! sqlc-gen-rust version: v0.1.0
 
+pub trait RusqliteClient {
+    fn connection(&self) -> &rusqlite::Connection;
+}
+impl RusqliteClient for rusqlite::Connection {
+    fn connection(&self) -> &rusqlite::Connection {
+        self
+    }
+}
+impl RusqliteClient for rusqlite::Transaction<'_> {
+    fn connection(&self) -> &rusqlite::Connection {
+        self
+    }
+}
+impl RusqliteClient for rusqlite::Savepoint<'_> {
+    fn connection(&self) -> &rusqlite::Connection {
+        self
+    }
+}
 pub mod dynfilter {
     use std::collections::{HashMap, HashSet};
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -974,262 +992,271 @@ pub mod dynfilter {
         }
     }
 }
-pub const SEARCH_USERS: &str = r"SELECT id, email, phone
-FROM users
-WHERE TRUE
-  AND email = ?1 -- :if $1
--- :if $2
-  AND phone = ?2
-  AND EXISTS ( -- :if $6
-    SELECT 1 FROM orders WHERE orders.user_id = users.id -- :if $6
-      AND orders.created_at >= ?3 -- :if $3 -- :if $6
-  ) -- :if $6
-  AND users.id IN (/*SLICE:ids*/?4) -- :if $4
-ORDER BY
-  users.id ASC, -- :if $7
-  users.id DESC, -- :if $8
-  TRUE
-LIMIT ?5";
-static SEARCH_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+pub const LIST_AUTHORS_BY_IDS: &str = r"SELECT id, name
+FROM authors
+WHERE id IN (/*SLICE:ids*/?1)
+ORDER BY id";
+static LIST_AUTHORS_BY_IDS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
     std::sync::LazyLock::new(|| {
         dynfilter::compile_with_arg_order(
-            SEARCH_USERS,
+            LIST_AUTHORS_BY_IDS,
             dynfilter::Placeholders::NumberedSqlite,
-            &[1usize, 2usize, 3usize, 4usize, 5usize],
+            &[1usize],
         )
     });
 #[derive(Debug, Clone, Default)]
-pub struct SearchUsersParams<'a> {
-    pub email: Option<&'a str>,
-    pub phone: Option<&'a str>,
-    pub orders_since: Option<&'a str>,
-    pub ids: Option<&'a [i64]>,
-    pub row_limit: i64,
-    pub has_orders: bool,
-    pub id_asc: bool,
-    pub id_desc: bool,
+pub struct ListAuthorsByIDsParams<'a> {
+    pub ids: &'a [i64],
 }
-pub struct SearchUsersRow {
+pub struct ListAuthorsByIDsRow {
     pub id: i64,
-    pub email: String,
-    pub phone: String,
+    pub name: String,
 }
-impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for SearchUsersRow {
-    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+impl ListAuthorsByIDsRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
-            id: sqlx::Row::try_get(row, 0)?,
-            email: sqlx::Row::try_get(row, 1)?,
-            phone: sqlx::Row::try_get(row, 2)?,
+            id: row.get(0)?,
+            name: row.get(1)?,
         })
     }
 }
-pub async fn search_users<'e>(
-    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
-    params: SearchUsersParams<'_>,
-) -> Result<Vec<SearchUsersRow>, sqlx::Error> {
-    let args = [
-        dynfilter::Arg::from_option(&params.email),
-        dynfilter::Arg::from_option(&params.phone),
-        dynfilter::Arg::from_option(&params.orders_since),
-        dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
-        dynfilter::Arg::Active,
-        dynfilter::Arg::Flag(params.has_orders),
-        dynfilter::Arg::Flag(params.id_asc),
-        dynfilter::Arg::Flag(params.id_desc),
-    ];
-    let (sql, binds) = SEARCH_USERS_DYN.build(&args);
-    let mut q = sqlx::query_as::<_, SearchUsersRow>(&sql);
-    for bind in binds {
-        q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
-            dynfilter::Bind::Arg(1usize) => q.bind(params.phone.unwrap()),
-            dynfilter::Bind::Arg(2usize) => q.bind(params.orders_since.unwrap()),
-            dynfilter::Bind::Elem(3usize, element) => {
-                let elem = &params.ids.unwrap()[element];
-                q.bind(elem)
+pub fn list_authors_by_ids(
+    client: &impl RusqliteClient,
+    params: ListAuthorsByIDsParams<'_>,
+) -> rusqlite::Result<Vec<ListAuthorsByIDsRow>> {
+    let args = [dynfilter::Arg::Slice(Some(params.ids.len()))];
+    let (sql, binds) = LIST_AUTHORS_BY_IDS_DYN.build(&args);
+    let values = binds
+        .into_iter()
+        .map(|bind| -> &dyn rusqlite::ToSql {
+            match bind {
+                dynfilter::Bind::Elem(0usize, element) => &params.ids[element],
+                _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
             }
-            dynfilter::Bind::Arg(4usize) => q.bind(params.row_limit),
-            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
-        };
-    }
-    let q = q.persistent(false);
-    q.fetch_all(executor).await
-}
-pub const COUNT_USERS: &str = r"SELECT COUNT(*) AS total
-FROM users
-WHERE TRUE
-  AND email = ?1 -- :if $1
-  AND users.id IN (/*SLICE:ids*/?2) -- :if $2
-  AND TRUE";
-static COUNT_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> = std::sync::LazyLock::new(|| {
-    dynfilter::compile_with_arg_order(
-        COUNT_USERS,
-        dynfilter::Placeholders::NumberedSqlite,
-        &[1usize, 2usize],
-    )
-});
-#[derive(Debug, Clone, Default)]
-pub struct CountUsersParams<'a> {
-    pub email: Option<&'a str>,
-    pub ids: Option<&'a [i64]>,
-}
-pub struct CountUsersRow {
-    pub total: i64,
-}
-impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for CountUsersRow {
-    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
-        Ok(Self {
-            total: sqlx::Row::try_get(row, 0)?,
         })
-    }
+        .collect::<Vec<_>>();
+    let mut statement = client.connection().prepare(&sql)?;
+    let params = rusqlite::params_from_iter(values);
+    statement
+        .query_map(params, ListAuthorsByIDsRow::from_row)?
+        .collect()
 }
-pub async fn count_users<'e>(
-    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
-    params: CountUsersParams<'_>,
-) -> Result<CountUsersRow, sqlx::Error> {
-    let args = [
-        dynfilter::Arg::from_option(&params.email),
-        dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
-    ];
-    let (sql, binds) = COUNT_USERS_DYN.build(&args);
-    let mut q = sqlx::query_as::<_, CountUsersRow>(&sql);
-    for bind in binds {
-        q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
-            dynfilter::Bind::Elem(1usize, element) => {
-                let elem = &params.ids.unwrap()[element];
-                q.bind(elem)
-            }
-            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
-        };
-    }
-    let q = q.persistent(false);
-    q.fetch_one(executor).await
-}
-pub async fn count_users_opt<'e>(
-    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
-    params: CountUsersParams<'_>,
-) -> Result<Option<CountUsersRow>, sqlx::Error> {
-    let args = [
-        dynfilter::Arg::from_option(&params.email),
-        dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
-    ];
-    let (sql, binds) = COUNT_USERS_DYN.build(&args);
-    let mut q = sqlx::query_as::<_, CountUsersRow>(&sql);
-    for bind in binds {
-        q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
-            dynfilter::Bind::Elem(1usize, element) => {
-                let elem = &params.ids.unwrap()[element];
-                q.bind(elem)
-            }
-            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
-        };
-    }
-    let q = q.persistent(false);
-    q.fetch_optional(executor).await
-}
-pub const TOUCH_USERS: &str = r"UPDATE users SET phone = phone
-WHERE TRUE
-  AND email = ?1 -- :if $1
-  AND users.id IN (/*SLICE:ids*/?2) -- :if $2
-  AND TRUE";
-static TOUCH_USERS_DYN: std::sync::LazyLock<dynfilter::Compiled> = std::sync::LazyLock::new(|| {
-    dynfilter::compile_with_arg_order(
-        TOUCH_USERS,
-        dynfilter::Placeholders::NumberedSqlite,
-        &[1usize, 2usize],
-    )
-});
-#[derive(Debug, Clone, Default)]
-pub struct TouchUsersParams<'a> {
-    pub email: Option<&'a str>,
-    pub ids: Option<&'a [i64]>,
-}
-pub async fn touch_users<'e>(
-    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
-    params: TouchUsersParams<'_>,
-) -> Result<u64, sqlx::Error> {
-    let args = [
-        dynfilter::Arg::from_option(&params.email),
-        dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
-    ];
-    let (sql, binds) = TOUCH_USERS_DYN.build(&args);
-    let mut q = sqlx::query(&sql);
-    for bind in binds {
-        q = match bind {
-            dynfilter::Bind::Arg(0usize) => q.bind(params.email.unwrap()),
-            dynfilter::Bind::Elem(1usize, element) => {
-                let elem = &params.ids.unwrap()[element];
-                q.bind(elem)
-            }
-            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
-        };
-    }
-    let q = q.persistent(false);
-    q.execute(executor)
-        .await
-        .map(|result| result.rows_affected())
-}
-pub const SEARCH_USERS_BY_EMAILS: &str = r"SELECT id, email, phone
-FROM users
-WHERE TRUE
-  AND email IN (/*SLICE:emails*/?1) -- :if $1
-  AND (phone = ?2 OR email = ?2) -- :if $2
+pub const LIST_AUTHORS_BY_TWO_ID_LISTS: &str = r"SELECT id, name
+FROM authors
+WHERE id IN (/*SLICE:ids*/?1)
+   OR id IN (/*SLICE:backup_ids*/?2)
 ORDER BY id";
-static SEARCH_USERS_BY_EMAILS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+static LIST_AUTHORS_BY_TWO_ID_LISTS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
     std::sync::LazyLock::new(|| {
         dynfilter::compile_with_arg_order(
-            SEARCH_USERS_BY_EMAILS,
+            LIST_AUTHORS_BY_TWO_ID_LISTS,
             dynfilter::Placeholders::NumberedSqlite,
             &[1usize, 2usize],
         )
     });
 #[derive(Debug, Clone, Default)]
-pub struct SearchUsersByEmailsParams<'a> {
-    pub emails: Option<&'a [String]>,
-    pub contact: Option<&'a str>,
+pub struct ListAuthorsByTwoIdListsParams<'a> {
+    pub ids: &'a [i64],
+    pub backup_ids: &'a [i64],
 }
-pub struct SearchUsersByEmailsRow {
+pub struct ListAuthorsByTwoIdListsRow {
     pub id: i64,
-    pub email: String,
-    pub phone: String,
+    pub name: String,
 }
-impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for SearchUsersByEmailsRow {
-    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+impl ListAuthorsByTwoIdListsRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
-            id: sqlx::Row::try_get(row, 0)?,
-            email: sqlx::Row::try_get(row, 1)?,
-            phone: sqlx::Row::try_get(row, 2)?,
+            id: row.get(0)?,
+            name: row.get(1)?,
         })
     }
 }
-pub async fn search_users_by_emails<'e>(
-    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
-    params: SearchUsersByEmailsParams<'_>,
-) -> Result<Vec<SearchUsersByEmailsRow>, sqlx::Error> {
+pub fn list_authors_by_two_id_lists(
+    client: &impl RusqliteClient,
+    params: ListAuthorsByTwoIdListsParams<'_>,
+) -> rusqlite::Result<Vec<ListAuthorsByTwoIdListsRow>> {
     let args = [
-        dynfilter::Arg::Slice(params.emails.map(<[_]>::len)),
-        dynfilter::Arg::from_option(&params.contact),
+        dynfilter::Arg::Slice(Some(params.ids.len())),
+        dynfilter::Arg::Slice(Some(params.backup_ids.len())),
     ];
-    let (sql, binds) = SEARCH_USERS_BY_EMAILS_DYN.build(&args);
-    let mut q = sqlx::query_as::<_, SearchUsersByEmailsRow>(&sql);
-    for bind in binds {
-        q = match bind {
-            dynfilter::Bind::Elem(0usize, element) => {
-                let elem = &params.emails.unwrap()[element];
-                q.bind(elem)
+    let (sql, binds) = LIST_AUTHORS_BY_TWO_ID_LISTS_DYN.build(&args);
+    let values = binds
+        .into_iter()
+        .map(|bind| -> &dyn rusqlite::ToSql {
+            match bind {
+                dynfilter::Bind::Elem(0usize, element) => &params.ids[element],
+                dynfilter::Bind::Elem(1usize, element) => &params.backup_ids[element],
+                _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
             }
-            dynfilter::Bind::Arg(1usize) => q.bind(params.contact.unwrap()),
-            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
-        };
+        })
+        .collect::<Vec<_>>();
+    let mut statement = client.connection().prepare(&sql)?;
+    let params = rusqlite::params_from_iter(values);
+    statement
+        .query_map(params, ListAuthorsByTwoIdListsRow::from_row)?
+        .collect()
+}
+pub const LIST_AUTHORS_BY_IDS_MIXED: &str = r"SELECT id, name
+FROM authors
+WHERE id IN (/*SLICE:ids*/?3)
+  AND id >= ?
+  AND id NOT IN (/*SLICE:skip_ids*/?4)
+  AND name <> ?
+ORDER BY id";
+static LIST_AUTHORS_BY_IDS_MIXED_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            LIST_AUTHORS_BY_IDS_MIXED,
+            dynfilter::Placeholders::NumberedSqlite,
+            &[3usize, 1usize, 4usize, 2usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct ListAuthorsByIDsMixedParams<'a> {
+    pub ids: &'a [i64],
+    pub id: i64,
+    pub skip_ids: &'a [i64],
+    pub name: &'a str,
+}
+pub struct ListAuthorsByIDsMixedRow {
+    pub id: i64,
+    pub name: String,
+}
+impl ListAuthorsByIDsMixedRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
     }
-    let q = q.persistent(false);
-    q.fetch_all(executor).await
+}
+pub fn list_authors_by_ids_mixed(
+    client: &impl RusqliteClient,
+    params: ListAuthorsByIDsMixedParams<'_>,
+) -> rusqlite::Result<Vec<ListAuthorsByIDsMixedRow>> {
+    let args = [
+        dynfilter::Arg::Active,
+        dynfilter::Arg::Active,
+        dynfilter::Arg::Slice(Some(params.ids.len())),
+        dynfilter::Arg::Slice(Some(params.skip_ids.len())),
+    ];
+    let (sql, binds) = LIST_AUTHORS_BY_IDS_MIXED_DYN.build(&args);
+    let values = binds
+        .into_iter()
+        .map(|bind| -> &dyn rusqlite::ToSql {
+            match bind {
+                dynfilter::Bind::Elem(2usize, element) => &params.ids[element],
+                dynfilter::Bind::Arg(0usize) => &params.id,
+                dynfilter::Bind::Elem(3usize, element) => &params.skip_ids[element],
+                dynfilter::Bind::Arg(1usize) => &params.name,
+                _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut statement = client.connection().prepare(&sql)?;
+    let params = rusqlite::params_from_iter(values);
+    statement
+        .query_map(params, ListAuthorsByIDsMixedRow::from_row)?
+        .collect()
+}
+pub const LIST_AUTHORS_BY_NAMED_IDS: &str = r"SELECT id, name
+FROM authors
+WHERE id >= ?1
+  AND id IN (/*SLICE:ids*/?2)
+  AND id <= ?3
+ORDER BY id";
+static LIST_AUTHORS_BY_NAMED_IDS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            LIST_AUTHORS_BY_NAMED_IDS,
+            dynfilter::Placeholders::NumberedSqlite,
+            &[1usize, 2usize, 3usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct ListAuthorsByNamedIDsParams<'a> {
+    pub min_id: i64,
+    pub ids: &'a [i64],
+    pub max_id: i64,
+}
+pub struct ListAuthorsByNamedIDsRow {
+    pub id: i64,
+    pub name: String,
+}
+impl ListAuthorsByNamedIDsRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    }
+}
+pub fn list_authors_by_named_ids(
+    client: &impl RusqliteClient,
+    params: ListAuthorsByNamedIDsParams<'_>,
+) -> rusqlite::Result<Vec<ListAuthorsByNamedIDsRow>> {
+    let args = [
+        dynfilter::Arg::Active,
+        dynfilter::Arg::Slice(Some(params.ids.len())),
+        dynfilter::Arg::Active,
+    ];
+    let (sql, binds) = LIST_AUTHORS_BY_NAMED_IDS_DYN.build(&args);
+    let values = binds
+        .into_iter()
+        .map(|bind| -> &dyn rusqlite::ToSql {
+            match bind {
+                dynfilter::Bind::Arg(0usize) => &params.min_id,
+                dynfilter::Bind::Elem(1usize, element) => &params.ids[element],
+                dynfilter::Bind::Arg(2usize) => &params.max_id,
+                _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut statement = client.connection().prepare(&sql)?;
+    let params = rusqlite::params_from_iter(values);
+    statement
+        .query_map(params, ListAuthorsByNamedIDsRow::from_row)?
+        .collect()
+}
+pub const DELETE_AUTHORS_BY_IDS: &str = r"DELETE FROM authors
+WHERE id IN (/*SLICE:ids*/?1)";
+static DELETE_AUTHORS_BY_IDS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            DELETE_AUTHORS_BY_IDS,
+            dynfilter::Placeholders::NumberedSqlite,
+            &[1usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct DeleteAuthorsByIDsParams<'a> {
+    pub ids: &'a [i64],
+}
+pub fn delete_authors_by_ids(
+    client: &impl RusqliteClient,
+    params: DeleteAuthorsByIDsParams<'_>,
+) -> rusqlite::Result<()> {
+    let args = [dynfilter::Arg::Slice(Some(params.ids.len()))];
+    let (sql, binds) = DELETE_AUTHORS_BY_IDS_DYN.build(&args);
+    let values = binds
+        .into_iter()
+        .map(|bind| -> &dyn rusqlite::ToSql {
+            match bind {
+                dynfilter::Bind::Elem(0usize, element) => &params.ids[element],
+                _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut statement = client.connection().prepare(&sql)?;
+    let params = rusqlite::params_from_iter(values);
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(())
 }
 pub const QUERIES: &[(&str, &str)] = &[
-    ("SearchUsers", SEARCH_USERS),
-    ("CountUsers", COUNT_USERS),
-    ("TouchUsers", TOUCH_USERS),
-    ("SearchUsersByEmails", SEARCH_USERS_BY_EMAILS),
+    ("ListAuthorsByIDs", LIST_AUTHORS_BY_IDS),
+    ("ListAuthorsByTwoIDLists", LIST_AUTHORS_BY_TWO_ID_LISTS),
+    ("ListAuthorsByIDsMixed", LIST_AUTHORS_BY_IDS_MIXED),
+    ("ListAuthorsByNamedIDs", LIST_AUTHORS_BY_NAMED_IDS),
+    ("DeleteAuthorsByIDs", DELETE_AUTHORS_BY_IDS),
 ];

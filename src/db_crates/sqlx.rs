@@ -1,5 +1,5 @@
 use crate::{
-    query::{ColumnField, DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper},
+    query::{DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper},
     value_ident,
 };
 
@@ -103,51 +103,17 @@ pub(crate) enum Sqlx {
     Sqlite,
 }
 
-impl<'de> serde::Deserialize<'de> for Sqlx {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        match value.trim() {
-            "sqlx-postgres" => Ok(Self::Postgres),
-            "sqlx-mysql" => Ok(Self::MySql),
-            "sqlx-sqlite" => Ok(Self::Sqlite),
-            _ => Err(serde::de::Error::custom(format!(
-                "db_crate `{value}` is not supported yet; supported: sqlx-postgres, sqlx-mysql, sqlx-sqlite"
-            ))),
-        }
-    }
-}
-
 impl Sqlx {
     pub(crate) fn db_type_map(&self) -> crate::query::DbTypeMap {
         let copy_cheap = self.copy_cheap_types();
         let default_types = self.default_types();
-        let mut map: Box<dyn TypeMapper> = match self {
+        let map: Box<dyn TypeMapper> = match self {
             Self::Postgres => Box::new(SimpleTypeMap::default()),
             Self::MySql => Box::new(MySqlTypeMap::default()),
             Self::Sqlite => Box::new(SqliteTypeMap::default()),
         };
 
-        for (owned_type, db_types) in copy_cheap {
-            let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
-            for db_type in *db_types {
-                map.insert_db_type(db_type, RsType::new(owned_type.clone(), None, true));
-            }
-        }
-        for (owned_type, slice_type, db_types) in default_types {
-            let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
-            let slice_type = slice_type
-                .map(|typ| syn::parse_str::<syn::Type>(typ).expect("Failed to parse slice type"));
-            for db_type in *db_types {
-                map.insert_db_type(
-                    db_type,
-                    RsType::new(owned_type.clone(), slice_type.clone(), false),
-                );
-            }
-        }
-        crate::query::DbTypeMap::from_dyn(map)
+        type_map(map, copy_cheap, default_types)
     }
 
     pub(crate) fn defined_enum(&self, enum_type: &DbEnum) -> proc_macro2::TokenStream {
@@ -179,39 +145,15 @@ impl Sqlx {
         let struct_tokens = super::make_return_row(row);
         let ident = row.struct_ident();
         let row_type = self.row_type();
-        let row_ident = quote::format_ident!("row");
-        let fields = row
-            .fields
-            .iter()
-            .zip(row.field_ordinals())
-            .map(|(field, ordinal)| Self::field_from_row(field, &row_ident, ordinal));
+        let fields = super::row_field_initializers(row, |index| {
+            quote::quote! { sqlx::Row::try_get(row, #index)? }
+        });
         quote::quote! {
             #struct_tokens
             impl<'r> sqlx::FromRow<'r, #row_type> for #ident {
-                fn from_row(#row_ident: &'r #row_type) -> Result<Self, sqlx::Error> {
+                fn from_row(row: &'r #row_type) -> Result<Self, sqlx::Error> {
                     Ok(Self { #(#fields,)* })
                 }
-            }
-        }
-    }
-
-    fn field_from_row(
-        field: &ColumnField,
-        row: &syn::Ident,
-        ordinal: std::ops::Range<usize>,
-    ) -> proc_macro2::TokenStream {
-        let field_ident = &field.name;
-        let literal = proc_macro2::Literal::usize_unsuffixed(ordinal.start);
-        match field.embedded_table() {
-            None => quote::quote! { #field_ident: sqlx::Row::try_get(#row, #literal)? },
-            Some(table) => {
-                let table_ident = &table.ident;
-                let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
-                    let field_ident = &field.name;
-                    let literal = proc_macro2::Literal::usize_unsuffixed(index);
-                    quote::quote! { #field_ident: sqlx::Row::try_get(#row, #literal)? }
-                });
-                quote::quote! { #field_ident: #table_ident { #(#fields,)* } }
             }
         }
     }
@@ -388,4 +330,29 @@ impl Sqlx {
             }).collect(),
         }
     }
+}
+
+fn type_map(
+    mut map: Box<dyn TypeMapper>,
+    copy_cheap_types: &[(&str, &[&str])],
+    default_types: &[(&str, Option<&str>, &[&str])],
+) -> crate::query::DbTypeMap {
+    for (owned_type, db_types) in copy_cheap_types {
+        let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
+        for db_type in *db_types {
+            map.insert_db_type(db_type, RsType::new(owned_type.clone(), None, true));
+        }
+    }
+    for (owned_type, slice_type, db_types) in default_types {
+        let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
+        let slice_type = slice_type
+            .map(|typ| syn::parse_str::<syn::Type>(typ).expect("Failed to parse slice type"));
+        for db_type in *db_types {
+            map.insert_db_type(
+                db_type,
+                RsType::new(owned_type.clone(), slice_type.clone(), false),
+            );
+        }
+    }
+    crate::query::DbTypeMap::from_dyn(map)
 }

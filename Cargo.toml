@@ -47,6 +47,8 @@ sqlx = { version = "0.8.6", features = [
     "chrono",
     "ipnet",
 ] }
+# Newer rusqlite releases link libsqlite3-sys versions incompatible with sqlx-sqlite 0.8.6.
+rusqlite = { version = "0.32.1", features = ["bundled", "chrono", "serde_json"] }
 tokio = { version = "1.52.3", features = ["full"] }
 
 chrono = { version = "0.4.44" }

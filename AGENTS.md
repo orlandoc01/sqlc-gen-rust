@@ -13,14 +13,15 @@ This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that gen
 - `src/lib.rs`: plugin entry point, `Config` parsing and validation, and override types.
 - `src/query.rs`: query, parameter, and row models; annotations; and static-slice handling.
 - `src/dynfilter.rs`: parses `-- :if @param` annotations and static `sqlc.slice()` markers into a bind plan.
-- `src/db_crates/{mod,sqlx}.rs`: shared code generation and SQLx type mapping for sqlx-postgres, sqlx-mysql, and sqlx-sqlite.
-- `src/db_crates/sqlx_params.rs`: generator for SQL constants, free async functions, and params/row structs.
+- `src/db_crates/{mod,sqlx,rusqlite}.rs`: backend dispatch, SQLx/SQLite type mapping, and rusqlite setup and row decoding.
+- `src/db_crates/params_common.rs`: shared params-struct definitions, identifier generation, dynamic-filter setup, and query index.
+- `src/db_crates/{sqlx_params,rusqlite_params,rusqlite_tests}.rs`: SQLx and rusqlite params-struct query generators, and rusqlite generator token tests.
 - `src/db_crates/dynfilter_runtime.rs`: the `pub mod dynfilter` runtime that is inlined into generated code when a query needs it. It is also compiled into the plugin's own tests.
 - `src/path_map.rs`: SQL-to-Rust path mapping.
 - `src/protos/codegen.proto`: sqlc plugin protocol. `build.rs` compiles it with `prost-build`, which requires `protoc`.
 - Root `sqlc.yaml`: drives regeneration for every `examples/*` package.
-- `examples/dynamic-filter/*`: one crate per SQLx engine exercising `-- :if`.
-- `examples/test-utils`: PostgreSQL/MySQL test contexts reading `POSTGRES_DATABASE_URL` and `MYSQL_DATABASE_URL`.
+- `examples/dynamic-filter/*`: one crate per supported engine exercising `-- :if`.
+- `examples/test-utils`: PostgreSQL/MySQL and SQLite test contexts; PostgreSQL/MySQL read their database URLs from the environment.
 - `rust-toolchain.toml`: pins Rust 1.89.0 and the `wasm32-wasip1` target.
 - `.devcontainer/` + `Dockerfile` + `compose.yaml`: upstream's VS Code container with `postgres` and `mysql` services. `.dev.env` uses the compose hostnames, which only resolve inside that container.
 

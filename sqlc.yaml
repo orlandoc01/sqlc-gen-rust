@@ -49,6 +49,16 @@ sql:
           output: queries.rs
           db_crate: sqlx-sqlite
 
+  - schema: examples/authors/sqlx-sqlite/schema.sql
+    queries: examples/authors/rusqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+
   - schema: examples/embed/sqlx-sqlite/schema.sql
     queries: examples/embed/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -58,6 +68,12 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-sqlite
+          query_parameter_limit: 0
+      - plugin: sqlc-gen-rust
+        out: examples/embed/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
           query_parameter_limit: 0
 
   - schema: examples/type-mapping/sqlx-postgres/schema.sql
@@ -113,6 +129,19 @@ sql:
               rs_type: chrono::NaiveDate
             - db_type: time
               rs_type: chrono::NaiveTime
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+          query_parameter_limit: 2
+          overrides:
+            - db_type: datetime
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: time
+              rs_type: chrono::NaiveTime
 
   - schema: examples/sqlc-slice/sqlx-postgres/schema.sql
     queries: examples/sqlc-slice/sqlx-postgres/queries.sql
@@ -142,6 +171,12 @@ sql:
           output: queries.rs
           db_crate: sqlx-sqlite
           query_parameter_limit: 0
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+          query_parameter_limit: 0
 
   - schema: examples/dynamic-filter/sqlx-sqlite/schema.sql
     queries: examples/dynamic-filter/sqlx-sqlite/queries.sql
@@ -152,6 +187,11 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-sqlite
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
   - schema: examples/dynamic-filter/sqlx-postgres/schema.sql
     queries: examples/dynamic-filter/sqlx-postgres/queries.sql
     engine: postgresql

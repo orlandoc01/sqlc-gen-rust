@@ -254,7 +254,38 @@ pub async fn insert_mapping<'e>(
     let q = q.bind(params.datetime_val);
     q.execute(executor).await.map(|_| ())
 }
+pub const GET_MAPPING_BY_CLIENT_AND_STATEMENT: &str = r"SELECT id_val FROM mapping
+WHERE aff_text_val = ?1 AND text_val = ?2";
+#[derive(Debug, Clone, Default)]
+pub struct GetMappingByClientAndStatementParams<'a> {
+    pub client: &'a str,
+    pub statement: &'a str,
+}
+pub struct GetMappingByClientAndStatementRow {
+    pub id_val: i64,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for GetMappingByClientAndStatementRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id_val: sqlx::Row::try_get(row, 0)?,
+        })
+    }
+}
+pub async fn get_mapping_by_client_and_statement<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: GetMappingByClientAndStatementParams<'_>,
+) -> Result<Vec<GetMappingByClientAndStatementRow>, sqlx::Error> {
+    let q =
+        sqlx::query_as::<_, GetMappingByClientAndStatementRow>(GET_MAPPING_BY_CLIENT_AND_STATEMENT);
+    let q = q.bind(params.client);
+    let q = q.bind(params.statement);
+    q.fetch_all(executor).await
+}
 pub const QUERIES: &[(&str, &str)] = &[
     ("GetMapping", GET_MAPPING),
     ("InsertMapping", INSERT_MAPPING),
+    (
+        "GetMappingByClientAndStatement",
+        GET_MAPPING_BY_CLIENT_AND_STATEMENT,
+    ),
 ];
