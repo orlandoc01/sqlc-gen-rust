@@ -78,7 +78,54 @@ DELETE FROM authors
 WHERE id = $1;
 ```
 
-### Using generated code
+### Using the params struct API
+
+With [`api: params_struct`](#api), each query becomes a free async function with a public
+params struct. Each function takes any `sqlx::Executor`, so a pool, a connection, or a
+transaction all work:
+
+```rust
+mod queries;
+
+use queries::CreateAuthorParams;
+
+#[tokio::main]
+async fn main() {
+    let pool = sqlx::PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+
+    // list authors
+    let authors = queries::list_authors(&pool).await.unwrap();
+    assert_eq!(authors.len(), 0);
+
+    // create and get an author (INSERT ... RETURNING ...)
+    let author = queries::create_author(
+        &pool,
+        CreateAuthorParams {
+            name: "John",
+            bio: Some("Foo"),
+        },
+    )
+    .await
+    .unwrap();
+    let fetched = queries::get_author(&pool, author.id).await.unwrap();
+    assert_eq!(fetched.name, "John");
+    // queries::get_author_opt(&pool, author.id) returns Option<GetAuthorRow>
+
+    // a single-parameter query takes the value directly
+    queries::delete_author(&pool, author.id).await.unwrap();
+}
+```
+
+- [`sqlx-postgres` params struct example](./examples/authors/sqlx-postgres-params/src/lib.rs)
+- [`sqlx-mysql` params struct example](./examples/authors/sqlx-mysql-params/src/lib.rs)
+- [`sqlx-sqlite` params struct example](./examples/authors/sqlx-sqlite-params/src/lib.rs)
+
+### Using the builder API
+
+The default [`api: builder`](#api) generates a builder struct per query. This is upstream's
+API and works with every supported crate:
 
 ```rust
 mod queries;
@@ -138,49 +185,6 @@ See below for examples with other supported crates.
 - [`sqlx-mysql` generated code](./examples/authors/sqlx-mysql/src/lib.rs)
 - [`sqlx-sqlite` generated code](./examples/authors/sqlx-sqlite/src/lib.rs)
 - [`rusqlite` generated code](./examples/authors/rusqlite/src/lib.rs)
-
-### Using the params struct API
-
-With [`api: params_struct`](#api), the same queries generate free async functions instead of
-builders. Each takes any `sqlx::Executor`, so a pool, a connection, or a transaction all work:
-
-```rust
-mod queries;
-
-use queries::CreateAuthorParams;
-
-#[tokio::main]
-async fn main() {
-    let pool = sqlx::PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
-        .await
-        .unwrap();
-
-    // list authors
-    let authors = queries::list_authors(&pool).await.unwrap();
-    assert_eq!(authors.len(), 0);
-
-    // create and get an author (INSERT ... RETURNING ...)
-    let author = queries::create_author(
-        &pool,
-        CreateAuthorParams {
-            name: "John",
-            bio: Some("Foo"),
-        },
-    )
-    .await
-    .unwrap();
-    let fetched = queries::get_author(&pool, author.id).await.unwrap();
-    assert_eq!(fetched.name, "John");
-    // queries::get_author_opt(&pool, author.id) returns Option<GetAuthorRow>
-
-    // a single-parameter query takes the value directly
-    queries::delete_author(&pool, author.id).await.unwrap();
-}
-```
-
-- [`sqlx-postgres` params struct example](./examples/authors/sqlx-postgres-params/src/lib.rs)
-- [`sqlx-mysql` params struct example](./examples/authors/sqlx-mysql-params/src/lib.rs)
-- [`sqlx-sqlite` params struct example](./examples/authors/sqlx-sqlite-params/src/lib.rs)
 
 ## Supported Features
 
