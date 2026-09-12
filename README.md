@@ -2,7 +2,7 @@
 
 sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
 
-It generates SQLx params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
+It generates SQLx and rusqlite params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
 
 ## Usage
 
@@ -29,14 +29,14 @@ sql:
 - [sqlx-postgres](https://docs.rs/sqlx/latest/sqlx/postgres/index.html)
 - [sqlx-mysql](https://docs.rs/sqlx/latest/sqlx/mysql/index.html)
 - [sqlx-sqlite](https://docs.rs/sqlx/latest/sqlx/sqlite/index.html)
+- [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/)
 
-The upstream builder API and its non-sqlx backends were removed. Support for these crates will
-return on top of the params-struct API:
+The upstream builder API and its remaining non-sqlx backends were removed. Support for these
+crates will return on top of the params-struct API:
 
 - TODO: [tokio-postgres](https://crates.io/crates/tokio-postgres)
 - TODO: [deadpool-postgres](https://crates.io/crates/deadpool-postgres)
 - TODO: [postgres](https://crates.io/crates/postgres)
-- TODO: [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/)
 
 > [!NOTE]
 > SQLite uses dynamic typing. Columns with **NUMERIC affinity** may store values as **INTEGER** when they can be represented exactly as integers. 
@@ -123,6 +123,16 @@ async fn main() {
 - [`sqlx-postgres` example](./examples/authors/sqlx-postgres/src/lib.rs)
 - [`sqlx-mysql` example](./examples/authors/sqlx-mysql/src/lib.rs)
 - [`sqlx-sqlite` example](./examples/authors/sqlx-sqlite/src/lib.rs)
+- [`rusqlite` example](./examples/authors/rusqlite/src/lib.rs)
+
+Rusqlite functions are synchronous and accept connections, transactions, and savepoints through the generated trait:
+
+```rust
+pub fn get_author(
+    client: &impl RusqliteClient,
+    id: i64,
+) -> rusqlite::Result<GetAuthorRow> { /* ... */ }
+```
 
 ## Supported Features
 
@@ -133,6 +143,7 @@ async fn main() {
 | sqlx-postgres | ✅       | ❌             | ✅       | ✅      | ❌          |
 | sqlx-mysql    | ✅       | ✅             | ✅       | ✅      | ❌          |
 | sqlx-sqlite   | ✅       | ✅             | ✅       | ✅      | ❌          |
+| rusqlite      | ✅       | ✅             | ✅       | ✅      | ❌          |
 
 ### Macros
 
@@ -150,14 +161,15 @@ SELECT position. See the [embed examples](./examples/embed/) for joined rows.
 
 ### `sqlc.slice`
 
-PostgreSQL binds slices as arrays. MySQL and SQLite expand slice markers through the generated
-dynamic bind plan.
+PostgreSQL binds slices as arrays. MySQL, SQLx SQLite, and rusqlite expand slice markers through
+the generated dynamic bind plan.
 
 ## Options
 
-The plugin always generates SQL constants, free async functions, and public params/row structs.
+The plugin always generates SQL constants, free functions, and public params/row structs. SQLx
+functions are async; rusqlite functions are synchronous.
 The `api` key is no longer needed; existing `api: params_struct` configurations continue to work.
-`:copyfrom` and `:batch*` queries are not supported.
+`:copyfrom` and `:batch*` queries are not supported. Rusqlite does not support `:execresult`.
 
 ### `db_crate`
 
@@ -166,6 +178,7 @@ The crate used in the generated code. Default is `sqlx-postgres`.
 - `sqlx-postgres`
 - `sqlx-mysql`
 - `sqlx-sqlite`
+- `rusqlite`
 
 For example, a `:one` query with one `id` parameter generates a direct argument, while a query
 with two parameters generates a params struct:

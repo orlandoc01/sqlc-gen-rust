@@ -1,4 +1,4 @@
-use test_context::AsyncTestContext;
+use test_context::{AsyncTestContext, TestContext};
 
 fn generate_tmp_db() -> String {
     let suffix = std::iter::repeat_with(fastrand::alphanumeric)
@@ -108,6 +108,18 @@ impl AsyncTestContext for SqlxSqliteContext {
     async fn setup() -> Self {
         Self {
             pool: sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap(),
+        }
+    }
+}
+
+pub struct RusqliteContext {
+    pub conn: rusqlite::Connection,
+}
+
+impl TestContext for RusqliteContext {
+    fn setup() -> Self {
+        Self {
+            conn: rusqlite::Connection::open_in_memory().unwrap(),
         }
     }
 }

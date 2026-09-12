@@ -273,7 +273,7 @@ struct OverrideType {
 #[serde(default)]
 struct Config {
     output: String,
-    db_crate: db_crates::Sqlx,
+    db_crate: db_crates::DbCrate,
     api: Option<String>,
     query_parameter_limit: usize,
     overrides: Vec<OverrideType>,
@@ -310,33 +310,17 @@ impl Config {
             ));
         }
 
-        for query in queries {
-            match query.annotation {
-                query::Annotation::CopyFrom
-                | query::Annotation::BatchExec
-                | query::Annotation::BatchMany
-                | query::Annotation::BatchOne => {
-                    return Err(Error::any(
-                        format!(
-                            "params_struct does not support {} queries ({}).",
-                            query.annotation, query.query_name
-                        )
-                        .into(),
-                    ));
-                }
-                query::Annotation::ExecLastId
-                    if matches!(self.db_crate, db_crates::Sqlx::Postgres) =>
-                {
-                    return Err(Error::any(
-                        format!(
-                            "params_struct does not support :execlastid with sqlx-postgres ({}).",
-                            query.query_name
-                        )
-                        .into(),
-                    ));
-                }
-                _ => {}
-            }
+        if let Some(query) = queries
+            .iter()
+            .find(|query| !self.db_crate.supports(query.annotation))
+        {
+            return Err(Error::any(
+                format!(
+                    "params_struct does not support {} with {} ({}).",
+                    query.annotation, self.db_crate, query.query_name
+                )
+                .into(),
+            ));
         }
 
         Ok(())
@@ -464,10 +448,7 @@ pub fn try_main() -> Result<(), Error> {
         .map(|q| Query::from_query(&db_type, q))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let static_slices = matches!(
-        config.db_crate,
-        db_crates::Sqlx::MySql | db_crates::Sqlx::Sqlite
-    );
+    let static_slices = config.db_crate.apply_static_slices();
     for query in &mut queries {
         query.apply_dynfilter();
         if static_slices && query.dynfilter().is_none() {
@@ -484,13 +465,13 @@ pub fn try_main() -> Result<(), Error> {
     let enums_tt = quote::quote! {#(#enums_ts)*};
     let embedded_tables_tt = db_crates::make_embedded_tables(&returning_rows)?;
 
-    let queries_tt = db_crates::sqlx_params::generate_queries(
-        &config.db_crate,
-        &returning_rows,
-        &queries,
-        config.query_parameter_limit,
-    );
+    let init_tt = config.db_crate.init();
+    let queries_tt =
+        config
+            .db_crate
+            .generate_queries(&returning_rows, &queries, config.query_parameter_limit);
     let tt = quote::quote! {
+        #init_tt
         #enums_tt
         #embedded_tables_tt
         #queries_tt
@@ -547,12 +528,7 @@ mod tests {
 
     #[test]
     fn rejects_removed_db_crates_and_legacy_api() {
-        for db_crate in [
-            "postgres",
-            "tokio-postgres",
-            "deadpool-postgres",
-            "rusqlite",
-        ] {
+        for db_crate in ["postgres", "tokio-postgres", "deadpool-postgres"] {
             let error = Config::from_option(format!(r#"{{"db_crate":"{db_crate}"}}"#).as_bytes())
                 .unwrap_err();
             assert!(
@@ -573,6 +549,51 @@ mod tests {
                 .api
                 .as_deref(),
             Some("params_struct")
+        );
+    }
+
+    #[test]
+    fn parses_rusqlite_db_crate() {
+        assert!(matches!(
+            Config::from_option(br#"{"db_crate":"rusqlite"}"#)
+                .unwrap()
+                .db_crate,
+            db_crates::DbCrate::Rusqlite
+        ));
+    }
+
+    #[test]
+    fn rejects_unsupported_params_struct_annotations() {
+        let mut query = Query::from_query(
+            &db_crates::DbCrate::Rusqlite.db_type_map(),
+            &plugin::Query {
+                text: "DELETE FROM authors".to_string(),
+                name: "DeleteAuthors".to_string(),
+                cmd: ":execresult".to_string(),
+                columns: Vec::new(),
+                params: Vec::new(),
+                comments: Vec::new(),
+                filename: String::new(),
+                insert_into_table: None,
+            },
+        )
+        .unwrap();
+        let config = Config::from_option(br#"{"db_crate":"rusqlite"}"#).unwrap();
+        assert_eq!(
+            config
+                .validate(std::slice::from_ref(&query))
+                .unwrap_err()
+                .to_string(),
+            "params_struct does not support :execresult with rusqlite (DeleteAuthors)."
+        );
+
+        query.annotation = query::Annotation::CopyFrom;
+        assert_eq!(
+            config
+                .validate(std::slice::from_ref(&query))
+                .unwrap_err()
+                .to_string(),
+            "params_struct does not support :copyfrom with rusqlite (DeleteAuthors)."
         );
     }
 }
