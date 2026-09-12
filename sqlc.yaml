@@ -60,14 +60,14 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-postgres
-  - schema: examples/authors/tokio-postgres/schema.sql
-    queries: examples/authors/sqlx-postgres/params_queries.sql
+  - schema: examples/authors/sqlx-postgres-params/schema.sql
+    queries: examples/authors/sqlx-postgres-params/queries.sql
     engine: postgresql
     codegen:
       - plugin: sqlc-gen-rust
-        out: examples/authors/sqlx-postgres/src
+        out: examples/authors/sqlx-postgres-params/src
         options:
-          output: params_query.rs
+          output: queries.rs
           db_crate: sqlx-postgres
           api: params_struct
 
@@ -80,6 +80,17 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
+
+  - schema: examples/authors/sqlx-mysql-params/schema.sql
+    queries: examples/authors/sqlx-mysql-params/queries.sql
+    engine: mysql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/sqlx-mysql-params/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-mysql
+          api: params_struct
 
   - schema: examples/authors/sqlx-sqlite/schema.sql
     queries: examples/authors/sqlx-sqlite/queries.sql

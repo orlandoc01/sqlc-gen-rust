@@ -130,6 +130,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "authors-sqlx-mysql-params"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "test-context",
+ "test-utils",
+ "tokio",
+]
+
+[[package]]
 name = "authors-sqlx-postgres"
 version = "0.1.0"
 dependencies = [
@@ -143,6 +153,16 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "uuid",
+]
+
+[[package]]
+name = "authors-sqlx-postgres-params"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "test-context",
+ "test-utils",
+ "tokio",
 ]
 
 [[package]]

@@ -1,5 +1,3 @@
-#[allow(dead_code)]
-mod params_query;
 #[allow(warnings)]
 mod queries;
 
