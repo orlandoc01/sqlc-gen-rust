@@ -38,7 +38,9 @@ impl AsyncTestContext for SqlxPgContext {
     async fn teardown(self) {
         self.pool.close().await;
         let admin_pool = sqlx::PgPool::connect(&postgres_url()).await.unwrap();
-        sqlx::query(&format!("DROP DATABASE {}", self.db_name))
+        // A closed pool's backends can still be shutting down server-side; FORCE terminates them
+        // instead of failing the drop with "database is being accessed by other users".
+        sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", self.db_name))
             .execute(&admin_pool)
             .await
             .unwrap();
