@@ -54,7 +54,13 @@ cargo test --workspace
 
 ## Releases
 
-`.github/workflows/release.yaml` runs on a `v*` tag push. It builds the wasm with `--locked`, attaches `sqlc-gen-rust.wasm` and its `.sha256` to a GitHub release, and generates notes. To cut a release: bump `version` in `Cargo.toml`, run `just generate` (the generated file headers embed the version), run `just build-release` and put its sha256 and the new tag into the README install snippet, commit, then `git tag vX.Y.Z && git push github main vX.Y.Z`. After CI finishes, confirm the sha256 in the release assets matches the README.
+`.github/workflows/release.yaml` runs on a `v*` tag push. It builds the wasm with `--locked`, attaches `sqlc-gen-rust.wasm` and its `.sha256` to a GitHub release, and generates notes.
+
+The wasm is not byte-reproducible across machines: a local `just build-release` hashes differently from CI's build of the same commit. The README sha256 must therefore come from the CI-built asset, never from a local build. To cut a release:
+
+1. Bump `version` in `Cargo.toml`, run `just generate` (generated file headers embed the version), commit.
+2. `git tag vX.Y.Z && git push github main vX.Y.Z` and wait for the release workflow.
+3. Copy the sha256 from the release's `sqlc-gen-rust.wasm.sha256` asset into the README install snippet along with the new tag, commit, push. That commit is docs-only and needs no new tag.
 
 ## Machine Traps
 
