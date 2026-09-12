@@ -115,12 +115,12 @@ pub async fn get_user_by_email_opt<'e>(
 }
 pub const LIST_USERS: &str = r"SELECT id, username, email, full_name, created_at FROM users
 ORDER BY created_at DESC
-LIMIT $1
-OFFSET $2";
+LIMIT $2::int
+OFFSET $1::int";
 #[derive(Debug, Clone, Default)]
 pub struct ListUsersParams {
-    pub limit: i32,
     pub offset: i32,
+    pub limit: i32,
 }
 pub struct ListUsersRow {
     pub id: uuid::Uuid,
@@ -145,8 +145,8 @@ pub async fn list_users<'e>(
     params: ListUsersParams,
 ) -> Result<Vec<ListUsersRow>, sqlx::Error> {
     let q = sqlx::query_as::<_, ListUsersRow>(LIST_USERS);
-    let q = q.bind(params.limit);
     let q = q.bind(params.offset);
+    let q = q.bind(params.limit);
     q.fetch_all(executor).await
 }
 pub const CREATE_PRODUCT: &str = r"INSERT INTO products (
@@ -279,27 +279,27 @@ pub const SEARCH_PRODUCTS: &str = r"SELECT
     (SELECT AVG(r.rating) FROM reviews r WHERE r.product_id = p.id) as average_rating
 FROM products p
 WHERE
-    (p.name ILIKE $3 OR p.description ILIKE $3)
+    (p.name ILIKE $1 OR p.description ILIKE $1)
 AND
-    p.category_id = ANY($4::int[])
+    p.category_id = ANY($2::int[])
 AND
-    p.price >= $5
+    p.price >= $3
 AND
-    p.price <= $6
+    p.price <= $4
 AND
     p.stock_quantity > 0
 ORDER BY
     p.created_at DESC
-LIMIT $1
-OFFSET $2";
+LIMIT $6::int
+OFFSET $5::int";
 #[derive(Debug, Clone, Default)]
 pub struct SearchProductsParams<'a> {
-    pub limit: i32,
-    pub offset: i32,
     pub name: Option<&'a str>,
     pub category_ids: &'a [i32],
     pub min_price: Option<i32>,
     pub max_price: Option<i32>,
+    pub offset: i32,
+    pub limit: i32,
 }
 pub struct SearchProductsRow {
     pub id: uuid::Uuid,
@@ -334,12 +334,12 @@ pub async fn search_products<'e>(
     params: SearchProductsParams<'_>,
 ) -> Result<Vec<SearchProductsRow>, sqlx::Error> {
     let q = sqlx::query_as::<_, SearchProductsRow>(SEARCH_PRODUCTS);
-    let q = q.bind(params.limit);
-    let q = q.bind(params.offset);
     let q = q.bind(params.name);
     let q = q.bind(params.category_ids);
     let q = q.bind(params.min_price);
     let q = q.bind(params.max_price);
+    let q = q.bind(params.offset);
+    let q = q.bind(params.limit);
     q.fetch_all(executor).await
 }
 pub const GET_PRODUCTS_WITH_SPECIFIC_ATTRIBUTE: &str = r"SELECT id, category_id, name, description, price, stock_quantity, attributes, created_at, updated_at FROM products

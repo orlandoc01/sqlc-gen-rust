@@ -20,6 +20,16 @@ sql:
               rs_type: chrono::DateTime<chrono::Utc>
             - column: .users.created_at
               rs_type: chrono::DateTime<chrono::Local>
+      - plugin: sqlc-gen-rust
+        out: examples/e-commerce/src
+        options:
+          output: tokio_query.rs
+          db_crate: tokio-postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - column: .users.created_at
+              rs_type: chrono::DateTime<chrono::Local>
 
   - schema: examples/authors/sqlx-postgres/schema.sql
     queries: examples/authors/sqlx-postgres/queries.sql
@@ -39,6 +49,15 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
+  - schema: examples/authors/tokio-postgres/schema.sql
+    queries: examples/authors/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
   - schema: examples/authors/sqlx-sqlite/schema.sql
     queries: examples/authors/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -113,6 +132,27 @@ sql:
               rs_type: chrono::NaiveDateTime
             - db_type: date
               rs_type: chrono::NaiveDate
+  - schema: examples/type-mapping/tokio-postgres/schema.sql
+    queries: examples/type-mapping/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - db_type: pg_catalog.timestamp
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: pg_catalog.time
+              rs_type: chrono::NaiveTime
+            - db_type: complex
+              rs_type: crate::Complex
+              copy_cheap: true
   - schema: examples/type-mapping/sqlx-sqlite/schema.sql
     queries: examples/type-mapping/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -161,6 +201,15 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
+  - schema: examples/sqlc-slice/tokio-postgres/schema.sql
+    queries: examples/sqlc-slice/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
   - schema: examples/sqlc-slice/sqlx-sqlite/schema.sql
     queries: examples/sqlc-slice/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -210,3 +259,12 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
+  - schema: examples/dynamic-filter/tokio-postgres/schema.sql
+    queries: examples/dynamic-filter/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres

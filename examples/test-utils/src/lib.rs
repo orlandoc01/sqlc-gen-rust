@@ -14,11 +14,16 @@ fn postgres_url() -> String {
 }
 
 pub struct SqlxPgContext {
-    db_name: String,
+    database: PgDatabase,
     pub pool: sqlx::PgPool,
 }
 
-impl AsyncTestContext for SqlxPgContext {
+struct PgDatabase {
+    admin_url: url::Url,
+    db_name: String,
+}
+
+impl PgDatabase {
     async fn setup() -> Self {
         let database_url = postgres_url();
         let admin_pool = sqlx::PgPool::connect(&database_url).await.unwrap();
@@ -28,23 +33,75 @@ impl AsyncTestContext for SqlxPgContext {
             .await
             .unwrap();
         admin_pool.close().await;
+        Self {
+            admin_url: url::Url::parse(&database_url).unwrap(),
+            db_name,
+        }
+    }
 
-        let mut test_url = url::Url::parse(&database_url).unwrap();
-        test_url.set_path(&format!("/{db_name}"));
-        let pool = sqlx::PgPool::connect(test_url.as_str()).await.unwrap();
-        Self { db_name, pool }
+    fn test_url(&self) -> url::Url {
+        let mut test_url = self.admin_url.clone();
+        test_url.set_path(&format!("/{}", self.db_name));
+        test_url
     }
 
     async fn teardown(self) {
-        self.pool.close().await;
-        let admin_pool = sqlx::PgPool::connect(&postgres_url()).await.unwrap();
-        // A closed pool's backends can still be shutting down server-side; FORCE terminates them
-        // instead of failing the drop with "database is being accessed by other users".
+        let admin_pool = sqlx::PgPool::connect(self.admin_url.as_str())
+            .await
+            .unwrap();
+        // FORCE: a closed pool's connections may still be winding down server-side.
         sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", self.db_name))
             .execute(&admin_pool)
             .await
             .unwrap();
         admin_pool.close().await;
+    }
+}
+
+impl AsyncTestContext for SqlxPgContext {
+    async fn setup() -> Self {
+        let database = PgDatabase::setup().await;
+        let pool = sqlx::PgPool::connect(database.test_url().as_str())
+            .await
+            .unwrap();
+        Self { database, pool }
+    }
+
+    async fn teardown(self) {
+        self.pool.close().await;
+        self.database.teardown().await;
+    }
+}
+
+pub struct PgTokioContext {
+    database: PgDatabase,
+    pub client: tokio_postgres::Client,
+    connection_task: tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
+}
+
+impl AsyncTestContext for PgTokioContext {
+    async fn setup() -> Self {
+        let database = PgDatabase::setup().await;
+        let (client, connection) =
+            tokio_postgres::connect(database.test_url().as_str(), tokio_postgres::NoTls)
+                .await
+                .unwrap();
+        Self {
+            database,
+            client,
+            connection_task: tokio::spawn(connection),
+        }
+    }
+
+    async fn teardown(self) {
+        let Self {
+            database,
+            client,
+            connection_task,
+        } = self;
+        drop(client);
+        connection_task.await.unwrap().unwrap();
+        database.teardown().await;
     }
 }
 

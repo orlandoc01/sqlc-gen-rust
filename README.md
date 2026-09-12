@@ -2,7 +2,7 @@
 
 sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
 
-It generates SQLx and rusqlite params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
+It generates SQLx, rusqlite, and tokio-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
 
 ## Usage
 
@@ -30,11 +30,11 @@ sql:
 - [sqlx-mysql](https://docs.rs/sqlx/latest/sqlx/mysql/index.html)
 - [sqlx-sqlite](https://docs.rs/sqlx/latest/sqlx/sqlite/index.html)
 - [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/)
+- [tokio-postgres](https://docs.rs/tokio-postgres/latest/tokio_postgres/)
 
 The upstream builder API and its remaining non-sqlx backends were removed. Support for these
 crates will return on top of the params-struct API:
 
-- TODO: [tokio-postgres](https://crates.io/crates/tokio-postgres)
 - TODO: [deadpool-postgres](https://crates.io/crates/deadpool-postgres)
 - TODO: [postgres](https://crates.io/crates/postgres)
 
@@ -124,6 +124,7 @@ async fn main() {
 - [`sqlx-mysql` example](./examples/authors/sqlx-mysql/src/lib.rs)
 - [`sqlx-sqlite` example](./examples/authors/sqlx-sqlite/src/lib.rs)
 - [`rusqlite` example](./examples/authors/rusqlite/src/lib.rs)
+- [`tokio-postgres` example](./examples/authors/tokio-postgres/src/lib.rs)
 
 Rusqlite functions are synchronous and accept connections, transactions, and savepoints through the generated trait:
 
@@ -143,16 +144,38 @@ guards: implement `connection()` for your type and every generated function acce
 queries (`:exec`, `:execrows`, `:execlastid`) step the statement to completion, so a DML statement
 with `RETURNING` succeeds and reports its write; `:execrows` returns `u64` from `changes()`.
 
+For `tokio-postgres`, generated functions take `&impl tokio_postgres::GenericClient`. Static queries
+also expose preparation, reusable statements, and row streaming:
+
+```rust
+let statement = queries::prepare_get_author(&client).await?;
+let author = queries::get_author_with(&client, &statement, id).await?;
+let stream = queries::list_authors_stream(&client).await?;
+```
+
+Dynamic (`-- :if`) queries do not expose `prepare_*` or `*_with` variants. On tokio-postgres, both
+`:execrows` and `:execresult` return `u64`.
+
+PostgreSQL infers untyped `LIMIT` and `OFFSET` parameters as `bigint`. Cast them explicitly
+(`::int` or `::bigint`) or add an override so the generated Rust parameter type matches. A bare
+`$1::int` loses sqlc's inferred parameter name, so use `sqlc.arg` when casting named parameters.
+Because `limit` and `offset` are SQL keywords, quote them in the macro:
+
+```sql
+LIMIT sqlc.arg('limit')::int OFFSET sqlc.arg('offset')::int
+```
+
 ## Supported Features
 
 ### Query Annotations
 
-| crate         | `:exec` | `:execlastid` | `:many` | `:one` | `:copyfrom` |
-| ------------- | ------- | ------------- | ------- | ------ | ----------- |
-| sqlx-postgres | ✅       | ❌             | ✅       | ✅      | ❌          |
-| sqlx-mysql    | ✅       | ✅             | ✅       | ✅      | ❌          |
-| sqlx-sqlite   | ✅       | ✅             | ✅       | ✅      | ❌          |
-| rusqlite      | ✅       | ✅             | ✅       | ✅      | ❌          |
+| crate          | `:exec` | `:execlastid` | `:many` | `:one` | `:copyfrom` |
+| -------------- | ------- | ------------- | ------- | ------ | ----------- |
+| sqlx-postgres  | ✅       | ❌             | ✅       | ✅      | ❌          |
+| sqlx-mysql     | ✅       | ✅             | ✅       | ✅      | ❌          |
+| sqlx-sqlite    | ✅       | ✅             | ✅       | ✅      | ❌          |
+| rusqlite       | ✅       | ✅             | ✅       | ✅      | ❌          |
+| tokio-postgres | ✅       | ❌             | ✅       | ✅      | ❌          |
 
 ### Macros
 
@@ -175,8 +198,8 @@ the generated dynamic bind plan.
 
 ## Options
 
-The plugin always generates SQL constants, free functions, and public params/row structs. SQLx
-functions are async; rusqlite functions are synchronous.
+The plugin always generates SQL constants, free functions, and public params/row structs. SQLx and
+tokio-postgres functions are async; rusqlite functions are synchronous.
 The `api` key is no longer needed; existing `api: params_struct` configurations continue to work.
 `:copyfrom` and `:batch*` queries are not supported. Rusqlite does not support `:execresult`.
 
@@ -188,6 +211,7 @@ The crate used in the generated code. Default is `sqlx-postgres`.
 - `sqlx-mysql`
 - `sqlx-sqlite`
 - `rusqlite`
+- `tokio-postgres`
 
 For example, a `:one` query with one `id` parameter generates a direct argument, while a query
 with two parameters generates a params struct:

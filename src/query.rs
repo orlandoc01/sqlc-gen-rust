@@ -1122,6 +1122,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db_crates::test_support::{column, identifier};
 
     fn create_test_column(table_name: Option<&str>, column_name: &str) -> plugin::Column {
         plugin::Column {
@@ -1148,20 +1149,6 @@ mod tests {
         }
     }
 
-    fn identifier(name: &str) -> plugin::Identifier {
-        plugin::Identifier {
-            name: name.to_string(),
-            schema: String::new(),
-            catalog: String::new(),
-        }
-    }
-
-    fn integer_column(name: &str) -> plugin::Column {
-        let mut column = create_test_column(None, name);
-        column.r#type = Some(identifier("integer"));
-        column
-    }
-
     fn test_catalog() -> plugin::Catalog {
         plugin::Catalog {
             comment: String::new(),
@@ -1173,15 +1160,15 @@ mod tests {
                 tables: vec![
                     plugin::Table {
                         rel: Some(identifier("authors")),
-                        columns: vec![integer_column("id"), integer_column("name")],
+                        columns: vec![column("id", false), column("name", false)],
                         comment: String::new(),
                     },
                     plugin::Table {
                         rel: Some(identifier("books")),
                         columns: vec![
-                            integer_column("id"),
-                            integer_column("author_id"),
-                            integer_column("title"),
+                            column("id", false),
+                            column("author_id", false),
+                            column("title", false),
                         ],
                         comment: String::new(),
                     },
@@ -1316,9 +1303,9 @@ mod tests {
             name: "Embedded".to_string(),
             cmd: ":one".to_string(),
             columns: vec![
-                integer_column("before"),
+                column("before", false),
                 authors,
-                integer_column("after"),
+                column("after", false),
                 books,
             ],
             params: Vec::new(),

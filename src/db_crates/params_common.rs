@@ -316,16 +316,7 @@ fn params_definition(query: &Query, query_parameter_limit: usize) -> proc_macro2
 
 fn function_arguments(query: &Query, query_parameter_limit: usize) -> proc_macro2::TokenStream {
     if uses_params_struct(query, query_parameter_limit) {
-        let params = params_ident(query);
-        let params = if query
-            .fields
-            .iter()
-            .any(|field| field.scalar_type().need_params_struct_lifetime())
-        {
-            quote::quote! {#params<'_>}
-        } else {
-            quote::quote! {#params}
-        };
+        let params = params_type(query);
         return quote::quote! {, params: #params};
     }
 
@@ -340,6 +331,19 @@ fn function_arguments(query: &Query, query_parameter_limit: usize) -> proc_macro
         proc_macro2::TokenStream::new()
     } else {
         quote::quote! {, #fields}
+    }
+}
+
+pub(crate) fn params_type(query: &Query) -> proc_macro2::TokenStream {
+    let params = params_ident(query);
+    if query
+        .fields
+        .iter()
+        .any(|field| field.scalar_type().need_params_struct_lifetime())
+    {
+        quote::quote! {#params<'_>}
+    } else {
+        quote::quote! {#params}
     }
 }
 

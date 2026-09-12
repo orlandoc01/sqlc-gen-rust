@@ -528,7 +528,7 @@ mod tests {
 
     #[test]
     fn rejects_removed_db_crates_and_legacy_api() {
-        for db_crate in ["postgres", "tokio-postgres", "deadpool-postgres"] {
+        for db_crate in ["postgres", "deadpool-postgres"] {
             let error = Config::from_option(format!(r#"{{"db_crate":"{db_crate}"}}"#).as_bytes())
                 .unwrap_err();
             assert!(
@@ -559,6 +559,12 @@ mod tests {
                 .unwrap()
                 .db_crate,
             db_crates::DbCrate::Rusqlite
+        ));
+        assert!(matches!(
+            Config::from_option(br#"{"db_crate":"tokio-postgres"}"#)
+                .unwrap()
+                .db_crate,
+            db_crates::DbCrate::TokioPostgres
         ));
     }
 
@@ -594,6 +600,16 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "params_struct does not support :copyfrom with rusqlite (DeleteAuthors)."
+        );
+
+        query.annotation = query::Annotation::ExecLastId;
+        let config = Config::from_option(br#"{"db_crate":"tokio-postgres"}"#).unwrap();
+        assert_eq!(
+            config
+                .validate(std::slice::from_ref(&query))
+                .unwrap_err()
+                .to_string(),
+            "params_struct does not support :execlastid with tokio-postgres (DeleteAuthors)."
         );
     }
 }
