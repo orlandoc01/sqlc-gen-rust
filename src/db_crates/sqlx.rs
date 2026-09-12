@@ -1,7 +1,6 @@
-use crate::{
-    query::{DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper},
-    value_ident,
-};
+use crate::query::{DbEnum, Query, ReturningRows, RsType, TypeMapper};
+
+use super::{make_enum, postgres_types};
 
 #[derive(Default)]
 pub struct MySqlTypeMap {
@@ -95,6 +94,92 @@ impl TypeMapper for SqliteTypeMap {
     }
 }
 
+const SQLX_POSTGRES_COPY_CHEAP: &[(&str, &[&str])] =
+    &[("sqlx::postgres::types::Oid", &["oid", "pg_catalog.oid"])];
+
+const SQLX_POSTGRES_DEFAULT: &[(&str, Option<&str>, &[&str])] = &[
+    (
+        "sqlx::postgres::types::PgInterval",
+        None,
+        &["interval", "pg_catalog.interval"],
+    ),
+    ("sqlx::postgres::types::PgMoney", None, &["money"]),
+    ("sqlx::postgres::types::PgLTree", None, &["ltree"]),
+    ("sqlx::postgres::types::PgLQuery", None, &["lquery"]),
+    ("sqlx::postgres::types::PgCube", None, &["cube"]),
+    ("sqlx::postgres::types::PgPoint", None, &["point"]),
+    ("sqlx::postgres::types::PgLine", None, &["line"]),
+    ("sqlx::postgres::types::PgLSeg", None, &["lseg"]),
+    ("sqlx::postgres::types::PgBox", None, &["box"]),
+    ("sqlx::postgres::types::PgPath", None, &["path"]),
+    ("sqlx::postgres::types::PgPolygon", None, &["polygon"]),
+    ("sqlx::postgres::types::PgCircle", None, &["circle"]),
+    ("sqlx::postgres::types::PgHstore", None, &["hstore"]),
+    (
+        "sqlx::postgres::types::PgTimeTz",
+        None,
+        &["pg_catalog.timetz"],
+    ),
+];
+
+const MYSQL_COPY_CHEAP: &[(&str, &[&str])] = &[
+    ("bool", &["bool", "boolean"]),
+    // int types are handled in `find_column_type`
+    ("int16", &["year"]),
+    ("f32", &["float"]),
+    ("f64", &["double", "double precision", "real"]),
+    ("sqlx::mysql::types::MySqlTime", &["time"]),
+];
+
+// https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/mysql_type.go
+// https://docs.rs/sqlx/0.8.6/sqlx/mysql/types/index.html
+const MYSQL_DEFAULT: &[(&str, Option<&str>, &[&str])] = &[
+    (
+        "String",
+        Some("str"),
+        &[
+            "varchar",
+            "text",
+            "char",
+            "tinytext",
+            "mediumtext",
+            "longtext",
+        ],
+    ),
+    (
+        "Vec<u8>",
+        Some("[u8]"),
+        &[
+            "blob",
+            "binary",
+            "varbinary",
+            "tinyblob",
+            "mediumblob",
+            "longblob",
+        ],
+    ),
+    ("serde_json::Value", None, &["json"]),
+    ("String", Some("str"), &["decimal", "dec", "fixed", "enum"]),
+];
+
+const SQLITE_COPY_CHEAP: &[(&str, &[&str])] = &[
+    ("bool", &["bool", "boolean"]),
+    ("i8", &["tinyint"]),
+    ("i16", &["smallint", "int2"]),
+    ("i32", &["mediumint", "int4"]),
+    ("i64", &["int", "integer", "bigint", "int8"]),
+    ("f64", &["real", "double", "doubleprecision", "float"]),
+    // NUMERIC affinity
+    ("f64", &["numeric"]),
+];
+
+// https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/sqlite_type.go
+// https://docs.rs/sqlx/latest/sqlx/sqlite/types/index.html
+const SQLITE_DEFAULT: &[(&str, Option<&str>, &[&str])] = &[
+    ("String", Some("str"), &["text", "clob"]),
+    ("Vec<u8>", Some("[u8]"), &["blob"]),
+];
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) enum Sqlx {
     #[default]
@@ -105,40 +190,30 @@ pub(crate) enum Sqlx {
 
 impl Sqlx {
     pub(crate) fn db_type_map(&self) -> crate::query::DbTypeMap {
-        let copy_cheap = self.copy_cheap_types();
-        let default_types = self.default_types();
-        let map: Box<dyn TypeMapper> = match self {
-            Self::Postgres => Box::new(SimpleTypeMap::default()),
-            Self::MySql => Box::new(MySqlTypeMap::default()),
-            Self::Sqlite => Box::new(SqliteTypeMap::default()),
-        };
-
-        type_map(map, copy_cheap, default_types)
+        match self {
+            Self::Postgres => {
+                postgres_types::type_map(SQLX_POSTGRES_COPY_CHEAP, SQLX_POSTGRES_DEFAULT)
+            }
+            Self::MySql => type_map(
+                Box::new(MySqlTypeMap::default()),
+                MYSQL_COPY_CHEAP,
+                MYSQL_DEFAULT,
+            ),
+            Self::Sqlite => type_map(
+                Box::new(SqliteTypeMap::default()),
+                SQLITE_COPY_CHEAP,
+                SQLITE_DEFAULT,
+            ),
+        }
     }
 
     pub(crate) fn defined_enum(&self, enum_type: &DbEnum) -> proc_macro2::TokenStream {
-        let derives = &enum_type.derives;
-        let fields = enum_type.values.iter().map(|field| {
-            let ident = value_ident(field);
-            quote::quote! {
-                #[sqlx(rename = #field)]
-                #ident
-            }
-        });
-        let original_name = &enum_type.name;
-        let enum_name = enum_type.ident();
-        let derive = if derives.is_empty() {
-            quote::quote! {#[derive(Debug,Clone,Copy, sqlx::Type)]}
-        } else {
-            quote::quote! {#[derive(Debug,Clone,Copy, sqlx::Type, #(#derives),*)]}
-        };
-        quote::quote! {
-            #derive
-            #[sqlx(type_name = #original_name)]
-            pub enum #enum_name {
-                #(#fields,)*
-            }
-        }
+        make_enum(
+            enum_type,
+            quote::quote! {sqlx::Type},
+            |name| quote::quote! { #[sqlx(type_name = #name)] },
+            |value| quote::quote! { #[sqlx(rename = #value)] },
+        )
     }
 
     pub(crate) fn returning_ordinal_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
@@ -155,138 +230,6 @@ impl Sqlx {
                     Ok(Self { #(#fields,)* })
                 }
             }
-        }
-    }
-
-    fn copy_cheap_types(&self) -> &[(&str, &[&str])] {
-        match self {
-            Self::Postgres => &[
-                ("i8", &["char"]),
-                ("i16", &["smallint", "int2", "pg_catalog.int2"]),
-                ("i32", &["serial", "serial4", "pg_catalog.serial4"]),
-                ("i64", &["bigserial", "serial8", "pg_catalog.serial8"]),
-                ("i16", &["smallserial", "serial2", "pg_catalog.serial2"]),
-                ("i32", &["integer", "int", "int4", "pg_catalog.int4"]),
-                ("i64", &["bigint", "int8", "pg_catalog.int8"]),
-                (
-                    "f64",
-                    &["float", "double precision", "float8", "pg_catalog.float8"],
-                ),
-                ("f32", &["real", "float4", "pg_catalog.float4"]),
-                ("bool", &["boolean", "bool", "pg_catalog.bool"]),
-                ("sqlx::postgres::types::Oid", &["oid", "pg_catalog.oid"]),
-                ("uuid::Uuid", &["uuid"]),
-            ],
-            Self::MySql => &[
-                ("bool", &["bool", "boolean"]),
-                // int types are handled in `find_column_type`
-                ("int16", &["year"]),
-                ("f32", &["float"]),
-                ("f64", &["double", "double precision", "real"]),
-                ("sqlx::mysql::types::MySqlTime", &["time"]),
-            ],
-            Self::Sqlite => &[
-                ("bool", &["bool", "boolean"]),
-                ("i8", &["tinyint"]),
-                ("i16", &["smallint", "int2"]),
-                ("i32", &["mediumint", "int4"]),
-                ("i64", &["int", "integer", "bigint", "int8"]),
-                ("f64", &["real", "double", "doubleprecision", "float"]),
-                // NUMERIC affinity
-                ("f64", &["numeric"]),
-            ],
-        }
-    }
-
-    fn default_types(&self) -> &[(&str, Option<&str>, &[&str])] {
-        match self {
-            // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/postgresql_type.go#L37-L605
-            // https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html
-            Self::Postgres => &[
-                (
-                    "String",
-                    Some("str"),
-                    &[
-                        "text",
-                        "pg_catalog.varchar",
-                        "pg_catalog.bpchar",
-                        "string",
-                        "citext",
-                        "name",
-                    ],
-                ),
-                (
-                    "Vec<u8>",
-                    Some("[u8]"),
-                    &["bytea", "blob", "pg_catalog.bytea"],
-                ),
-                (
-                    "sqlx::postgres::types::PgInterval",
-                    None,
-                    &["interval", "pg_catalog.interval"],
-                ),
-                // TODO: Add PgRange<T>
-                // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/postgresql_type.go#L355-L461
-                ("sqlx::postgres::types::PgMoney", None, &["money"]),
-                ("sqlx::postgres::types::PgLTree", None, &["ltree"]),
-                ("sqlx::postgres::types::PgLQuery", None, &["lquery"]),
-                ("sqlx::postgres::types::PgCube", None, &["cube"]),
-                ("sqlx::postgres::types::PgPoint", None, &["point"]),
-                ("sqlx::postgres::types::PgLine", None, &["line"]),
-                ("sqlx::postgres::types::PgLSeg", None, &["lseg"]),
-                ("sqlx::postgres::types::PgBox", None, &["box"]),
-                ("sqlx::postgres::types::PgPath", None, &["path"]),
-                ("sqlx::postgres::types::PgPolygon", None, &["polygon"]),
-                ("sqlx::postgres::types::PgCircle", None, &["circle"]),
-                ("sqlx::postgres::types::PgHstore", None, &["hstore"]),
-                (
-                    "sqlx::postgres::types::PgTimeTz",
-                    None,
-                    &["pg_catalog.timetz"],
-                ),
-                ("std::net::IpAddr", None, &["inet"]),
-                (
-                    "serde_json::Value",
-                    None,
-                    &["json", "pg_catalog.json", "jsonb", "pg_catalog.jsonb"],
-                ),
-            ],
-            // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/mysql_type.go
-            // https://docs.rs/sqlx/0.8.6/sqlx/mysql/types/index.html
-            Self::MySql => &[
-                (
-                    "String",
-                    Some("str"),
-                    &[
-                        "varchar",
-                        "text",
-                        "char",
-                        "tinytext",
-                        "mediumtext",
-                        "longtext",
-                    ],
-                ),
-                (
-                    "Vec<u8>",
-                    Some("[u8]"),
-                    &[
-                        "blob",
-                        "binary",
-                        "varbinary",
-                        "tinyblob",
-                        "mediumblob",
-                        "longblob",
-                    ],
-                ),
-                ("serde_json::Value", None, &["json"]),
-                ("String", Some("str"), &["decimal", "dec", "fixed", "enum"]),
-            ],
-            // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/sqlite_type.go
-            // https://docs.rs/sqlx/latest/sqlx/sqlite/types/index.html
-            Self::Sqlite => &[
-                ("String", Some("str"), &["text", "clob"]),
-                ("Vec<u8>", Some("[u8]"), &["blob"]),
-            ],
         }
     }
 
@@ -332,7 +275,7 @@ impl Sqlx {
     }
 }
 
-fn type_map(
+pub(super) fn type_map(
     mut map: Box<dyn TypeMapper>,
     copy_cheap_types: &[(&str, &[&str])],
     default_types: &[(&str, Option<&str>, &[&str])],

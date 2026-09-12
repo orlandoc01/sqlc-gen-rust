@@ -13,8 +13,8 @@ WHERE email = $1 LIMIT 1;
 -- name: ListUsers :many
 SELECT id, username, email, full_name, created_at FROM users
 ORDER BY created_at DESC
-LIMIT $1
-OFFSET $2;
+LIMIT sqlc.arg('limit')::int
+OFFSET sqlc.arg('offset')::int;
 
 -- name: CreateProduct :one
 INSERT INTO products (
@@ -59,8 +59,8 @@ AND
     p.stock_quantity > 0
 ORDER BY
     p.created_at DESC
-LIMIT $1
-OFFSET $2;
+LIMIT sqlc.arg('limit')::int
+OFFSET sqlc.arg('offset')::int;
 
 -- name: GetProductsWithSpecificAttribute :many
 -- JSONB内の特定のキーと値で商品を検索する例

@@ -1,62 +1,12 @@
 use crate::{
-    db_crates::{rusqlite::Rusqlite, rusqlite_params},
+    db_crates::{
+        params_common,
+        rusqlite::Rusqlite,
+        test_support::{column, query},
+    },
     plugin,
     query::{Query, ReturnRowAttributes, ReturningRows},
 };
-
-fn identifier(name: &str) -> plugin::Identifier {
-    plugin::Identifier {
-        name: name.to_string(),
-        schema: String::new(),
-        catalog: String::new(),
-    }
-}
-
-fn column(name: &str, sqlc_slice: bool) -> plugin::Column {
-    plugin::Column {
-        name: name.to_string(),
-        table: None,
-        not_null: true,
-        is_array: false,
-        comment: String::new(),
-        length: 0,
-        is_named_param: false,
-        is_func_call: false,
-        scope: String::new(),
-        table_alias: String::new(),
-        r#type: Some(identifier("integer")),
-        is_sqlc_slice: sqlc_slice,
-        embed_table: None,
-        original_name: String::new(),
-        unsigned: false,
-        array_dims: 0,
-    }
-}
-
-fn query(
-    name: &str,
-    cmd: &str,
-    text: &str,
-    columns: Vec<plugin::Column>,
-    params: Vec<(i32, plugin::Column)>,
-) -> plugin::Query {
-    plugin::Query {
-        text: text.to_string(),
-        name: name.to_string(),
-        cmd: cmd.to_string(),
-        columns,
-        params: params
-            .into_iter()
-            .map(|(number, column)| plugin::Parameter {
-                number,
-                column: Some(column),
-            })
-            .collect(),
-        comments: Vec::new(),
-        filename: String::new(),
-        insert_into_table: None,
-    }
-}
 
 fn generated(query: plugin::Query, query_parameter_limit: usize) -> String {
     let type_map = Rusqlite.db_type_map();
@@ -67,7 +17,9 @@ fn generated(query: plugin::Query, query_parameter_limit: usize) -> String {
     if query.dynfilter().is_none() {
         query.apply_static_slices();
     }
-    rusqlite_params::generate_queries(&[row], &[query], query_parameter_limit).to_string()
+    params_common::generate_queries(&Rusqlite, &[row], &[query], query_parameter_limit)
+        .unwrap()
+        .to_string()
 }
 
 #[test]

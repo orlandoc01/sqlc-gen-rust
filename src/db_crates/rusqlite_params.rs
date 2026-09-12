@@ -1,17 +1,9 @@
 use crate::query::{Annotation, Query, ReturningRows};
 
 use super::{
-    params_common::{self, ParameterAccess, ParamsGenerator, QueryParts},
+    params_common::{self, GeneratedFunction, ParameterAccess, ParamsGenerator, QueryParts},
     rusqlite::Rusqlite,
 };
-
-pub(crate) fn generate_queries(
-    rows: &[ReturningRows],
-    queries: &[Query],
-    query_parameter_limit: usize,
-) -> proc_macro2::TokenStream {
-    params_common::generate_queries(&Rusqlite, rows, queries, query_parameter_limit)
-}
 
 impl ParamsGenerator for Rusqlite {
     fn placeholders(&self) -> proc_macro2::TokenStream {
@@ -20,6 +12,25 @@ impl ParamsGenerator for Rusqlite {
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
         self.returning_ordinal_row(row)
+    }
+
+    fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
+        let name = params_common::query_function_ident(query);
+        let function = |ident, helper| GeneratedFunction { ident, helper };
+        match query.annotation {
+            Annotation::One => vec![
+                function(name.clone(), "query function"),
+                function(quote::format_ident!("{name}_opt"), "optional query helper"),
+            ],
+            Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecLastId => {
+                vec![function(name, "query function")]
+            }
+            Annotation::ExecResult
+            | Annotation::BatchExec
+            | Annotation::BatchMany
+            | Annotation::BatchOne
+            | Annotation::CopyFrom => Vec::new(),
+        }
     }
 
     fn query_functions(

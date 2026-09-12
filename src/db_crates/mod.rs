@@ -1,20 +1,32 @@
 use crate::query::{self, Annotation, EmbeddedTable, ReturningRows};
 
 mod params_common;
+mod params_common_types;
+mod postgres_types;
 mod rusqlite;
 mod rusqlite_params;
 mod sqlx;
-pub(crate) mod sqlx_params;
+mod sqlx_params;
+mod tokio_postgres;
+mod tokio_postgres_params;
 
 #[cfg(test)]
 mod rusqlite_tests;
+#[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
+mod tokio_postgres_name_tests;
+#[cfg(test)]
+mod tokio_postgres_tests;
 
 pub(crate) use sqlx::Sqlx;
+pub(crate) use tokio_postgres::TokioPostgres;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum DbCrate {
     Sqlx(Sqlx),
     Rusqlite,
+    TokioPostgres,
 }
 
 impl Default for DbCrate {
@@ -48,11 +60,12 @@ impl<'de> serde::Deserialize<'de> for DbCrate {
 }
 
 impl DbCrate {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Sqlx(Sqlx::Postgres),
         Self::Sqlx(Sqlx::MySql),
         Self::Sqlx(Sqlx::Sqlite),
         Self::Rusqlite,
+        Self::TokioPostgres,
     ];
 
     fn name(self) -> &'static str {
@@ -61,6 +74,7 @@ impl DbCrate {
             Self::Sqlx(Sqlx::MySql) => "sqlx-mysql",
             Self::Sqlx(Sqlx::Sqlite) => "sqlx-sqlite",
             Self::Rusqlite => "rusqlite",
+            Self::TokioPostgres => "tokio-postgres",
         }
     }
 
@@ -68,6 +82,7 @@ impl DbCrate {
         match self {
             Self::Sqlx(sqlx) => sqlx.db_type_map(),
             Self::Rusqlite => rusqlite::Rusqlite.db_type_map(),
+            Self::TokioPostgres => TokioPostgres.db_type_map(),
         }
     }
 
@@ -75,6 +90,7 @@ impl DbCrate {
         match self {
             Self::Sqlx(_) => proc_macro2::TokenStream::new(),
             Self::Rusqlite => rusqlite::Rusqlite.init(),
+            Self::TokioPostgres => proc_macro2::TokenStream::new(),
         }
     }
 
@@ -82,6 +98,7 @@ impl DbCrate {
         match self {
             Self::Sqlx(sqlx) => sqlx.defined_enum(enum_type),
             Self::Rusqlite => rusqlite::Rusqlite.defined_enum(enum_type),
+            Self::TokioPostgres => TokioPostgres.defined_enum(enum_type),
         }
     }
 
@@ -101,8 +118,10 @@ impl DbCrate {
                     | Annotation::BatchExec
                     | Annotation::BatchMany
                     | Annotation::BatchOne
-            ) | (Self::Sqlx(Sqlx::Postgres), Annotation::ExecLastId)
-                | (Self::Rusqlite, Annotation::ExecResult)
+            ) | (
+                Self::Sqlx(Sqlx::Postgres) | Self::TokioPostgres,
+                Annotation::ExecLastId
+            ) | (Self::Rusqlite, Annotation::ExecResult)
         )
     }
 
@@ -111,14 +130,23 @@ impl DbCrate {
         rows: &[ReturningRows],
         queries: &[query::Query],
         query_parameter_limit: usize,
-    ) -> proc_macro2::TokenStream {
+    ) -> Result<proc_macro2::TokenStream, query::QueryError> {
         match self {
             Self::Sqlx(sqlx) => {
-                sqlx_params::generate_queries(&sqlx, rows, queries, query_parameter_limit)
+                params_common::generate_queries(&sqlx, rows, queries, query_parameter_limit)
             }
-            Self::Rusqlite => {
-                rusqlite_params::generate_queries(rows, queries, query_parameter_limit)
-            }
+            Self::Rusqlite => params_common::generate_queries(
+                &rusqlite::Rusqlite,
+                rows,
+                queries,
+                query_parameter_limit,
+            ),
+            Self::TokioPostgres => params_common::generate_queries(
+                &TokioPostgres,
+                rows,
+                queries,
+                query_parameter_limit,
+            ),
         }
     }
 }
@@ -159,7 +187,7 @@ pub(crate) fn make_embedded_tables(
 
 /// Field initializers for a row struct, decoding each column by its SELECT ordinal. `getter`
 /// receives the ordinal literal and yields the backend's `row.get(N)?` expression.
-fn row_field_initializers(
+pub(crate) fn row_field_initializers(
     row: &ReturningRows,
     getter: impl Fn(proc_macro2::Literal) -> proc_macro2::TokenStream,
 ) -> Vec<proc_macro2::TokenStream> {
@@ -186,6 +214,27 @@ fn row_field_initializers(
             }
         })
         .collect()
+}
+
+pub(crate) fn make_enum(
+    enum_type: &query::DbEnum,
+    backend_derives: proc_macro2::TokenStream,
+    type_attribute: impl Fn(&str) -> proc_macro2::TokenStream,
+    variant_attribute: impl Fn(&str) -> proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let derives = &enum_type.derives;
+    let fields = enum_type.values.iter().map(|value| {
+        let ident = crate::value_ident(value);
+        let attribute = variant_attribute(value);
+        quote::quote! { #attribute #ident }
+    });
+    let enum_name = enum_type.ident();
+    let attribute = type_attribute(&enum_type.name);
+    quote::quote! {
+        #[derive(Debug, Clone, Copy, #backend_derives #(, #derives)*)]
+        #attribute
+        pub enum #enum_name { #(#fields,)* }
+    }
 }
 
 fn make_struct(

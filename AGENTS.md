@@ -13,9 +13,11 @@ This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that gen
 - `src/lib.rs`: plugin entry point, `Config` parsing and validation, and override types.
 - `src/query.rs`: query, parameter, and row models; annotations; and static-slice handling.
 - `src/dynfilter.rs`: parses `-- :if @param` annotations and static `sqlc.slice()` markers into a bind plan.
-- `src/db_crates/{mod,sqlx,rusqlite}.rs`: backend dispatch, SQLx/SQLite type mapping, and rusqlite setup and row decoding.
+- `src/db_crates/{mod,sqlx,rusqlite,tokio_postgres}.rs`: backend dispatch, SQLx/SQLite/PostgreSQL type mapping, and backend setup and row decoding.
 - `src/db_crates/params_common.rs`: shared params-struct definitions, identifier generation, dynamic-filter setup, and query index.
-- `src/db_crates/{sqlx_params,rusqlite_params,rusqlite_tests}.rs`: SQLx and rusqlite params-struct query generators, and rusqlite generator token tests.
+- `src/db_crates/{sqlx_params,rusqlite_params,tokio_postgres_params}.rs`: SQLx, rusqlite, and tokio-postgres params-struct query generators.
+- `src/db_crates/{rusqlite_tests,tokio_postgres_tests}.rs`: rusqlite and tokio-postgres generator token tests.
+- `src/db_crates/postgres_types.rs`: PostgreSQL type mappings shared by the SQLx and tokio-postgres backends.
 - `src/db_crates/dynfilter_runtime.rs`: the `pub mod dynfilter` runtime that is inlined into generated code when a query needs it. It is also compiled into the plugin's own tests.
 - `src/path_map.rs`: SQL-to-Rust path mapping.
 - `src/protos/codegen.proto`: sqlc plugin protocol. `build.rs` compiles it with `prost-build`, which requires `protoc`.

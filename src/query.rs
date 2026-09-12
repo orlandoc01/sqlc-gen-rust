@@ -26,6 +26,14 @@ pub enum QueryError {
         struct_ident: String,
         location: &'static std::panic::Location<'static>,
     },
+    ConflictingGeneratedFunction {
+        first_query_name: String,
+        first_helper: &'static str,
+        second_query_name: String,
+        second_helper: &'static str,
+        function_ident: String,
+        location: &'static std::panic::Location<'static>,
+    },
     UnknownAnnotation {
         annotation: String,
         location: &'static std::panic::Location<'static>,
@@ -92,6 +100,24 @@ impl QueryError {
     }
 
     #[track_caller]
+    pub(crate) fn conflicting_generated_function(
+        first_query_name: String,
+        first_helper: &'static str,
+        second_query_name: String,
+        second_helper: &'static str,
+        function_ident: String,
+    ) -> Self {
+        Self::ConflictingGeneratedFunction {
+            first_query_name,
+            first_helper,
+            second_query_name,
+            second_helper,
+            function_ident,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
     pub(crate) fn unknown_annotation(annotation: String) -> Self {
         Self::UnknownAnnotation {
             annotation,
@@ -106,6 +132,7 @@ impl QueryError {
             QueryError::CannotMapType { location, .. } => location,
             QueryError::MissingEmbeddedTable { location, .. } => location,
             QueryError::ConflictingEmbeddedTable { location, .. } => location,
+            QueryError::ConflictingGeneratedFunction { location, .. } => location,
             QueryError::UnknownAnnotation { location, .. } => location,
             QueryError::Stacked { location, .. } => location,
         }
@@ -139,6 +166,17 @@ impl std::fmt::Display for QueryError {
             } => write!(
                 f,
                 "Embedded tables `{first_table_name}` and `{second_table_name}` both generate Rust struct `{struct_ident}`"
+            ),
+            QueryError::ConflictingGeneratedFunction {
+                first_query_name,
+                first_helper,
+                second_query_name,
+                second_helper,
+                function_ident,
+                ..
+            } => write!(
+                f,
+                "Queries `{first_query_name}` ({first_helper}) and `{second_query_name}` ({second_helper}) both generate Rust function `{function_ident}`"
             ),
             QueryError::Stacked { source, .. } => source.fmt(f),
         }
@@ -1122,6 +1160,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db_crates::test_support::{column, identifier};
 
     fn create_test_column(table_name: Option<&str>, column_name: &str) -> plugin::Column {
         plugin::Column {
@@ -1148,20 +1187,6 @@ mod tests {
         }
     }
 
-    fn identifier(name: &str) -> plugin::Identifier {
-        plugin::Identifier {
-            name: name.to_string(),
-            schema: String::new(),
-            catalog: String::new(),
-        }
-    }
-
-    fn integer_column(name: &str) -> plugin::Column {
-        let mut column = create_test_column(None, name);
-        column.r#type = Some(identifier("integer"));
-        column
-    }
-
     fn test_catalog() -> plugin::Catalog {
         plugin::Catalog {
             comment: String::new(),
@@ -1173,15 +1198,15 @@ mod tests {
                 tables: vec![
                     plugin::Table {
                         rel: Some(identifier("authors")),
-                        columns: vec![integer_column("id"), integer_column("name")],
+                        columns: vec![column("id", false), column("name", false)],
                         comment: String::new(),
                     },
                     plugin::Table {
                         rel: Some(identifier("books")),
                         columns: vec![
-                            integer_column("id"),
-                            integer_column("author_id"),
-                            integer_column("title"),
+                            column("id", false),
+                            column("author_id", false),
+                            column("title", false),
                         ],
                         comment: String::new(),
                     },
@@ -1316,9 +1341,9 @@ mod tests {
             name: "Embedded".to_string(),
             cmd: ":one".to_string(),
             columns: vec![
-                integer_column("before"),
+                column("before", false),
                 authors,
-                integer_column("after"),
+                column("after", false),
                 books,
             ],
             params: Vec::new(),
