@@ -1,7 +1,7 @@
 use crate::{
     db_crates::{
+        params_common,
         rusqlite::Rusqlite,
-        rusqlite_params,
         test_support::{column, query},
     },
     plugin,
@@ -17,7 +17,9 @@ fn generated(query: plugin::Query, query_parameter_limit: usize) -> String {
     if query.dynfilter().is_none() {
         query.apply_static_slices();
     }
-    rusqlite_params::generate_queries(&[row], &[query], query_parameter_limit).to_string()
+    params_common::generate_queries(&Rusqlite, &[row], &[query], query_parameter_limit)
+        .unwrap()
+        .to_string()
 }
 
 #[test]

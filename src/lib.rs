@@ -466,10 +466,11 @@ pub fn try_main() -> Result<(), Error> {
     let embedded_tables_tt = db_crates::make_embedded_tables(&returning_rows)?;
 
     let init_tt = config.db_crate.init();
-    let queries_tt =
-        config
-            .db_crate
-            .generate_queries(&returning_rows, &queries, config.query_parameter_limit);
+    let queries_tt = config.db_crate.generate_queries(
+        &returning_rows,
+        &queries,
+        config.query_parameter_limit,
+    )?;
     let tt = quote::quote! {
         #init_tt
         #enums_tt

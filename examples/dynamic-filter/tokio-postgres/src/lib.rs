@@ -16,8 +16,11 @@ mod tests {
             .unwrap();
         client
             .batch_execute(
-                "INSERT INTO users (id, email, phone) VALUES (1, 'alice@example.com', '111'), (2, 'bob@example.com', '222'), (3, 'carol@example.com', '333');
-                 INSERT INTO orders (id, user_id, created_at) VALUES (1, 1, '2024-01-01'), (2, 2, '2025-01-01');",
+                r#"INSERT INTO users (id, email, phone, profile) VALUES
+                    (1, 'alice@example.com', '111', '{"tier":"gold"}'),
+                    (2, 'bob@example.com', '222', '{"tier":"silver"}'),
+                    (3, 'carol@example.com', '333', '{"tier":"gold"}');
+                   INSERT INTO orders (id, user_id, created_at) VALUES (1, 1, '2024-01-01'), (2, 2, '2025-01-01');"#,
             )
             .await
             .unwrap();
@@ -289,3 +292,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "tests/dynamic_stream.rs"]
+mod dynamic_stream;

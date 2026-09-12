@@ -27,7 +27,7 @@ pub async fn list_authors_by_ids(
     client: &impl tokio_postgres::GenericClient,
     ids: &[i64],
 ) -> Result<Vec<ListAuthorsByIDsRow>, tokio_postgres::Error> {
-    list_authors_by_ids_with(client, LIST_AUTHORS_BY_IDS, ids).await
+    self::list_authors_by_ids_with(client, LIST_AUTHORS_BY_IDS, ids).await
 }
 pub async fn list_authors_by_ids_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
     client: &impl tokio_postgres::GenericClient,
@@ -42,7 +42,7 @@ pub async fn list_authors_by_ids_stream(
     client: &impl tokio_postgres::GenericClient,
     ids: &[i64],
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    list_authors_by_ids_stream_with(client, LIST_AUTHORS_BY_IDS, ids).await
+    self::list_authors_by_ids_stream_with(client, LIST_AUTHORS_BY_IDS, ids).await
 }
 pub async fn list_authors_by_ids_stream_with<
     S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
@@ -85,7 +85,7 @@ pub async fn list_authors_by_two_id_lists(
     client: &impl tokio_postgres::GenericClient,
     params: ListAuthorsByTwoIdListsParams<'_>,
 ) -> Result<Vec<ListAuthorsByTwoIdListsRow>, tokio_postgres::Error> {
-    list_authors_by_two_id_lists_with(client, LIST_AUTHORS_BY_TWO_ID_LISTS, params).await
+    self::list_authors_by_two_id_lists_with(client, LIST_AUTHORS_BY_TWO_ID_LISTS, params).await
 }
 pub async fn list_authors_by_two_id_lists_with<
     S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
@@ -104,7 +104,8 @@ pub async fn list_authors_by_two_id_lists_stream(
     client: &impl tokio_postgres::GenericClient,
     params: ListAuthorsByTwoIdListsParams<'_>,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    list_authors_by_two_id_lists_stream_with(client, LIST_AUTHORS_BY_TWO_ID_LISTS, params).await
+    self::list_authors_by_two_id_lists_stream_with(client, LIST_AUTHORS_BY_TWO_ID_LISTS, params)
+        .await
 }
 pub async fn list_authors_by_two_id_lists_stream_with<
     S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
@@ -151,7 +152,7 @@ pub async fn list_authors_by_ids_mixed(
     client: &impl tokio_postgres::GenericClient,
     params: ListAuthorsByIDsMixedParams<'_>,
 ) -> Result<Vec<ListAuthorsByIDsMixedRow>, tokio_postgres::Error> {
-    list_authors_by_ids_mixed_with(client, LIST_AUTHORS_BY_IDS_MIXED, params).await
+    self::list_authors_by_ids_mixed_with(client, LIST_AUTHORS_BY_IDS_MIXED, params).await
 }
 pub async fn list_authors_by_ids_mixed_with<
     S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
@@ -175,7 +176,7 @@ pub async fn list_authors_by_ids_mixed_stream(
     client: &impl tokio_postgres::GenericClient,
     params: ListAuthorsByIDsMixedParams<'_>,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    list_authors_by_ids_mixed_stream_with(client, LIST_AUTHORS_BY_IDS_MIXED, params).await
+    self::list_authors_by_ids_mixed_stream_with(client, LIST_AUTHORS_BY_IDS_MIXED, params).await
 }
 pub async fn list_authors_by_ids_mixed_stream_with<
     S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
@@ -203,7 +204,7 @@ pub async fn delete_authors_by_ids(
     client: &impl tokio_postgres::GenericClient,
     ids: &[i64],
 ) -> Result<(), tokio_postgres::Error> {
-    delete_authors_by_ids_with(client, DELETE_AUTHORS_BY_IDS, ids).await
+    self::delete_authors_by_ids_with(client, DELETE_AUTHORS_BY_IDS, ids).await
 }
 pub async fn delete_authors_by_ids_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
     client: &impl tokio_postgres::GenericClient,

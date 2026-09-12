@@ -426,6 +426,7 @@ name = "dynamic-filter-tokio-postgres"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "serde_json",
  "test-context",
  "test-utils",
  "tokio",

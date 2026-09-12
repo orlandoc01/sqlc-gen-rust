@@ -1,20 +1,27 @@
 use crate::{
     db_crates::{
         TokioPostgres, params_common,
-        test_support::{column, query},
+        test_support::{column, identifier, query},
     },
     plugin,
     query::{self, EmbeddedTable, Query, ReturnRowAttributes, ReturningRows},
 };
 
-fn generated(query: plugin::Query, query_parameter_limit: usize) -> String {
+fn generated_tokens(
+    query: plugin::Query,
+    query_parameter_limit: usize,
+) -> proc_macro2::TokenStream {
     let type_map = TokioPostgres.db_type_map();
     let row = ReturningRows::from_query(&type_map, &ReturnRowAttributes::default(), None, &query)
         .unwrap();
     let mut query = Query::from_query(&type_map, &query).unwrap();
     query.apply_dynfilter();
     params_common::generate_queries(&TokioPostgres, &[row], &[query], query_parameter_limit)
-        .to_string()
+        .unwrap()
+}
+
+fn generated(query: plugin::Query, query_parameter_limit: usize) -> String {
+    generated_tokens(query, query_parameter_limit).to_string()
 }
 
 #[test]
@@ -83,6 +90,73 @@ fn direct_parameters_do_not_collide_with_generated_locals() {
     ));
     assert!(tokens.contains("statement_ : & S"));
     assert!(tokens.contains("let values_ : & [& (dyn tokio_postgres :: types :: ToSql + Sync)]"));
+}
+
+#[test]
+fn direct_parameters_do_not_shadow_forwarding_functions() {
+    let tokens = generated_tokens(
+        query(
+            "GetAuthor",
+            ":one",
+            "SELECT id FROM authors WHERE id = $1",
+            vec![column("id", false)],
+            vec![(1, column("get_author_with", false))],
+        ),
+        1,
+    );
+    assert!(syn::parse2::<syn::File>(tokens.clone()).is_ok());
+    let tokens = tokens.to_string();
+
+    assert!(tokens.contains("self :: get_author_with (client , GET_AUTHOR , get_author_with)"));
+
+    let opt_tokens = generated(
+        query(
+            "GetAuthor",
+            ":one",
+            "SELECT id FROM authors WHERE id = $1",
+            vec![column("id", false)],
+            vec![(1, column("get_author_opt_with", false))],
+        ),
+        1,
+    );
+    assert!(
+        opt_tokens
+            .contains("self :: get_author_opt_with (client , GET_AUTHOR , get_author_opt_with)")
+    );
+
+    let stream_tokens = generated(
+        query(
+            "ListAuthors",
+            ":many",
+            "SELECT id FROM authors WHERE id = $1",
+            vec![column("id", false)],
+            vec![(1, column("list_authors_stream_with", false))],
+        ),
+        1,
+    );
+    assert!(stream_tokens.contains(
+        "self :: list_authors_stream_with (client , LIST_AUTHORS , list_authors_stream_with)"
+    ));
+}
+
+#[test]
+fn required_system_time_params_do_not_derive_default() {
+    let mut timestamp = column("timestamp", false);
+    timestamp.r#type = Some(identifier("timestamp"));
+    let tokens = generated(
+        query(
+            "EchoTimestamp",
+            ":one",
+            "SELECT $1::timestamp AS timestamp",
+            vec![timestamp.clone()],
+            vec![(1, timestamp)],
+        ),
+        0,
+    );
+
+    assert!(tokens.contains("pub struct EchoTimestampParams"));
+    assert!(tokens.contains("std :: time :: SystemTime"));
+    assert!(!tokens.contains("derive (Debug , Clone , Default)"));
 }
 
 #[test]

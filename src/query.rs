@@ -26,6 +26,14 @@ pub enum QueryError {
         struct_ident: String,
         location: &'static std::panic::Location<'static>,
     },
+    ConflictingGeneratedFunction {
+        first_query_name: String,
+        first_helper: &'static str,
+        second_query_name: String,
+        second_helper: &'static str,
+        function_ident: String,
+        location: &'static std::panic::Location<'static>,
+    },
     UnknownAnnotation {
         annotation: String,
         location: &'static std::panic::Location<'static>,
@@ -92,6 +100,24 @@ impl QueryError {
     }
 
     #[track_caller]
+    pub(crate) fn conflicting_generated_function(
+        first_query_name: String,
+        first_helper: &'static str,
+        second_query_name: String,
+        second_helper: &'static str,
+        function_ident: String,
+    ) -> Self {
+        Self::ConflictingGeneratedFunction {
+            first_query_name,
+            first_helper,
+            second_query_name,
+            second_helper,
+            function_ident,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
     pub(crate) fn unknown_annotation(annotation: String) -> Self {
         Self::UnknownAnnotation {
             annotation,
@@ -106,6 +132,7 @@ impl QueryError {
             QueryError::CannotMapType { location, .. } => location,
             QueryError::MissingEmbeddedTable { location, .. } => location,
             QueryError::ConflictingEmbeddedTable { location, .. } => location,
+            QueryError::ConflictingGeneratedFunction { location, .. } => location,
             QueryError::UnknownAnnotation { location, .. } => location,
             QueryError::Stacked { location, .. } => location,
         }
@@ -139,6 +166,17 @@ impl std::fmt::Display for QueryError {
             } => write!(
                 f,
                 "Embedded tables `{first_table_name}` and `{second_table_name}` both generate Rust struct `{struct_ident}`"
+            ),
+            QueryError::ConflictingGeneratedFunction {
+                first_query_name,
+                first_helper,
+                second_query_name,
+                second_helper,
+                function_ident,
+                ..
+            } => write!(
+                f,
+                "Queries `{first_query_name}` ({first_helper}) and `{second_query_name}` ({second_helper}) both generate Rust function `{function_ident}`"
             ),
             QueryError::Stacked { source, .. } => source.fmt(f),
         }

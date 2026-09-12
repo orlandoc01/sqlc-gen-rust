@@ -34,3 +34,17 @@ WHERE TRUE
 SELECT id, email, phone
 FROM users
 ORDER BY id;
+
+-- name: SearchUsersByProfile :many
+SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email = @email -- :if @email
+  AND (profile @> @profile::jsonb OR profile @> @profile::jsonb) -- :if @profile
+ORDER BY id;
+
+-- name: SetUserPhone :execrows
+UPDATE users SET phone = @new_phone
+WHERE TRUE
+  AND id = @user_id -- :if @user_id
+  AND TRUE;

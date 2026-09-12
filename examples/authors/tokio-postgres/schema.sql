@@ -5,6 +5,13 @@ CREATE TABLE authors (
 );
 
 CREATE TABLE keyword_idents (
-          id   BIGSERIAL PRIMARY KEY,
-          type text      NOT NULL
+           id   BIGSERIAL PRIMARY KEY,
+           type text      NOT NULL
+);
+
+CREATE TABLE timestamps (
+           id                 BIGINT PRIMARY KEY,
+           timestamp_val      TIMESTAMP NOT NULL,
+           timestamptz_val    TIMESTAMPTZ NOT NULL,
+           nullable_timestamp TIMESTAMP
 );

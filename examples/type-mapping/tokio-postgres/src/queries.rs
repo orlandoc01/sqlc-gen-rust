@@ -102,7 +102,7 @@ pub async fn prepare_get_mapping(
 pub async fn get_mapping(
     client: &impl tokio_postgres::GenericClient,
 ) -> Result<GetMappingRow, tokio_postgres::Error> {
-    get_mapping_with(client, GET_MAPPING).await
+    self::get_mapping_with(client, GET_MAPPING).await
 }
 pub async fn get_mapping_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
     client: &impl tokio_postgres::GenericClient,
@@ -115,7 +115,7 @@ pub async fn get_mapping_with<S: ?Sized + tokio_postgres::ToStatement + Sync + S
 pub async fn get_mapping_opt(
     client: &impl tokio_postgres::GenericClient,
 ) -> Result<Option<GetMappingRow>, tokio_postgres::Error> {
-    get_mapping_opt_with(client, GET_MAPPING).await
+    self::get_mapping_opt_with(client, GET_MAPPING).await
 }
 pub async fn get_mapping_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
     client: &impl tokio_postgres::GenericClient,
@@ -193,7 +193,7 @@ pub async fn insert_mapping(
     client: &impl tokio_postgres::GenericClient,
     params: InsertMappingParams<'_>,
 ) -> Result<(), tokio_postgres::Error> {
-    insert_mapping_with(client, INSERT_MAPPING, params).await
+    self::insert_mapping_with(client, INSERT_MAPPING, params).await
 }
 pub async fn insert_mapping_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
     client: &impl tokio_postgres::GenericClient,

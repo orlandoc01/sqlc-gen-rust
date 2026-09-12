@@ -1,11 +1,12 @@
 use crate::query::{self, Annotation, EmbeddedTable, ReturningRows};
 
 mod params_common;
+mod params_common_types;
 mod postgres_types;
 mod rusqlite;
 mod rusqlite_params;
 mod sqlx;
-pub(crate) mod sqlx_params;
+mod sqlx_params;
 mod tokio_postgres;
 mod tokio_postgres_params;
 
@@ -13,6 +14,8 @@ mod tokio_postgres_params;
 mod rusqlite_tests;
 #[cfg(test)]
 pub(crate) mod test_support;
+#[cfg(test)]
+mod tokio_postgres_name_tests;
 #[cfg(test)]
 mod tokio_postgres_tests;
 
@@ -127,14 +130,17 @@ impl DbCrate {
         rows: &[ReturningRows],
         queries: &[query::Query],
         query_parameter_limit: usize,
-    ) -> proc_macro2::TokenStream {
+    ) -> Result<proc_macro2::TokenStream, query::QueryError> {
         match self {
             Self::Sqlx(sqlx) => {
-                sqlx_params::generate_queries(&sqlx, rows, queries, query_parameter_limit)
+                params_common::generate_queries(&sqlx, rows, queries, query_parameter_limit)
             }
-            Self::Rusqlite => {
-                rusqlite_params::generate_queries(rows, queries, query_parameter_limit)
-            }
+            Self::Rusqlite => params_common::generate_queries(
+                &rusqlite::Rusqlite,
+                rows,
+                queries,
+                query_parameter_limit,
+            ),
             Self::TokioPostgres => params_common::generate_queries(
                 &TokioPostgres,
                 rows,

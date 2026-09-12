@@ -6,6 +6,7 @@ use super::{
 };
 
 mod dynamic;
+mod names;
 
 impl ParamsGenerator for TokioPostgres {
     fn placeholders(&self) -> proc_macro2::TokenStream {
@@ -14,6 +15,10 @@ impl ParamsGenerator for TokioPostgres {
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
         self.returning_ordinal_row(row)
+    }
+
+    fn generated_functions(&self, query: &Query) -> Vec<params_common::GeneratedFunction> {
+        names::generated_functions(query)
     }
 
     fn query_functions(
@@ -202,7 +207,7 @@ impl<'a> Function<'a> {
         let error = &self.paths.error;
         quote::quote! {
             pub async fn #name(#client: &impl #generic_client #arguments) -> Result<#return_type, #error> {
-                #with_name(#client, #constant #forwarded).await
+                self::#with_name(#client, #constant #forwarded).await
             }
         }
     }

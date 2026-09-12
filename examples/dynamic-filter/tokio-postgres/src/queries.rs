@@ -1196,7 +1196,7 @@ pub async fn prepare_list_all_users(
 pub async fn list_all_users(
     client: &impl tokio_postgres::GenericClient,
 ) -> Result<Vec<ListAllUsersRow>, tokio_postgres::Error> {
-    list_all_users_with(client, LIST_ALL_USERS).await
+    self::list_all_users_with(client, LIST_ALL_USERS).await
 }
 pub async fn list_all_users_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
     client: &impl tokio_postgres::GenericClient,
@@ -1209,7 +1209,7 @@ pub async fn list_all_users_with<S: ?Sized + tokio_postgres::ToStatement + Sync 
 pub async fn list_all_users_stream(
     client: &impl tokio_postgres::GenericClient,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    list_all_users_stream_with(client, LIST_ALL_USERS).await
+    self::list_all_users_stream_with(client, LIST_ALL_USERS).await
 }
 pub async fn list_all_users_stream_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
     client: &impl tokio_postgres::GenericClient,
@@ -1218,9 +1218,119 @@ pub async fn list_all_users_stream_with<S: ?Sized + tokio_postgres::ToStatement 
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     client.query_raw(statement, values.iter().copied()).await
 }
+pub const SEARCH_USERS_BY_PROFILE: &str = r"SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email = $1 -- :if $1
+  AND (profile @> $2::jsonb OR profile @> $2::jsonb) -- :if $2
+ORDER BY id";
+static SEARCH_USERS_BY_PROFILE_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            SEARCH_USERS_BY_PROFILE,
+            dynfilter::Placeholders::Numbered,
+            &[1usize, 2usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct SearchUsersByProfileParams<'a> {
+    pub email: Option<&'a str>,
+    pub profile: Option<serde_json::Value>,
+}
+pub struct SearchUsersByProfileRow {
+    pub id: i64,
+    pub email: String,
+    pub phone: String,
+}
+impl SearchUsersByProfileRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+        Ok(Self {
+            id: row.try_get(0)?,
+            email: row.try_get(1)?,
+            phone: row.try_get(2)?,
+        })
+    }
+}
+fn search_users_by_profile_query<'p>(
+    params: &'p SearchUsersByProfileParams<'_>,
+) -> (String, Vec<&'p (dyn tokio_postgres::types::ToSql + Sync)>) {
+    let args = [
+        dynfilter::Arg::from_option(&params.email),
+        dynfilter::Arg::from_option(&params.profile),
+    ];
+    let (sql, binds) = SEARCH_USERS_BY_PROFILE_DYN.build(&args);
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
+        .iter()
+        .map(|bind| match bind {
+            dynfilter::Bind::Arg(0usize) => &params.email as _,
+            dynfilter::Bind::Arg(1usize) => &params.profile as _,
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        })
+        .collect();
+    (sql, values)
+}
+pub async fn search_users_by_profile(
+    client: &impl tokio_postgres::GenericClient,
+    params: SearchUsersByProfileParams<'_>,
+) -> Result<Vec<SearchUsersByProfileRow>, tokio_postgres::Error> {
+    let (sql, values) = search_users_by_profile_query(&params);
+    let rows = client.query(sql.as_str(), &values).await?;
+    rows.iter().map(SearchUsersByProfileRow::from_row).collect()
+}
+pub async fn search_users_by_profile_stream(
+    client: &impl tokio_postgres::GenericClient,
+    params: SearchUsersByProfileParams<'_>,
+) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
+    let (sql, values) = search_users_by_profile_query(&params);
+    client.query_raw(sql.as_str(), values).await
+}
+pub const SET_USER_PHONE: &str = r"UPDATE users SET phone = $1
+WHERE TRUE
+  AND id = $2 -- :if $2
+  AND TRUE";
+static SET_USER_PHONE_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            SET_USER_PHONE,
+            dynfilter::Placeholders::Numbered,
+            &[1usize, 2usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct SetUserPhoneParams<'a> {
+    pub new_phone: &'a str,
+    pub user_id: Option<i64>,
+}
+fn set_user_phone_query<'p>(
+    params: &'p SetUserPhoneParams<'_>,
+) -> (String, Vec<&'p (dyn tokio_postgres::types::ToSql + Sync)>) {
+    let args = [
+        dynfilter::Arg::Active,
+        dynfilter::Arg::from_option(&params.user_id),
+    ];
+    let (sql, binds) = SET_USER_PHONE_DYN.build(&args);
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
+        .iter()
+        .map(|bind| match bind {
+            dynfilter::Bind::Arg(0usize) => &params.new_phone as _,
+            dynfilter::Bind::Arg(1usize) => &params.user_id as _,
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        })
+        .collect();
+    (sql, values)
+}
+pub async fn set_user_phone(
+    client: &impl tokio_postgres::GenericClient,
+    params: SetUserPhoneParams<'_>,
+) -> Result<u64, tokio_postgres::Error> {
+    let (sql, values) = set_user_phone_query(&params);
+    client.execute(sql.as_str(), &values).await
+}
 pub const QUERIES: &[(&str, &str)] = &[
     ("SearchUsers", SEARCH_USERS),
     ("CountUsers", COUNT_USERS),
     ("TouchUsers", TOUCH_USERS),
     ("ListAllUsers", LIST_ALL_USERS),
+    ("SearchUsersByProfile", SEARCH_USERS_BY_PROFILE),
+    ("SetUserPhone", SET_USER_PHONE),
 ];

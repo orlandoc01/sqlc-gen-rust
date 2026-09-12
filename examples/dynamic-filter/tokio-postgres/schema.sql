@@ -1,7 +1,8 @@
 CREATE TABLE users (
     id BIGINT PRIMARY KEY,
     email TEXT NOT NULL,
-    phone TEXT NOT NULL
+    phone TEXT NOT NULL,
+    profile JSONB NOT NULL
 );
 
 CREATE TABLE orders (
