@@ -4,22 +4,22 @@
 
 This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust. It is published from `github.com/orlandoc01/sqlc-gen-rust`; a Forgejo remote mirrors it.
 
-- `main` carries upstream plus `sqlc.embed` support, the `api: params_struct` output, and `-- :if` dynamic filters.
-- New behavior must be behind an opt-in config option; upstream behavior remains the default. Dynamic filters are opted into per query by the `-- :if` annotation under `api: params_struct`, not by a separate option.
+- `main` carries `sqlc.embed` support, params-struct output, and `-- :if` dynamic filters.
+- New behavior must be behind an opt-in config option. Dynamic filters are opted into per query by the `-- :if` annotation, not by a separate option.
 - Never hand-edit committed generated output. Run `just generate`, including for files such as `examples/*/src/queries.rs`.
 
 ## Layout
 
 - `src/lib.rs`: plugin entry point, `Config` parsing and validation, and override types.
-- `src/query.rs`: query, parameter, and row models; annotations; and `SLICE` expansion.
+- `src/query.rs`: query, parameter, and row models; annotations; and static-slice handling.
 - `src/dynfilter.rs`: parses `-- :if @param` annotations and static `sqlc.slice()` markers into a bind plan.
-- `src/db_crates/{mod,sqlx,postgres,rusqlite}.rs`: per-crate code generation for the default `builder` API. `sqlx.rs` covers sqlx-postgres, sqlx-mysql, and sqlx-sqlite.
-- `src/db_crates/sqlx_params.rs`: the `api: params_struct` generator (SQL constants, free async functions, params/row structs).
+- `src/db_crates/{mod,sqlx}.rs`: shared code generation and SQLx type mapping for sqlx-postgres, sqlx-mysql, and sqlx-sqlite.
+- `src/db_crates/sqlx_params.rs`: generator for SQL constants, free async functions, and params/row structs.
 - `src/db_crates/dynfilter_runtime.rs`: the `pub mod dynfilter` runtime that is inlined into generated code when a query needs it. It is also compiled into the plugin's own tests.
 - `src/path_map.rs`: SQL-to-Rust path mapping.
 - `src/protos/codegen.proto`: sqlc plugin protocol. `build.rs` compiles it with `prost-build`, which requires `protoc`.
 - Root `sqlc.yaml`: drives regeneration for every `examples/*` package.
-- `examples/dynamic-filter/*`: one crate per sqlx engine exercising `-- :if`. `examples/*-params/`: `params_struct` variants of the builder examples.
+- `examples/dynamic-filter/*`: one crate per SQLx engine exercising `-- :if`.
 - `examples/test-utils`: PostgreSQL/MySQL test contexts reading `POSTGRES_DATABASE_URL` and `MYSQL_DATABASE_URL`.
 - `rust-toolchain.toml`: pins Rust 1.89.0 and the `wasm32-wasip1` target.
 - `.devcontainer/` + `Dockerfile` + `compose.yaml`: upstream's VS Code container with `postgres` and `mysql` services. `.dev.env` uses the compose hostnames, which only resolve inside that container.

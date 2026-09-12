@@ -1,14 +1,10 @@
-use super::DbCrate;
 use crate::{
-    query::{
-        Annotation, ColumnField, DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper,
-    },
+    query::{ColumnField, DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper},
     value_ident,
 };
 
 #[derive(Default)]
 pub struct MySqlTypeMap {
-    /// db_type to rust type
     type_map: std::collections::BTreeMap<String, RsType>,
 }
 
@@ -33,27 +29,21 @@ impl TypeMapper for MySqlTypeMap {
                 (_, true) => Some(RsType::new(syn::parse_str("u8").unwrap(), None, true)),
                 (_, false) => Some(RsType::new(syn::parse_str("i8").unwrap(), None, true)),
             },
-            "smallint" => {
-                if column.unsigned {
-                    Some(RsType::new(syn::parse_str("u16").unwrap(), None, true))
-                } else {
-                    Some(RsType::new(syn::parse_str("i16").unwrap(), None, true))
-                }
-            }
-            "int" | "integer" | "mediumint" => {
-                if column.unsigned {
-                    Some(RsType::new(syn::parse_str("u32").unwrap(), None, true))
-                } else {
-                    Some(RsType::new(syn::parse_str("i32").unwrap(), None, true))
-                }
-            }
-            "bigint" => {
-                if column.unsigned {
-                    Some(RsType::new(syn::parse_str("u64").unwrap(), None, true))
-                } else {
-                    Some(RsType::new(syn::parse_str("i64").unwrap(), None, true))
-                }
-            }
+            "smallint" => Some(RsType::new(
+                syn::parse_str(if column.unsigned { "u16" } else { "i16" }).unwrap(),
+                None,
+                true,
+            )),
+            "int" | "integer" | "mediumint" => Some(RsType::new(
+                syn::parse_str(if column.unsigned { "u32" } else { "i32" }).unwrap(),
+                None,
+                true,
+            )),
+            "bigint" => Some(RsType::new(
+                syn::parse_str(if column.unsigned { "u64" } else { "i64" }).unwrap(),
+                None,
+                true,
+            )),
             _ => None,
         }
     }
@@ -65,7 +55,6 @@ impl TypeMapper for MySqlTypeMap {
 
 #[derive(Default)]
 pub struct SqliteTypeMap {
-    /// db_type to rust type
     type_map: std::collections::BTreeMap<String, RsType>,
 }
 
@@ -84,140 +73,25 @@ impl TypeMapper for SqliteTypeMap {
             return Some(rs_type.clone());
         };
 
-        // Rust type determine by affinity
+        // Rust type determined by affinity
         // See https://www.sqlite.org/datatype3.html
         if col_type.contains("int") {
             return self.find_rs_type("int").cloned();
         }
-
         if col_type.contains("char") || col_type.contains("clob") || col_type.contains("text") {
             return self.find_rs_type("text").cloned();
         }
-
         if col_type.contains("blob") || col_type.is_empty() {
             return self.find_rs_type("blob").cloned();
         }
-
         if col_type.contains("real") || col_type.contains("floa") || col_type.contains("doub") {
             return self.find_rs_type("real").cloned();
         }
-
         self.find_rs_type("numeric").cloned()
     }
 
     fn insert_db_type(&mut self, db_type: &str, rs_type: RsType) {
         self.type_map.insert(db_type.to_string(), rs_type);
-    }
-}
-
-struct CopyDataSink;
-
-impl CopyDataSink {
-    fn ident() -> syn::Ident {
-        quote::format_ident!("CopyDataSink")
-    }
-
-    fn box_error() -> syn::Type {
-        syn::parse_quote! {
-            Box<dyn std::error::Error + Send + Sync>
-        }
-    }
-
-    fn generic_constraint() -> syn::Type {
-        syn::parse_quote! {
-            std::ops::DerefMut<Target = sqlx::PgConnection>
-        }
-    }
-
-    fn struct_tokens() -> proc_macro2::TokenStream {
-        let ident = Self::ident();
-        let constraint = Self::generic_constraint();
-        quote::quote! {
-           pub struct #ident<C: #constraint> {
-                encode_buf: sqlx::postgres::PgArgumentBuffer,
-                data_buf: Vec<u8>,
-                copy_in: sqlx::postgres::PgCopyIn<C>,
-            }
-        }
-    }
-
-    fn impl_fn() -> proc_macro2::TokenStream {
-        let ident = Self::ident();
-        let constraint = Self::generic_constraint();
-        let error_type = Self::box_error();
-        quote::quote! {
-                impl<C: #constraint> #ident<C> {
-                    const BUFFER_SIZE: usize = 4096;
-
-                    fn new(copy_in: sqlx::postgres::PgCopyIn<C>) -> Self {
-                        let mut data_buf = Vec::with_capacity(Self::BUFFER_SIZE);
-                        const COPY_SIGNATURE: &[u8] = &[
-                            b'P', b'G', b'C', b'O', b'P', b'Y', b'\n',
-                            0xFF,
-                            b'\r', b'\n',
-                            0x00,
-                        ];
-
-                        assert_eq!(COPY_SIGNATURE.len(), 11);
-                        data_buf.extend_from_slice(COPY_SIGNATURE);
-                        data_buf.extend(0_i32.to_be_bytes());
-                        data_buf.extend(0_i32.to_be_bytes());
-
-                        CopyDataSink {
-                            encode_buf: Default::default(),
-                            data_buf,
-                            copy_in,
-                        }
-                    }
-
-                    async fn send(&mut self) -> Result<(), #error_type> {
-                        let _copy_in = self.copy_in.send(self.data_buf.as_slice()).await?;
-
-                        self.data_buf.clear();
-                        Ok(())
-                    }
-
-                    /// Complete copy process and return number of rows affected.
-                    pub async fn finish(mut self) -> Result<u64, #error_type> {
-                        const COPY_TRAILER: &[u8] = &(-1_i16).to_be_bytes();
-
-                        self.data_buf.extend(COPY_TRAILER);
-                        self.send().await?;
-                        self.copy_in.finish().await.map_err(|e| e.into())
-                    }
-
-                    fn insert_row(&mut self) {
-                        let num_col = self.copy_in.num_columns() as i16;
-                        self.data_buf.extend(num_col.to_be_bytes());
-                    }
-
-                    async fn add<'q, T>(&mut self, value: &T) -> Result<(), #error_type>
-                    where
-                        T: sqlx::Encode<'q, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
-                    {
-                        let is_null = value.encode_by_ref(&mut self.encode_buf)?;
-
-                        match is_null {
-                            sqlx::encode::IsNull::Yes => {
-                                self.data_buf.extend((-1_i32).to_be_bytes());
-                            }
-                            sqlx::encode::IsNull::No => {
-                                self.data_buf
-                                    .extend((self.encode_buf.len() as i32).to_be_bytes());
-                                self.data_buf.extend_from_slice(self.encode_buf.as_slice());
-                            }
-                        }
-
-                        self.encode_buf.clear();
-
-                        if self.data_buf.len() > Self::BUFFER_SIZE {
-                            self.send().await?;
-                        }
-
-                        Ok(())
-                    }
-            }
-        }
     }
 }
 
@@ -234,76 +108,88 @@ impl<'de> serde::Deserialize<'de> for Sqlx {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        match s.trim() {
+        let value = String::deserialize(deserializer)?;
+        match value.trim() {
             "sqlx-postgres" => Ok(Self::Postgres),
             "sqlx-mysql" => Ok(Self::MySql),
             "sqlx-sqlite" => Ok(Self::Sqlite),
             _ => Err(serde::de::Error::custom(format!(
-                "`{s}` is unsupported crate."
+                "db_crate `{value}` is not supported yet; supported: sqlx-postgres, sqlx-mysql, sqlx-sqlite"
             ))),
         }
     }
 }
 
-impl From<Sqlx> for crate::db_crates::DataBaseKind {
-    fn from(value: Sqlx) -> Self {
-        match value {
-            Sqlx::Postgres => Self::Postgres,
-            Sqlx::MySql => Self::MySql,
-            Sqlx::Sqlite => Self::Sqlite,
-        }
-    }
-}
-
 impl Sqlx {
-    pub(super) fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        if row
-            .fields
-            .iter()
-            .any(|field| field.embedded_table().is_some())
-        {
-            return self.returning_ordinal_row(row);
+    pub(crate) fn db_type_map(&self) -> crate::query::DbTypeMap {
+        let copy_cheap = self.copy_cheap_types();
+        let default_types = self.default_types();
+        let mut map: Box<dyn TypeMapper> = match self {
+            Self::Postgres => Box::new(SimpleTypeMap::default()),
+            Self::MySql => Box::new(MySqlTypeMap::default()),
+            Self::Sqlite => Box::new(SqliteTypeMap::default()),
+        };
+
+        for (owned_type, db_types) in copy_cheap {
+            let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
+            for db_type in *db_types {
+                map.insert_db_type(db_type, RsType::new(owned_type.clone(), None, true));
+            }
         }
-
-        let mut row = row.clone();
-
-        for field in row.fields.iter_mut() {
-            let original = &field.name_original;
-            let att = &field.attribute;
-            let attribute = quote::quote! {
-                #att
-                #[sqlx(rename = #original)]
-            };
-            field.attribute = Some(attribute);
+        for (owned_type, slice_type, db_types) in default_types {
+            let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
+            let slice_type = slice_type
+                .map(|typ| syn::parse_str::<syn::Type>(typ).expect("Failed to parse slice type"));
+            for db_type in *db_types {
+                map.insert_db_type(
+                    db_type,
+                    RsType::new(owned_type.clone(), slice_type.clone(), false),
+                );
+            }
         }
-        let struct_tt = super::make_return_row(&row);
+        crate::query::DbTypeMap::from_dyn(map)
+    }
 
-        let derive_tt = quote::quote! {#[derive(sqlx::FromRow)]};
+    pub(crate) fn defined_enum(&self, enum_type: &DbEnum) -> proc_macro2::TokenStream {
+        let derives = &enum_type.derives;
+        let fields = enum_type.values.iter().map(|field| {
+            let ident = value_ident(field);
+            quote::quote! {
+                #[sqlx(rename = #field)]
+                #ident
+            }
+        });
+        let original_name = &enum_type.name;
+        let enum_name = enum_type.ident();
+        let derive = if derives.is_empty() {
+            quote::quote! {#[derive(Debug,Clone,Copy, sqlx::Type)]}
+        } else {
+            quote::quote! {#[derive(Debug,Clone,Copy, sqlx::Type, #(#derives),*)]}
+        };
         quote::quote! {
-            #derive_tt
-            #struct_tt
+            #derive
+            #[sqlx(type_name = #original_name)]
+            pub enum #enum_name {
+                #(#fields,)*
+            }
         }
     }
 
-    pub(super) fn returning_ordinal_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        let struct_tt = super::make_return_row(row);
+    pub(crate) fn returning_ordinal_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
+        let struct_tokens = super::make_return_row(row);
         let ident = row.struct_ident();
         let row_type = self.row_type();
-        let arg_ident = quote::format_ident!("row");
+        let row_ident = quote::format_ident!("row");
         let fields = row
             .fields
             .iter()
             .zip(row.field_ordinals())
-            .map(|(field, ordinal)| Self::field_from_row(field, &arg_ident, ordinal));
-
+            .map(|(field, ordinal)| Self::field_from_row(field, &row_ident, ordinal));
         quote::quote! {
-            #struct_tt
+            #struct_tokens
             impl<'r> sqlx::FromRow<'r, #row_type> for #ident {
-                fn from_row(#arg_ident: &'r #row_type) -> Result<Self, sqlx::Error> {
-                    Ok(Self {
-                        #(#fields,)*
-                    })
+                fn from_row(#row_ident: &'r #row_type) -> Result<Self, sqlx::Error> {
+                    Ok(Self { #(#fields,)* })
                 }
             }
         }
@@ -316,199 +202,169 @@ impl Sqlx {
     ) -> proc_macro2::TokenStream {
         let field_ident = &field.name;
         let literal = proc_macro2::Literal::usize_unsuffixed(ordinal.start);
-
         match field.embedded_table() {
-            None => quote::quote! {
-                #field_ident: sqlx::Row::try_get(#row, #literal)?
-            },
+            None => quote::quote! { #field_ident: sqlx::Row::try_get(#row, #literal)? },
             Some(table) => {
                 let table_ident = &table.ident;
                 let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
                     let field_ident = &field.name;
                     let literal = proc_macro2::Literal::usize_unsuffixed(index);
-                    quote::quote! {
-                        #field_ident: sqlx::Row::try_get(#row, #literal)?
-                    }
+                    quote::quote! { #field_ident: sqlx::Row::try_get(#row, #literal)? }
                 });
-
-                quote::quote! {
-                    #field_ident: #table_ident {
-                        #(#fields,)*
-                    }
-                }
+                quote::quote! { #field_ident: #table_ident { #(#fields,)* } }
             }
         }
     }
 
     fn copy_cheap_types(&self) -> &[(&str, &[&str])] {
         match self {
-            Sqlx::Postgres => {
-                const COPY_CHEAP: &[(&str, &[&str])] = &[
-                    ("i8", &["char"]),
-                    ("i16", &["smallint", "int2", "pg_catalog.int2"]),
-                    ("i32", &["serial", "serial4", "pg_catalog.serial4"]),
-                    ("i64", &["bigserial", "serial8", "pg_catalog.serial8"]),
-                    ("i16", &["smallserial", "serial2", "pg_catalog.serial2"]),
-                    ("i32", &["integer", "int", "int4", "pg_catalog.int4"]),
-                    ("i64", &["bigint", "int8", "pg_catalog.int8"]),
-                    (
-                        "f64",
-                        &["float", "double precision", "float8", "pg_catalog.float8"],
-                    ),
-                    ("f32", &["real", "float4", "pg_catalog.float4"]),
-                    ("bool", &["boolean", "bool", "pg_catalog.bool"]),
-                    ("sqlx::postgres::types::Oid", &["oid", "pg_catalog.oid"]),
-                    ("uuid::Uuid", &["uuid"]),
-                ];
-                COPY_CHEAP
-            }
-            Sqlx::MySql => {
-                const COPY_CHEAP: &[(&str, &[&str])] = &[
-                    ("bool", &["bool", "boolean"]),
-                    // int type is handle in `get_column_type`
-                    ("int16", &["year"]),
-                    ("f32", &["float"]),
-                    ("f64", &["double", "double precision", "real"]),
-                    ("sqlx::mysql::types::MySqlTime", &["time"]),
-                ];
-                COPY_CHEAP
-            }
-            Sqlx::Sqlite => {
-                const COPY_CHEAP: &[(&str, &[&str])] = &[
-                    ("bool", &["bool", "boolean"]),
-                    ("i8", &["tinyint"]),
-                    ("i16", &["smallint", "int2"]),
-                    ("i32", &["mediumint", "int4"]),
-                    ("i64", &["int", "integer", "bigint", "int8"]),
-                    ("f64", &["real", "double", "doubleprecision", "float"]),
-                    // NUMERIC affinity
-                    ("f64", &["numeric"]),
-                ];
-                COPY_CHEAP
-            }
+            Self::Postgres => &[
+                ("i8", &["char"]),
+                ("i16", &["smallint", "int2", "pg_catalog.int2"]),
+                ("i32", &["serial", "serial4", "pg_catalog.serial4"]),
+                ("i64", &["bigserial", "serial8", "pg_catalog.serial8"]),
+                ("i16", &["smallserial", "serial2", "pg_catalog.serial2"]),
+                ("i32", &["integer", "int", "int4", "pg_catalog.int4"]),
+                ("i64", &["bigint", "int8", "pg_catalog.int8"]),
+                (
+                    "f64",
+                    &["float", "double precision", "float8", "pg_catalog.float8"],
+                ),
+                ("f32", &["real", "float4", "pg_catalog.float4"]),
+                ("bool", &["boolean", "bool", "pg_catalog.bool"]),
+                ("sqlx::postgres::types::Oid", &["oid", "pg_catalog.oid"]),
+                ("uuid::Uuid", &["uuid"]),
+            ],
+            Self::MySql => &[
+                ("bool", &["bool", "boolean"]),
+                // int types are handled in `find_column_type`
+                ("int16", &["year"]),
+                ("f32", &["float"]),
+                ("f64", &["double", "double precision", "real"]),
+                ("sqlx::mysql::types::MySqlTime", &["time"]),
+            ],
+            Self::Sqlite => &[
+                ("bool", &["bool", "boolean"]),
+                ("i8", &["tinyint"]),
+                ("i16", &["smallint", "int2"]),
+                ("i32", &["mediumint", "int4"]),
+                ("i64", &["int", "integer", "bigint", "int8"]),
+                ("f64", &["real", "double", "doubleprecision", "float"]),
+                // NUMERIC affinity
+                ("f64", &["numeric"]),
+            ],
         }
     }
 
-    fn default_types(&self) -> &[(&str, Option<&str>, &[&'static str])] {
+    fn default_types(&self) -> &[(&str, Option<&str>, &[&str])] {
         match self {
-            Sqlx::Postgres => {
-                /// See below
-                /// - https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/postgresql_type.go#L37-L605
-                /// - https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html
-                const DEFAULT_TYPE: &[(&str, Option<&str>, &[&str])] = &[
-                    (
-                        "String",
-                        Some("str"),
-                        &[
-                            "text",
-                            "pg_catalog.varchar",
-                            "pg_catalog.bpchar",
-                            "string",
-                            "citext",
-                            "name",
-                        ],
-                    ),
-                    (
-                        "Vec<u8>",
-                        Some("[u8]"),
-                        &["bytea", "blob", "pg_catalog.bytea"],
-                    ),
-                    (
-                        "sqlx::postgres::types::PgInterval",
-                        None,
-                        &["interval", "pg_catalog.interval"],
-                    ),
-                    // TODO: Add PgRange<T>
-                    // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/postgresql_type.go#L355-L461
-                    ("sqlx::postgres::types::PgMoney", None, &["money"]),
-                    ("sqlx::postgres::types::PgLTree", None, &["ltree"]),
-                    ("sqlx::postgres::types::PgLQuery", None, &["lquery"]),
-                    // `citext` is not added because `String` is usually sufficient.
-                    ("sqlx::postgres::types::PgCube", None, &["cube"]),
-                    ("sqlx::postgres::types::PgPoint", None, &["point"]),
-                    ("sqlx::postgres::types::PgLine", None, &["line"]),
-                    ("sqlx::postgres::types::PgLSeg", None, &["lseg"]),
-                    ("sqlx::postgres::types::PgBox", None, &["box"]),
-                    ("sqlx::postgres::types::PgPath", None, &["path"]),
-                    ("sqlx::postgres::types::PgPolygon", None, &["polygon"]),
-                    ("sqlx::postgres::types::PgCircle", None, &["circle"]),
-                    ("sqlx::postgres::types::PgHstore", None, &["hstore"]),
-                    (
-                        "sqlx::postgres::types::PgTimeTz",
-                        None,
-                        &["pg_catalog.timetz"],
-                    ),
-                    ("std::net::IpAddr", None, &["inet"]),
-                    (
-                        "serde_json::Value",
-                        None,
-                        &["json", "pg_catalog.json", "jsonb", "pg_catalog.jsonb"],
-                    ),
-                ];
-                DEFAULT_TYPE
-            }
-            Sqlx::MySql => {
-                /// https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/mysql_type.go
-                /// https://docs.rs/sqlx/0.8.6/sqlx/mysql/types/index.html
-                const DEFAULT_TYPE: &[(&str, Option<&str>, &[&str])] = &[
-                    (
-                        "String",
-                        Some("str"),
-                        &[
-                            "varchar",
-                            "text",
-                            "char",
-                            "tinytext",
-                            "mediumtext",
-                            "longtext",
-                        ],
-                    ),
-                    (
-                        "Vec<u8>",
-                        Some("[u8]"),
-                        &[
-                            "blob",
-                            "binary",
-                            "varbinary",
-                            "tinyblob",
-                            "mediumblob",
-                            "longblob",
-                        ],
-                    ),
-                    ("serde_json::Value", None, &["json"]),
-                    ("String", Some("str"), &["decimal", "dec", "fixed", "enum"]),
-                ];
-                DEFAULT_TYPE
-            }
-            Sqlx::Sqlite => {
-                /// https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/sqlite_type.go
-                /// https://docs.rs/sqlx/latest/sqlx/sqlite/types/index.html
-                const DEFAULT_TYPE: &[(&str, Option<&str>, &[&str])] = &[
-                    ("String", Some("str"), &["text", "clob"]),
-                    ("Vec<u8>", Some("[u8]"), &["blob"]),
-                ];
-                DEFAULT_TYPE
-            }
+            // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/postgresql_type.go#L37-L605
+            // https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html
+            Self::Postgres => &[
+                (
+                    "String",
+                    Some("str"),
+                    &[
+                        "text",
+                        "pg_catalog.varchar",
+                        "pg_catalog.bpchar",
+                        "string",
+                        "citext",
+                        "name",
+                    ],
+                ),
+                (
+                    "Vec<u8>",
+                    Some("[u8]"),
+                    &["bytea", "blob", "pg_catalog.bytea"],
+                ),
+                (
+                    "sqlx::postgres::types::PgInterval",
+                    None,
+                    &["interval", "pg_catalog.interval"],
+                ),
+                // TODO: Add PgRange<T>
+                // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/postgresql_type.go#L355-L461
+                ("sqlx::postgres::types::PgMoney", None, &["money"]),
+                ("sqlx::postgres::types::PgLTree", None, &["ltree"]),
+                ("sqlx::postgres::types::PgLQuery", None, &["lquery"]),
+                ("sqlx::postgres::types::PgCube", None, &["cube"]),
+                ("sqlx::postgres::types::PgPoint", None, &["point"]),
+                ("sqlx::postgres::types::PgLine", None, &["line"]),
+                ("sqlx::postgres::types::PgLSeg", None, &["lseg"]),
+                ("sqlx::postgres::types::PgBox", None, &["box"]),
+                ("sqlx::postgres::types::PgPath", None, &["path"]),
+                ("sqlx::postgres::types::PgPolygon", None, &["polygon"]),
+                ("sqlx::postgres::types::PgCircle", None, &["circle"]),
+                ("sqlx::postgres::types::PgHstore", None, &["hstore"]),
+                (
+                    "sqlx::postgres::types::PgTimeTz",
+                    None,
+                    &["pg_catalog.timetz"],
+                ),
+                ("std::net::IpAddr", None, &["inet"]),
+                (
+                    "serde_json::Value",
+                    None,
+                    &["json", "pg_catalog.json", "jsonb", "pg_catalog.jsonb"],
+                ),
+            ],
+            // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/mysql_type.go
+            // https://docs.rs/sqlx/0.8.6/sqlx/mysql/types/index.html
+            Self::MySql => &[
+                (
+                    "String",
+                    Some("str"),
+                    &[
+                        "varchar",
+                        "text",
+                        "char",
+                        "tinytext",
+                        "mediumtext",
+                        "longtext",
+                    ],
+                ),
+                (
+                    "Vec<u8>",
+                    Some("[u8]"),
+                    &[
+                        "blob",
+                        "binary",
+                        "varbinary",
+                        "tinyblob",
+                        "mediumblob",
+                        "longblob",
+                    ],
+                ),
+                ("serde_json::Value", None, &["json"]),
+                ("String", Some("str"), &["decimal", "dec", "fixed", "enum"]),
+            ],
+            // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/sqlite_type.go
+            // https://docs.rs/sqlx/latest/sqlx/sqlite/types/index.html
+            Self::Sqlite => &[
+                ("String", Some("str"), &["text", "clob"]),
+                ("Vec<u8>", Some("[u8]"), &["blob"]),
+            ],
         }
     }
 
-    pub(super) fn database_ident(&self) -> syn::Type {
+    pub(crate) fn database_ident(&self) -> syn::Type {
         match self {
-            Sqlx::Postgres => syn::parse_quote! {sqlx::Postgres},
-            Sqlx::MySql => syn::parse_quote! {sqlx::MySql},
-            Sqlx::Sqlite => syn::parse_quote! {sqlx::Sqlite},
+            Self::Postgres => syn::parse_quote! {sqlx::Postgres},
+            Self::MySql => syn::parse_quote! {sqlx::MySql},
+            Self::Sqlite => syn::parse_quote! {sqlx::Sqlite},
         }
     }
 
     fn row_type(&self) -> syn::Type {
         match self {
-            Sqlx::Postgres => syn::parse_quote! {sqlx::postgres::PgRow},
-            Sqlx::MySql => syn::parse_quote! {sqlx::mysql::MySqlRow},
-            Sqlx::Sqlite => syn::parse_quote! {sqlx::sqlite::SqliteRow},
+            Self::Postgres => syn::parse_quote! {sqlx::postgres::PgRow},
+            Self::MySql => syn::parse_quote! {sqlx::mysql::MySqlRow},
+            Self::Sqlite => syn::parse_quote! {sqlx::sqlite::SqliteRow},
         }
     }
 
-    pub(super) fn query_bind<F>(
+    pub(crate) fn query_bind<F>(
         &self,
         query: &Query,
         query_ident: syn::Ident,
@@ -518,307 +374,18 @@ impl Sqlx {
         F: Fn(&syn::Ident) -> proc_macro2::TokenStream,
     {
         match self {
-            Self::Postgres => query
-                .fields
-                .iter()
-                .map(|f| {
-                    let name = &f.name;
-                    let value = accessor(name);
-                    quote::quote! {
-                        let #query_ident =  #query_ident.bind(#value);
-                    }
-                })
-                .collect(),
-            Self::MySql | Self::Sqlite => query
-                .fields
-                .iter()
-                .map(|f| {
-                    let name = &f.name;
-                    let value = accessor(name);
-
-                    if f.scalar_type().is_array() {
-                        quote::quote! {
-                            let #query_ident =  #value.iter().fold(#query_ident, |q, item| q.bind(item));
-                        }
-                    } else {
-                        quote::quote! {
-                            let #query_ident =  #query_ident.bind(#value);
-                        }
-                    }
-                })
-                .collect(),
-        }
-    }
-}
-
-impl DbCrate for Sqlx {
-    /// Creates a new `DbTypeMap` with default types for PostgreSQL.
-    fn type_map(&self) -> Box<dyn crate::query::TypeMapper> {
-        let copy_cheap = self.copy_cheap_types();
-
-        let default_types = self.default_types();
-
-        let mut map: Box<dyn TypeMapper> = match self {
-            Sqlx::Postgres => Box::new(SimpleTypeMap::default()),
-            Sqlx::MySql => Box::new(MySqlTypeMap::default()),
-            Sqlx::Sqlite => Box::new(SqliteTypeMap::default()),
-        };
-
-        for (owned_type, pg_types) in copy_cheap {
-            let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
-
-            for pg_type in pg_types.iter() {
-                map.insert_db_type(pg_type, RsType::new(owned_type.clone(), None, true));
-            }
-        }
-
-        for (owned_type, slice_type, pg_types) in default_types {
-            let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
-            let slice_type = slice_type
-                .map(|s| syn::parse_str::<syn::Type>(s).expect("Failed to parse slice type"));
-
-            for pg_type in pg_types.iter() {
-                map.insert_db_type(
-                    pg_type,
-                    RsType::new(owned_type.clone(), slice_type.clone(), false),
-                );
-            }
-        }
-        map
-    }
-
-    fn init(&self) -> proc_macro2::TokenStream {
-        match self {
-            Sqlx::Postgres => {
-                let copy_data_sync = {
-                    let struct_tt = CopyDataSink::struct_tokens();
-                    let impl_fn = CopyDataSink::impl_fn();
-                    quote::quote! {
-                        #struct_tt
-                        #impl_fn
-                    }
-                };
-                quote::quote! {
-                    #copy_data_sync
+            Self::Postgres => query.fields.iter().map(|field| {
+                let value = accessor(&field.name);
+                quote::quote! { let #query_ident = #query_ident.bind(#value); }
+            }).collect(),
+            Self::MySql | Self::Sqlite => query.fields.iter().map(|field| {
+                let value = accessor(&field.name);
+                if field.scalar_type().is_array() {
+                    quote::quote! { let #query_ident = #value.iter().fold(#query_ident, |q, item| q.bind(item)); }
+                } else {
+                    quote::quote! { let #query_ident = #query_ident.bind(#value); }
                 }
-            }
-            _ => quote::quote! {},
-        }
-    }
-
-    fn defined_enum(&self, enum_type: &DbEnum) -> proc_macro2::TokenStream {
-        let derives = &enum_type.derives;
-        let fields = enum_type.values.iter().map(|field| {
-            let ident = value_ident(field);
-            quote::quote! {
-                #[sqlx(rename = #field)]
-                #ident
-            }
-        });
-
-        let original_name = &enum_type.name;
-        let enum_name = enum_type.ident();
-        let derive_tt = if derives.is_empty() {
-            quote::quote! {#[derive(Debug,Clone,Copy, sqlx::Type)]}
-        } else {
-            quote::quote! {#[derive(Debug,Clone,Copy, sqlx::Type, #(#derives),*)]}
-        };
-        quote::quote! {
-            #derive_tt
-            #[sqlx(type_name = #original_name)]
-            pub enum #enum_name {
-                #(#fields,)*
-            }
-        }
-    }
-
-    fn generate_query(&self, row: &ReturningRows, query: &Query) -> proc_macro2::TokenStream {
-        let query_ast = super::QueryAst::new(query, (*self).into());
-        let struct_ident = &query_ast.ident;
-        let lifetime_a = &query_ast.lifetime;
-        let need_lifetime = query_ast.need_lifetime();
-
-        let query_fns = {
-            let database_ident = self.database_ident();
-            let row_ident = row.struct_ident();
-
-            let query_as_def = if need_lifetime {
-                quote::quote! {
-                    query_as(&#lifetime_a self)
-                }
-            } else {
-                quote::quote! {
-                     query_as<#lifetime_a>(&#lifetime_a self)
-                }
-            };
-
-            let query_bind = self.query_bind(query, quote::format_ident!("q"), |name| {
-                quote::quote! {self.#name}
-            });
-            let query_cache = if query_ast.need_expand_query() {
-                // expanded queries are likely to differ each time, so we disable query cache
-                Some(quote::quote! {
-                    let q = q.persistent(false);
-                })
-            } else {
-                None
-            };
-
-            // `sqlx::query_as(QUERY).fetch` returns `Stream` trait directly, but we do not add other dependencies
-            let query_as = query.annotation.generates_returning_row().then(|| {
-                quote::quote! {
-                    pub fn #query_as_def->sqlx::query::QueryAs<
-                    #lifetime_a,
-                    #database_ident,
-                    #row_ident,
-                    <#database_ident as sqlx::Database>::Arguments<#lifetime_a>,
-                    >{
-                        let q = sqlx::query_as(self.query_str());
-                        #query_bind
-                        #query_cache
-                        q
-                    }
-                }
-            });
-
-            let lifetime_b = syn::Lifetime::new("'b", proc_macro2::Span::call_site());
-
-            let lifetime_generic = if need_lifetime {
-                quote::quote! {#lifetime_b  }
-            } else {
-                quote::quote! {#lifetime_a, #lifetime_b }
-            };
-
-            let fn_tt = match (self, query.annotation) {
-                (_, Annotation::One) => {
-                    // See https://docs.rs/sqlx/latest/sqlx/trait.Acquire.html
-                    quote::quote! {
-                        pub fn query_one<#lifetime_generic,A>(&#lifetime_a self,conn:A)
-                        ->impl Future<Output=Result<#row_ident,sqlx::Error>> + Send + #lifetime_a
-                        where A: sqlx::Acquire<#lifetime_b, Database = #database_ident> + Send + #lifetime_a,
-                        {
-                            async move {
-                                let mut conn = conn.acquire().await?;
-                                let val = self.query_as().fetch_one(&mut *conn).await?;
-
-                                Ok(val)
-                            }
-                        }
-
-                        pub fn query_opt<#lifetime_generic,A>(&#lifetime_a self,conn:A)
-                        ->impl Future<Output=Result<Option<#row_ident>,sqlx::Error>> + Send + #lifetime_a
-                        where A: sqlx::Acquire<#lifetime_b, Database = #database_ident> + Send + #lifetime_a,
-                        {
-                            async move {
-                                let mut conn = conn.acquire().await?;
-                                let val = self.query_as().fetch_optional(&mut *conn).await?;
-
-                                Ok(val)
-                            }
-                        }
-                    }
-                }
-                (_, Annotation::Many) => {
-                    let row_ident = row.struct_ident();
-
-                    quote::quote! {
-                        pub fn query_many<#lifetime_generic,A>(&#lifetime_a self,conn:A)
-                        ->impl Future<Output=Result<Vec<#row_ident>,sqlx::Error>> + Send + #lifetime_a
-                        where A: sqlx::Acquire<#lifetime_b, Database = #database_ident> + Send + #lifetime_a,
-                        {
-                            async move {
-                                let mut conn = conn.acquire().await?;
-                                let vals = self.query_as().fetch_all(&mut *conn).await?;
-
-                                Ok(vals)
-                            }
-                        }
-
-                    }
-                }
-                (_, Annotation::Exec | Annotation::ExecResult | Annotation::ExecRows) => {
-                    quote::quote! {
-                        pub fn execute<#lifetime_generic,A>(&#lifetime_a self,conn:A)
-                        ->impl Future<Output=Result<<#database_ident as sqlx::Database>::QueryResult,sqlx::Error>> + Send + #lifetime_a
-                        where A: sqlx::Acquire<#lifetime_b, Database = #database_ident> + Send + #lifetime_a,
-                        {
-                            async move {
-                                let mut conn = conn.acquire().await?;
-                                let q = sqlx::query(self.query_str());
-                                #query_bind;
-                                #query_cache;
-                                q.execute(&mut *conn).await
-                            }
-                        }
-                    }
-                }
-                (Sqlx::Postgres, Annotation::CopyFrom) => {
-                    let add_row = query.fields.iter().map(|x| {
-                        let name = &x.name;
-                        quote::quote! {sink.add(&self.#name).await?;}
-                    });
-                    let sink_ident = CopyDataSink::ident();
-                    let sink_error = CopyDataSink::box_error();
-                    let constraint = CopyDataSink::generic_constraint();
-
-                    quote::quote! {
-                        pub async fn copy_in<PgCopy>(
-                            conn: &PgCopy,
-                        ) -> Result<CopyDataSink<sqlx::pool::PoolConnection<#database_ident>>, sqlx::Error>
-                        where
-                            PgCopy: sqlx::postgres::PgPoolCopyExt,
-                        {
-                            let copy_in = conn.copy_in_raw(Self::QUERY).await?;
-                            Ok(CopyDataSink::new(copy_in))
-                        }
-                        pub async fn copy_in_tx(
-                            conn: &mut sqlx::postgres::PgConnection,
-                        ) -> Result<CopyDataSink<&mut sqlx::postgres::PgConnection>, sqlx::Error> {
-                            let copy_in = conn.copy_in_raw(Self::QUERY).await?;
-                            Ok(CopyDataSink::new(copy_in))
-                        }
-
-                        pub async fn write<C: #constraint>(&self, sink: &mut #sink_ident<C>) -> Result<(), #sink_error> {
-                            sink.insert_row();
-                            #(#add_row)*
-                            Ok(())
-                        }
-                    }
-                }
-                _ => {
-                    // not supported
-                    quote::quote! {}
-                }
-            };
-
-            quote::quote! {
-                #query_as
-                #fn_tt
-            }
-        };
-        let fetch_tt = {
-            let imp_ident = if need_lifetime {
-                quote::quote! {<#lifetime_a> #struct_ident<#lifetime_a>}
-            } else {
-                quote::quote! {#struct_ident}
-            };
-            quote::quote! {
-                impl #imp_ident {
-                    #query_fns
-                }
-            }
-        };
-
-        let returning_row = query
-            .annotation
-            .generates_returning_row()
-            .then(|| self.returning_row(row));
-        let builder_tt = query_ast.make_builder();
-        quote::quote! {
-            #returning_row
-            #query_ast
-            #fetch_tt
-            #builder_tt
+            }).collect(),
         }
     }
 }

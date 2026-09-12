@@ -4,11 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-postgres = { workspace = true }
-tokio-postgres = { workspace = true }
-deadpool-postgres = { workspace = true }
 sqlx = { workspace = true }
-rusqlite = { workspace = true }
 tokio = { workspace = true }
 fastrand = "2.4.1"
 test-context = { workspace = true }

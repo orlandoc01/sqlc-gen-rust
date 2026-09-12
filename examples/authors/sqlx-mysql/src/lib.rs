@@ -1,4 +1,4 @@
-#[allow(warnings)]
+#[allow(dead_code)]
 mod queries;
 
 #[cfg(test)]
@@ -14,31 +14,34 @@ mod tests {
             .unwrap();
     }
 
-    /// port from https://github.com/sqlc-dev/sqlc/blob/v1.29.0/examples/authors/mysql/db_test.go
     #[test_context(SqlxMysqlContext)]
     #[tokio::test]
     async fn test_authors(ctx: &mut SqlxMysqlContext) {
         let pool = &ctx.pool;
         migrate_db(pool).await;
 
-        let authors = queries::ListAuthors.query_many(pool).await.unwrap();
+        let authors = queries::list_authors(pool).await.unwrap();
         assert_eq!(authors.len(), 0);
 
-        let inserted_author = queries::CreateAuthor::builder()
-            .name("Brian Kernighan")
-            .bio(Some(
-                "Co-author of The C Programming Language and The Go Programming Language",
-            ))
-            .build()
-            .execute(pool)
-            .await
-            .unwrap();
+        let inserted_author = queries::create_author(
+            pool,
+            queries::CreateAuthorParams {
+                name: "Brian Kernighan",
+                bio: Some(
+                    "Co-author of The C Programming Language and The Go Programming Language",
+                ),
+            },
+        )
+        .await
+        .unwrap();
+        let id: i64 = inserted_author.last_insert_id().try_into().unwrap();
 
-        let _fetched_author = queries::GetAuthor::builder()
-            .id(inserted_author.last_insert_id().try_into().unwrap())
-            .build()
-            .query_one(pool)
-            .await
-            .unwrap();
+        let fetched_author = queries::get_author(pool, id).await.unwrap();
+        assert_eq!(fetched_author.name, "Brian Kernighan");
+
+        assert_eq!(queries::count_authors(pool).await.unwrap().count, 1);
+
+        queries::delete_author(pool, id).await.unwrap();
+        assert!(queries::get_author_opt(pool, id).await.unwrap().is_none());
     }
 }

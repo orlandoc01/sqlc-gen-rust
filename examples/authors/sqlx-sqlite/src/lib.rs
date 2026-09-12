@@ -1,4 +1,4 @@
-#[allow(warnings)]
+#[allow(dead_code)]
 mod queries;
 
 #[cfg(test)]
@@ -14,44 +14,31 @@ mod tests {
             .unwrap();
     }
 
-    /// port from https://github.com/sqlc-dev/sqlc/blob/v1.29.0/examples/authors/sqlite/db_test.go
     #[test_context(SqlxSqliteContext)]
     #[tokio::test]
     async fn test_authors(ctx: &mut SqlxSqliteContext) {
         let pool = &ctx.pool;
         migrate_db(pool).await;
 
-        let authors = queries::ListAuthors.query_many(pool).await.unwrap();
+        let authors = queries::list_authors(pool).await.unwrap();
         assert_eq!(authors.len(), 0);
 
-        let inserted_author = queries::CreateAuthor::builder()
-            .name("Brian Kernighan")
-            .bio(Some(
-                "Co-author of The C Programming Language and The Go Programming Language",
-            ))
-            .build()
-            .execute(pool)
+        let inserted_author = queries::create_author(
+            pool,
+            queries::CreateAuthorParams {
+                name: "Brian Kernighan",
+                bio: Some(
+                    "Co-author of The C Programming Language and The Go Programming Language",
+                ),
+            },
+        )
+        .await
+        .unwrap();
+
+        let _fetched_author = queries::get_author(pool, inserted_author.last_insert_rowid())
             .await
             .unwrap();
 
-        let _fetched_author = queries::GetAuthor::builder()
-            .id(inserted_author.last_insert_rowid())
-            .build()
-            .query_one(pool)
-            .await
-            .unwrap();
-
-        sqlx::query("INSERT INTO keyword_idents (type) VALUES (?)")
-            .bind("draft")
-            .execute(pool)
-            .await
-            .unwrap();
-        let row = queries::GetKeywordIdent::builder()
-            .r#type("draft")
-            .build()
-            .query_one(pool)
-            .await
-            .unwrap();
-        assert_eq!(row.r#type, "draft");
+        assert_eq!(queries::count_authors(pool).await.unwrap().count, 1);
     }
 }

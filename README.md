@@ -2,9 +2,7 @@
 
 sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
 
-It adds the following new features on top of the original plugin:
-* [`params_struct` API](#api) 
-* [`-- :if` dynamic filters](#dynamic-filters-with---if)
+It generates SQLx params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
 
 ## Usage
 
@@ -28,13 +26,17 @@ sql:
 
 ## Supported crates
 
-- [postgres](https://crates.io/crates/postgres)
-- [tokio-postgres](https://crates.io/crates/tokio-postgres)
-- [deadpool-postgres](https://crates.io/crates/deadpool-postgres)
 - [sqlx-postgres](https://docs.rs/sqlx/latest/sqlx/postgres/index.html)
 - [sqlx-mysql](https://docs.rs/sqlx/latest/sqlx/mysql/index.html)
 - [sqlx-sqlite](https://docs.rs/sqlx/latest/sqlx/sqlite/index.html)
-- [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/)
+
+The upstream builder API and its non-sqlx backends were removed. Support for these crates will
+return on top of the params-struct API:
+
+- TODO: [tokio-postgres](https://crates.io/crates/tokio-postgres)
+- TODO: [deadpool-postgres](https://crates.io/crates/deadpool-postgres)
+- TODO: [postgres](https://crates.io/crates/postgres)
+- TODO: [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/)
 
 > [!NOTE]
 > SQLite uses dynamic typing. Columns with **NUMERIC affinity** may store values as **INTEGER** when they can be represented exactly as integers. 
@@ -78,9 +80,9 @@ DELETE FROM authors
 WHERE id = $1;
 ```
 
-### Using the params struct API
+### Generated API
 
-With [`api: params_struct`](#api), each query becomes a free async function with a public
+Each query becomes a free async function with a public
 params struct. Each function takes any `sqlx::Executor`, so a pool, a connection, or a
 transaction all work:
 
@@ -118,88 +120,19 @@ async fn main() {
 }
 ```
 
-- [`sqlx-postgres` params struct example](./examples/authors/sqlx-postgres-params/src/lib.rs)
-- [`sqlx-mysql` params struct example](./examples/authors/sqlx-mysql-params/src/lib.rs)
-- [`sqlx-sqlite` params struct example](./examples/authors/sqlx-sqlite-params/src/lib.rs)
-
-### Using the builder API
-
-The default [`api: builder`](#api) generates a builder struct per query. This is upstream's
-API and works with every supported crate:
-
-```rust
-mod queries;
-
-use queries::{CreateAuthor, DeleteAuthor, ListAuthors};
-
-#[tokio::main]
-async fn main() {
-    let (client, conn) = tokio_postgres::connect(
-        &std::env::var("DATABASE_URL").unwrap(),
-        tokio_postgres::NoTls,
-    )
-    .await
-    .unwrap();
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            panic!("connection error: {e}");
-        }
-    });
-
-    // list authors
-    let authors = ListAuthors.query_many(&client).await.unwrap();
-    assert_eq!(authors.len(), 0);
-    // let author_stream = ListAuthors.query_stream(&client).await.unwrap(); // stream of rows
-
-    // crate and get an author (INSERT ... RETURNING ...)
-    let author = {
-        let binding = CreateAuthor::builder()
-            .name("John")
-            .bio(Some("Foo"))
-            .build();
-
-        // let binding = CreateAuthor::builder().name("John").build(); // missing field won't compile
-
-        binding.query_one(&client).await.unwrap()
-        //  binding.query_opt(&client).await.unwrap() // this returns Option<T>
-    };
-    assert_eq!(author.id, 0);
-
-    // delete author
-    let affected_row = DeleteAuthor::builder()
-        .id(0)
-        .build()
-        .execute(&client)
-        .await
-        .unwrap();
-    assert_eq!(affected_row, 1);
-}
-```
-
-See below for examples with other supported crates.
-
-- [`postgres` generated code](./examples/authors/postgres/src/lib.rs)
-- [`tokio-postgres` generated code](./examples/authors/tokio-postgres/src/lib.rs)
-- [`deadpool-postgres` generated code](./examples/authors/deadpool-postgres/src/lib.rs)
-- [`sqlx-postgres` generated code](./examples/authors/sqlx-postgres/src/lib.rs)
-- [`sqlx-mysql` generated code](./examples/authors/sqlx-mysql/src/lib.rs)
-- [`sqlx-sqlite` generated code](./examples/authors/sqlx-sqlite/src/lib.rs)
-- [`rusqlite` generated code](./examples/authors/rusqlite/src/lib.rs)
+- [`sqlx-postgres` example](./examples/authors/sqlx-postgres/src/lib.rs)
+- [`sqlx-mysql` example](./examples/authors/sqlx-mysql/src/lib.rs)
+- [`sqlx-sqlite` example](./examples/authors/sqlx-sqlite/src/lib.rs)
 
 ## Supported Features
 
 ### Query Annotations
 
-| crate             | `:exec` | `:execlastid` | `:many` | `:one` | `:copyfrom` |
-| ----------------- | ------- | ------------- | ------- | ------ | ------------ |
-| postgres          | ✅       | ❌             | ✅       | ✅      | ❌            |
-| tokio-postgres    | ✅       | ❌             | ✅       | ✅      | ✅            |
-| deadpool-postgres | ✅       | ❌             | ✅       | ✅      | ✅            |
-| sqlx-postgres     | ✅       | ❌             | ✅       | ✅      | ✅            |
-| sqlx-mysql        | ✅       | ❌             | ✅       | ✅      | ❌            |
-| sqlx-sqlite       | ✅       | ❌             | ✅       | ✅      | ❌            |
-| sqlx-postgres (`api: params_struct`) | ✅ | ❌ | ✅ | ✅ | ❌ |
-| sqlx-mysql / sqlx-sqlite (`api: params_struct`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| crate         | `:exec` | `:execlastid` | `:many` | `:one` | `:copyfrom` |
+| ------------- | ------- | ------------- | ------- | ------ | ----------- |
+| sqlx-postgres | ✅       | ❌             | ✅       | ✅      | ❌          |
+| sqlx-mysql    | ✅       | ✅             | ✅       | ✅      | ❌          |
+| sqlx-sqlite   | ✅       | ✅             | ✅       | ✅      | ❌          |
 
 ### Macros
 
@@ -217,38 +150,22 @@ SELECT position. See the [embed examples](./examples/embed/) for joined rows.
 
 ### `sqlc.slice`
 
-The builder API retains upstream slice expansion. SQLite queries using named (`@name`) parameters
-emit numbered slice markers that the builder API cannot expand; use `api: params_struct` instead.
+PostgreSQL binds slices as arrays. MySQL and SQLite expand slice markers through the generated
+dynamic bind plan.
 
 ## Options
 
+The plugin always generates SQL constants, free async functions, and public params/row structs.
+The `api` key is no longer needed; existing `api: params_struct` configurations continue to work.
+`:copyfrom` and `:batch*` queries are not supported.
+
 ### `db_crate`
 
-The crate used in the generated code. Default is `tokio-postgres`. Available values are below.
+The crate used in the generated code. Default is `sqlx-postgres`.
 
-- `postgres` 
-- `tokio-postgres`
-- `deadpool-postgres`
 - `sqlx-postgres`
 - `sqlx-mysql`
 - `sqlx-sqlite`
-- `rusqlite`
-
-### `api`
-
-Select the generated query API. `builder` is the default and preserves the existing generated
-builder structs. `params_struct` is available for `sqlx-postgres`, `sqlx-mysql`, and
-`sqlx-sqlite`; it generates SQL constants, free async functions, and public params/row structs
-instead of query builders. `:copyfrom` and `:batch*` are not supported with this API.
-For SQLite and MySQL `sqlc.slice()` queries, it also emits `pub mod dynfilter` and uses its
-runtime bind plan so numbered slice markers are expanded and rebound correctly. PostgreSQL
-keeps array binding.
-
-```yaml
-options:
-  db_crate: sqlx-sqlite
-  api: params_struct
-```
 
 For example, a `:one` query with one `id` parameter generates a direct argument, while a query
 with two parameters generates a params struct:
@@ -275,8 +192,8 @@ pub struct CreateAuthorParams<'a> {
 
 #### Dynamic filters with `-- :if`
 
-With `api: params_struct`, any SQL line annotated with `-- :if @param` becomes
-runtime-selectable. No extra option is needed: queries without annotations are generated
+Any SQL line annotated with `-- :if @param` becomes runtime-selectable. No extra option is needed:
+queries without annotations are generated
 as usual, and the `dynfilter` runtime module is only emitted when a query uses it.
 
 Conditional SQL parameters become `Option<T>` (`None` skips the line), and names that
@@ -336,13 +253,11 @@ bracket identifiers, and PostgreSQL nested block comments are supported.
 
 ### `query_parameter_limit`
 
-The maximum number of parameters emitted as individual function arguments with
-`api: params_struct`. The default is `1`; `0` always emits a params struct for parameterized
+The maximum number of parameters emitted as individual function arguments. The default is `1`; `0` always emits a params struct for parameterized
 queries. A params struct is emitted only when the parameter count is greater than this limit.
 
-Params structs always derive `Default`. Override types used as params must therefore implement
-`Default`. String, bytes, and array params are borrowed; all other params, including non-copy
-override types, are stored by value.
+Params structs derive `Default` when all fields can be defaulted. String, bytes, and array params
+are borrowed; all other params, including non-copy override types, are stored by value.
 
 ### `overrides`
 
@@ -414,10 +329,10 @@ Examples
 sql:
     codegen:
       - plugin: sqlc-gen-rust
-        out: examples/authors/tokio-postgres/src
+        out: examples/authors/sqlx-postgres/src
         options:
           output: queries.rs
-          db_crate: tokio-postgres
+          db_crate: sqlx-postgres
           row_attributes:
             .: "#[doc=\"apply to all row\"]"
             .GetAuthor: "#[doc=\"apply to only GetAuthorRow\"]"
@@ -450,7 +365,7 @@ Generated code destination. Default is `queries.rs`.
 
 ## Credits
 
-The core plugin, type mapping, and query builder API come from
+The core plugin and type mapping come from
 [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
 
 ## License

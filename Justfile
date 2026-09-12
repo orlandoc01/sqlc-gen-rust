@@ -10,7 +10,6 @@ alias lf:= lint-fix
 
 setup-tools:
     rustup target add wasm32-wasip1
-    cargo install sqlx-cli --no-default-features --features native-tls,postgres
 
 # format
 format:
@@ -38,8 +37,8 @@ check-local:
     just lint-ci
     just generate
     git diff --exit-code
-    cargo test -p sqlc-gen-rust -p authors-sqlx-sqlite -p authors-sqlx-sqlite-params -p dynamic-filter-sqlx-sqlite -p sqlc-slice-sqlx-sqlite -p sqlc-slice-sqlx-sqlite-params -p type-mapping-sqlx-sqlite -p embed-sqlx-sqlite -p embed-sqlx-sqlite-params -p embed-rusqlite
-    cargo clippy -p authors-sqlx-postgres -p authors-sqlx-postgres-params -p authors-sqlx-mysql-params -p authors-sqlx-sqlite-params -p dynamic-filter-sqlx-mysql -p dynamic-filter-sqlx-postgres -p dynamic-filter-sqlx-sqlite -p embed-sqlx-sqlite-params -p sqlc-slice-sqlx-sqlite-params --all-targets -- -D warnings
+    cargo test -p sqlc-gen-rust -p authors-sqlx-sqlite -p dynamic-filter-sqlx-sqlite -p sqlc-slice-sqlx-sqlite -p type-mapping-sqlx-sqlite -p embed-sqlx-sqlite
+    cargo clippy -p authors-sqlx-postgres -p authors-sqlx-mysql -p authors-sqlx-sqlite -p dynamic-filter-sqlx-mysql -p dynamic-filter-sqlx-postgres -p dynamic-filter-sqlx-sqlite -p embed-sqlx-sqlite -p sqlc-slice-sqlx-postgres -p sqlc-slice-sqlx-mysql -p sqlc-slice-sqlx-sqlite -p type-mapping-sqlx-postgres -p type-mapping-sqlx-mysql -p type-mapping-sqlx-sqlite -p e-commerce --all-targets -- -D warnings
 
 # Run tests
 test:

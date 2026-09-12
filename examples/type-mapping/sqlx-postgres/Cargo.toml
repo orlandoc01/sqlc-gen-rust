@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-postgres-types = { workspace = true }
-postgres = { workspace = true }
-deadpool-postgres = { workspace = true }
-tokio-postgres = { workspace = true }
 sqlx = { workspace = true }
 
 chrono = { workspace = true }

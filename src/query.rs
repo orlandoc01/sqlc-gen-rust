@@ -263,6 +263,34 @@ impl RsColType {
         self.optional = true;
     }
 
+    pub(crate) fn can_default(&self) -> bool {
+        if self.optional || self.need_params_struct_lifetime() {
+            return true;
+        }
+
+        matches!(
+            self.rs_type.owned.to_token_stream().to_string().as_str(),
+            "bool"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "f32"
+                | "f64"
+                | "String"
+                | "uuid :: Uuid"
+                | "serde_json :: Value"
+        )
+    }
+
     pub(crate) fn new_with_type(
         db_type: &DbTypeMap,
         column: &plugin::Column,
@@ -303,52 +331,12 @@ impl RsColType {
         }
     }
 
-    pub(crate) fn need_lifetime(&self) -> bool {
-        let is_slice = self.dim != 0;
-        let copy_expensive = !self.rs_type.copy_cheap;
-
-        is_slice || copy_expensive
-    }
-
     pub(crate) fn need_params_struct_lifetime(&self) -> bool {
         self.dim != 0 || self.rs_type.slice.is_some()
     }
 
     pub(crate) fn copy_cheap(&self) -> bool {
         self.rs_type.copy_cheap
-    }
-
-    /// Convert to tokens for function parameter struct
-    pub(crate) fn to_param_tokens(&self, life_time: &syn::Lifetime) -> proc_macro2::TokenStream {
-        let wrapped_type = match self.dim {
-            0 => {
-                let slice_type = self.rs_type.slice();
-                quote::quote! {#slice_type}
-            }
-            _ => {
-                let mut base_type = self.rs_type.owned();
-                for _ in 1..self.dim {
-                    base_type = quote::quote! {Vec<#base_type>}
-                }
-
-                quote::quote! {[#base_type]}
-            }
-        };
-
-        match (self.need_lifetime(), self.optional) {
-            (true, true) => {
-                quote::quote! {Option<&#life_time #wrapped_type>}
-            }
-            (true, false) => {
-                quote::quote! {&#life_time #wrapped_type}
-            }
-            (false, true) => {
-                quote::quote! {Option<#wrapped_type>}
-            }
-            (false, false) => {
-                quote::quote! {#wrapped_type}
-            }
-        }
     }
 
     pub(crate) fn to_params_struct_tokens(
@@ -831,12 +819,6 @@ pub(crate) enum Annotation {
     CopyFrom,
 }
 
-impl Annotation {
-    pub(crate) fn generates_returning_row(self) -> bool {
-        self != Self::Exec
-    }
-}
-
 impl std::fmt::Display for Annotation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let txt = match self {
@@ -911,7 +893,6 @@ pub(crate) struct Query {
     pub(crate) fields: Vec<ColumnField>,
 
     pub(crate) annotation: Annotation,
-    pub(crate) insert_table: Option<String>,
     /// ```sql
     /// -- name: GetAuthor :one
     ///          ^^^^^^^^^
@@ -974,7 +955,6 @@ impl Query {
         let query_name = query.name.to_string();
 
         let query_str = query.text.clone();
-        let insert_table = query.insert_into_table.as_ref().map(|t| t.name.clone());
         let param_numbers = query
             .params
             .iter()
@@ -995,7 +975,6 @@ impl Query {
         Ok(Self {
             fields,
             annotation,
-            insert_table,
             query_name,
             query_str,
             param_numbers,
@@ -1049,21 +1028,7 @@ impl Query {
     }
 
     pub(crate) fn query_str(&self) -> proc_macro2::TokenStream {
-        match self.annotation {
-            Annotation::CopyFrom => {
-                let params = self
-                    .fields
-                    .iter()
-                    .map(|x| x.name_original.value())
-                    .reduce(|acc, x| format!("{acc},{x}"))
-                    .unwrap_or_default();
-                let table = self.insert_table.as_deref().unwrap_or("table");
-
-                let q = format!("COPY {table} ({params}) FROM STDIN (FORMAT BINARY)");
-                make_raw_string_literal(&q)
-            }
-            _ => make_raw_string_literal(&self.query_str),
-        }
+        make_raw_string_literal(&self.query_str)
     }
 }
 

@@ -13,7 +13,6 @@ pub(crate) mod query;
 mod dynfilter_runtime {
     include!("db_crates/dynfilter_runtime.rs");
 }
-use db_crates::DbCrate as _;
 use query::{Query, ReturningRows, RsType, collect_enums};
 pub trait StackError: std::error::Error {
     /// format each error stack
@@ -274,8 +273,8 @@ struct OverrideType {
 #[serde(default)]
 struct Config {
     output: String,
-    db_crate: db_crates::SupportedDbCrate,
-    api: db_crates::Api,
+    db_crate: db_crates::Sqlx,
+    api: Option<String>,
     query_parameter_limit: usize,
     overrides: Vec<OverrideType>,
     debug: bool,
@@ -289,7 +288,7 @@ impl Default for Config {
         Config {
             output: "queries.rs".into(),
             db_crate: Default::default(),
-            api: Default::default(),
+            api: None,
             query_parameter_limit: 1,
             overrides: Default::default(),
             debug: false,
@@ -305,14 +304,9 @@ impl Config {
     }
 
     fn validate(&self, queries: &[Query]) -> Result<(), Error> {
-        if self.api != db_crates::Api::ParamsStruct {
-            return Ok(());
-        }
-
-        if !matches!(self.db_crate, db_crates::SupportedDbCrate::Sqlx(_)) {
+        if self.api.as_deref() == Some("builder") {
             return Err(Error::any(
-                "api: params_struct is supported only by sqlx-postgres, sqlx-mysql, and sqlx-sqlite."
-                    .into(),
+                "the builder API was removed; only params_struct is generated".into(),
             ));
         }
 
@@ -324,21 +318,18 @@ impl Config {
                 | query::Annotation::BatchOne => {
                     return Err(Error::any(
                         format!(
-                            "api: params_struct does not support {} queries ({}).",
+                            "params_struct does not support {} queries ({}).",
                             query.annotation, query.query_name
                         )
                         .into(),
                     ));
                 }
                 query::Annotation::ExecLastId
-                    if matches!(
-                        self.db_crate,
-                        db_crates::SupportedDbCrate::Sqlx(db_crates::Sqlx::Postgres)
-                    ) =>
+                    if matches!(self.db_crate, db_crates::Sqlx::Postgres) =>
                 {
                     return Err(Error::any(
                         format!(
-                            "api: params_struct does not support :execlastid with sqlx-postgres ({}).",
+                            "params_struct does not support :execlastid with sqlx-postgres ({}).",
                             query.query_name
                         )
                         .into(),
@@ -473,16 +464,14 @@ pub fn try_main() -> Result<(), Error> {
         .map(|q| Query::from_query(&db_type, q))
         .collect::<Result<Vec<_>, _>>()?;
 
-    if config.api == db_crates::Api::ParamsStruct {
-        let static_slices = matches!(
-            config.db_crate,
-            db_crates::SupportedDbCrate::Sqlx(db_crates::Sqlx::MySql | db_crates::Sqlx::Sqlite)
-        );
-        for query in &mut queries {
-            query.apply_dynfilter();
-            if static_slices && query.dynfilter().is_none() {
-                query.apply_static_slices();
-            }
+    let static_slices = matches!(
+        config.db_crate,
+        db_crates::Sqlx::MySql | db_crates::Sqlx::Sqlite
+    );
+    for query in &mut queries {
+        query.apply_dynfilter();
+        if static_slices && query.dynfilter().is_none() {
+            query.apply_static_slices();
         }
     }
 
@@ -495,23 +484,13 @@ pub fn try_main() -> Result<(), Error> {
     let enums_tt = quote::quote! {#(#enums_ts)*};
     let embedded_tables_tt = db_crates::make_embedded_tables(&returning_rows)?;
 
-    let options = db_crates::GenerationOptions {
-        api: config.api,
-        query_parameter_limit: config.query_parameter_limit,
-    };
-    let queries_tt = config
-        .db_crate
-        .generate_queries(&returning_rows, &queries, &options);
-
-    let init_tt = if config.api == db_crates::Api::ParamsStruct
-        && matches!(config.db_crate, db_crates::SupportedDbCrate::Sqlx(_))
-    {
-        quote::quote! {}
-    } else {
-        config.db_crate.init()
-    };
+    let queries_tt = db_crates::sqlx_params::generate_queries(
+        &config.db_crate,
+        &returning_rows,
+        &queries,
+        config.query_parameter_limit,
+    );
     let tt = quote::quote! {
-        #init_tt
         #enums_tt
         #embedded_tables_tt
         #queries_tt
@@ -567,19 +546,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_params_struct_for_non_sqlx_crates() {
+    fn rejects_removed_db_crates_and_legacy_api() {
         for db_crate in [
             "postgres",
             "tokio-postgres",
             "deadpool-postgres",
             "rusqlite",
         ] {
-            let config = Config::from_option(
-                format!(r#"{{"api":"params_struct","db_crate":"{db_crate}"}}"#).as_bytes(),
-            )
-            .unwrap();
-
-            assert!(config.validate(&[]).is_err(), "{db_crate}");
+            let error = Config::from_option(format!(r#"{{"db_crate":"{db_crate}"}}"#).as_bytes())
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("is not supported yet"),
+                "{error}"
+            );
         }
+
+        let config = Config::from_option(br#"{"api":"builder"}"#).unwrap();
+        assert_eq!(
+            config.validate(&[]).unwrap_err().to_string(),
+            "the builder API was removed; only params_struct is generated"
+        );
+
+        assert_eq!(
+            Config::from_option(br#"{"api":"params_struct"}"#)
+                .unwrap()
+                .api
+                .as_deref(),
+            Some("params_struct")
+        );
     }
 }

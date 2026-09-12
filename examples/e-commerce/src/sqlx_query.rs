@@ -2,69 +2,6 @@
 //! sqlc version: v1.31.1
 //! sqlc-gen-rust version: v0.1.0
 
-pub struct CopyDataSink<C: std::ops::DerefMut<Target = sqlx::PgConnection>> {
-    encode_buf: sqlx::postgres::PgArgumentBuffer,
-    data_buf: Vec<u8>,
-    copy_in: sqlx::postgres::PgCopyIn<C>,
-}
-impl<C: std::ops::DerefMut<Target = sqlx::PgConnection>> CopyDataSink<C> {
-    const BUFFER_SIZE: usize = 4096;
-    fn new(copy_in: sqlx::postgres::PgCopyIn<C>) -> Self {
-        let mut data_buf = Vec::with_capacity(Self::BUFFER_SIZE);
-        const COPY_SIGNATURE: &[u8] = &[
-            b'P', b'G', b'C', b'O', b'P', b'Y', b'\n', 0xFF, b'\r', b'\n', 0x00,
-        ];
-        assert_eq!(COPY_SIGNATURE.len(), 11);
-        data_buf.extend_from_slice(COPY_SIGNATURE);
-        data_buf.extend(0_i32.to_be_bytes());
-        data_buf.extend(0_i32.to_be_bytes());
-        CopyDataSink {
-            encode_buf: Default::default(),
-            data_buf,
-            copy_in,
-        }
-    }
-    async fn send(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let _copy_in = self.copy_in.send(self.data_buf.as_slice()).await?;
-        self.data_buf.clear();
-        Ok(())
-    }
-    /// Complete copy process and return number of rows affected.
-    pub async fn finish(mut self) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        const COPY_TRAILER: &[u8] = &(-1_i16).to_be_bytes();
-        self.data_buf.extend(COPY_TRAILER);
-        self.send().await?;
-        self.copy_in.finish().await.map_err(|e| e.into())
-    }
-    fn insert_row(&mut self) {
-        let num_col = self.copy_in.num_columns() as i16;
-        self.data_buf.extend(num_col.to_be_bytes());
-    }
-    async fn add<'q, T>(
-        &mut self,
-        value: &T,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-    where
-        T: sqlx::Encode<'q, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
-    {
-        let is_null = value.encode_by_ref(&mut self.encode_buf)?;
-        match is_null {
-            sqlx::encode::IsNull::Yes => {
-                self.data_buf.extend((-1_i32).to_be_bytes());
-            }
-            sqlx::encode::IsNull::No => {
-                self.data_buf
-                    .extend((self.encode_buf.len() as i32).to_be_bytes());
-                self.data_buf.extend_from_slice(self.encode_buf.as_slice());
-            }
-        }
-        self.encode_buf.clear();
-        if self.data_buf.len() > Self::BUFFER_SIZE {
-            self.send().await?;
-        }
-        Ok(())
-    }
-}
 #[derive(Debug, Clone, Copy, sqlx::Type)]
 #[sqlx(type_name = "order_status")]
 pub enum OrderStatus {
@@ -79,681 +16,207 @@ pub enum OrderStatus {
     #[sqlx(rename = "cancelled")]
     Cancelled,
 }
-#[derive(sqlx::FromRow)]
-pub struct CreateUserRow {
-    #[sqlx(rename = "id")]
-    pub id: uuid::Uuid,
-    #[sqlx(rename = "username")]
-    pub username: String,
-    #[sqlx(rename = "email")]
-    pub email: String,
-    #[sqlx(rename = "hashed_password")]
-    pub hashed_password: String,
-    #[sqlx(rename = "full_name")]
-    pub full_name: Option<String>,
-    #[sqlx(rename = "created_at")]
-    pub created_at: chrono::DateTime<chrono::Local>,
-    #[sqlx(rename = "updated_at")]
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-}
-pub struct CreateUser<'a> {
-    username: &'a str,
-    email: &'a str,
-    hashed_password: &'a str,
-    full_name: Option<&'a str>,
-}
-impl<'a> CreateUser<'a> {
-    pub const QUERY: &'static str = r"INSERT INTO users (
+pub const CREATE_USER: &str = r"INSERT INTO users (
     username, email, hashed_password, full_name
 ) VALUES (
     $1, $2, $3, $4
 )
 RETURNING id, username, email, hashed_password, full_name, created_at, updated_at";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
+#[derive(Debug, Clone, Default)]
+pub struct CreateUserParams<'a> {
+    pub username: &'a str,
+    pub email: &'a str,
+    pub hashed_password: &'a str,
+    pub full_name: Option<&'a str>,
 }
-impl<'a> CreateUser<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        CreateUserRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.username);
-        let q = q.bind(self.email);
-        let q = q.bind(self.hashed_password);
-        let q = q.bind(self.full_name);
-        q
-    }
-    pub fn query_one<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<CreateUserRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<CreateUserRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl<'a> CreateUser<'a> {
-    pub const fn builder() -> CreateUserBuilder<'a, ((), (), (), ())> {
-        CreateUserBuilder {
-            fields: ((), (), (), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct CreateUserBuilder<'a, Fields = ((), (), (), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, Email, HashedPassword, FullName>
-    CreateUserBuilder<'a, ((), Email, HashedPassword, FullName)>
-{
-    pub fn username(
-        self,
-        username: &'a str,
-    ) -> CreateUserBuilder<'a, (&'a str, Email, HashedPassword, FullName)> {
-        let ((), email, hashed_password, full_name) = self.fields;
-        let _phantom = self._phantom;
-        CreateUserBuilder {
-            fields: (username, email, hashed_password, full_name),
-            _phantom,
-        }
-    }
-}
-impl<'a, Username, HashedPassword, FullName>
-    CreateUserBuilder<'a, (Username, (), HashedPassword, FullName)>
-{
-    pub fn email(
-        self,
-        email: &'a str,
-    ) -> CreateUserBuilder<'a, (Username, &'a str, HashedPassword, FullName)> {
-        let (username, (), hashed_password, full_name) = self.fields;
-        let _phantom = self._phantom;
-        CreateUserBuilder {
-            fields: (username, email, hashed_password, full_name),
-            _phantom,
-        }
-    }
-}
-impl<'a, Username, Email, FullName> CreateUserBuilder<'a, (Username, Email, (), FullName)> {
-    pub fn hashed_password(
-        self,
-        hashed_password: &'a str,
-    ) -> CreateUserBuilder<'a, (Username, Email, &'a str, FullName)> {
-        let (username, email, (), full_name) = self.fields;
-        let _phantom = self._phantom;
-        CreateUserBuilder {
-            fields: (username, email, hashed_password, full_name),
-            _phantom,
-        }
-    }
-}
-impl<'a, Username, Email, HashedPassword>
-    CreateUserBuilder<'a, (Username, Email, HashedPassword, ())>
-{
-    pub fn full_name(
-        self,
-        full_name: Option<&'a str>,
-    ) -> CreateUserBuilder<'a, (Username, Email, HashedPassword, Option<&'a str>)> {
-        let (username, email, hashed_password, ()) = self.fields;
-        let _phantom = self._phantom;
-        CreateUserBuilder {
-            fields: (username, email, hashed_password, full_name),
-            _phantom,
-        }
-    }
-}
-impl<'a> CreateUserBuilder<'a, (&'a str, &'a str, &'a str, Option<&'a str>)> {
-    pub fn build(self) -> CreateUser<'a> {
-        let (username, email, hashed_password, full_name) = self.fields;
-        CreateUser {
-            username,
-            email,
-            hashed_password,
-            full_name,
-        }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct GetUserByEmailRow {
-    #[sqlx(rename = "id")]
+pub struct CreateUserRow {
     pub id: uuid::Uuid,
-    #[sqlx(rename = "username")]
     pub username: String,
-    #[sqlx(rename = "email")]
     pub email: String,
-    #[sqlx(rename = "hashed_password")]
     pub hashed_password: String,
-    #[sqlx(rename = "full_name")]
     pub full_name: Option<String>,
-    #[sqlx(rename = "created_at")]
     pub created_at: chrono::DateTime<chrono::Local>,
-    #[sqlx(rename = "updated_at")]
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
-pub struct GetUserByEmail<'a> {
-    email: &'a str,
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for CreateUserRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            username: sqlx::Row::try_get(row, 1)?,
+            email: sqlx::Row::try_get(row, 2)?,
+            hashed_password: sqlx::Row::try_get(row, 3)?,
+            full_name: sqlx::Row::try_get(row, 4)?,
+            created_at: sqlx::Row::try_get(row, 5)?,
+            updated_at: sqlx::Row::try_get(row, 6)?,
+        })
+    }
 }
-impl<'a> GetUserByEmail<'a> {
-    pub const QUERY: &'static str = r"SELECT id, username, email, hashed_password, full_name, created_at, updated_at FROM users
+pub async fn create_user<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateUserParams<'_>,
+) -> Result<CreateUserRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateUserRow>(CREATE_USER);
+    let q = q.bind(params.username);
+    let q = q.bind(params.email);
+    let q = q.bind(params.hashed_password);
+    let q = q.bind(params.full_name);
+    q.fetch_one(executor).await
+}
+pub async fn create_user_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateUserParams<'_>,
+) -> Result<Option<CreateUserRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateUserRow>(CREATE_USER);
+    let q = q.bind(params.username);
+    let q = q.bind(params.email);
+    let q = q.bind(params.hashed_password);
+    let q = q.bind(params.full_name);
+    q.fetch_optional(executor).await
+}
+pub const GET_USER_BY_EMAIL: &str = r"SELECT id, username, email, hashed_password, full_name, created_at, updated_at FROM users
 WHERE email = $1 LIMIT 1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl<'a> GetUserByEmail<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        GetUserByEmailRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.email);
-        q
-    }
-    pub fn query_one<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<GetUserByEmailRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<GetUserByEmailRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl<'a> GetUserByEmail<'a> {
-    pub const fn builder() -> GetUserByEmailBuilder<'a, ((),)> {
-        GetUserByEmailBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct GetUserByEmailBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetUserByEmailBuilder<'a, ((),)> {
-    pub fn email(self, email: &'a str) -> GetUserByEmailBuilder<'a, (&'a str,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetUserByEmailBuilder {
-            fields: (email,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetUserByEmailBuilder<'a, (&'a str,)> {
-    pub fn build(self) -> GetUserByEmail<'a> {
-        let (email,) = self.fields;
-        GetUserByEmail { email }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct ListUsersRow {
-    #[sqlx(rename = "id")]
+pub struct GetUserByEmailRow {
     pub id: uuid::Uuid,
-    #[sqlx(rename = "username")]
     pub username: String,
-    #[sqlx(rename = "email")]
     pub email: String,
-    #[sqlx(rename = "full_name")]
+    pub hashed_password: String,
     pub full_name: Option<String>,
-    #[sqlx(rename = "created_at")]
     pub created_at: chrono::DateTime<chrono::Local>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
-pub struct ListUsers {
-    limit: i32,
-    offset: i32,
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for GetUserByEmailRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            username: sqlx::Row::try_get(row, 1)?,
+            email: sqlx::Row::try_get(row, 2)?,
+            hashed_password: sqlx::Row::try_get(row, 3)?,
+            full_name: sqlx::Row::try_get(row, 4)?,
+            created_at: sqlx::Row::try_get(row, 5)?,
+            updated_at: sqlx::Row::try_get(row, 6)?,
+        })
+    }
 }
-impl ListUsers {
-    pub const QUERY: &'static str = r"SELECT id, username, email, full_name, created_at FROM users
+pub async fn get_user_by_email<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    email: &str,
+) -> Result<GetUserByEmailRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetUserByEmailRow>(GET_USER_BY_EMAIL);
+    let q = q.bind(email);
+    q.fetch_one(executor).await
+}
+pub async fn get_user_by_email_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    email: &str,
+) -> Result<Option<GetUserByEmailRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetUserByEmailRow>(GET_USER_BY_EMAIL);
+    let q = q.bind(email);
+    q.fetch_optional(executor).await
+}
+pub const LIST_USERS: &str = r"SELECT id, username, email, full_name, created_at FROM users
 ORDER BY created_at DESC
 LIMIT $1
 OFFSET $2";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
+#[derive(Debug, Clone, Default)]
+pub struct ListUsersParams {
+    pub limit: i32,
+    pub offset: i32,
 }
-impl ListUsers {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        ListUsersRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.limit);
-        let q = q.bind(self.offset);
-        q
-    }
-    pub fn query_many<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<ListUsersRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
-    }
-}
-impl ListUsers {
-    pub const fn builder() -> ListUsersBuilder<'static, ((), ())> {
-        ListUsersBuilder {
-            fields: ((), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct ListUsersBuilder<'a, Fields = ((), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, Offset> ListUsersBuilder<'a, ((), Offset)> {
-    pub fn limit(self, limit: i32) -> ListUsersBuilder<'a, (i32, Offset)> {
-        let ((), offset) = self.fields;
-        let _phantom = self._phantom;
-        ListUsersBuilder {
-            fields: (limit, offset),
-            _phantom,
-        }
-    }
-}
-impl<'a, Limit> ListUsersBuilder<'a, (Limit, ())> {
-    pub fn offset(self, offset: i32) -> ListUsersBuilder<'a, (Limit, i32)> {
-        let (limit, ()) = self.fields;
-        let _phantom = self._phantom;
-        ListUsersBuilder {
-            fields: (limit, offset),
-            _phantom,
-        }
-    }
-}
-impl<'a> ListUsersBuilder<'a, (i32, i32)> {
-    pub fn build(self) -> ListUsers {
-        let (limit, offset) = self.fields;
-        ListUsers { limit, offset }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct CreateProductRow {
-    #[sqlx(rename = "id")]
+pub struct ListUsersRow {
     pub id: uuid::Uuid,
-    #[sqlx(rename = "category_id")]
-    pub category_id: i32,
-    #[sqlx(rename = "name")]
-    pub name: String,
-    #[sqlx(rename = "description")]
-    pub description: Option<String>,
-    #[sqlx(rename = "price")]
-    pub price: i32,
-    #[sqlx(rename = "stock_quantity")]
-    pub stock_quantity: i32,
-    #[sqlx(rename = "attributes")]
-    pub attributes: Option<serde_json::Value>,
-    #[sqlx(rename = "created_at")]
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    #[sqlx(rename = "updated_at")]
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub username: String,
+    pub email: String,
+    pub full_name: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Local>,
 }
-pub struct CreateProduct<'a> {
-    category_id: i32,
-    name: &'a str,
-    description: Option<&'a str>,
-    price: i32,
-    stock_quantity: i32,
-    attributes: Option<&'a serde_json::Value>,
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ListUsersRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            username: sqlx::Row::try_get(row, 1)?,
+            email: sqlx::Row::try_get(row, 2)?,
+            full_name: sqlx::Row::try_get(row, 3)?,
+            created_at: sqlx::Row::try_get(row, 4)?,
+        })
+    }
 }
-impl<'a> CreateProduct<'a> {
-    pub const QUERY: &'static str = r"INSERT INTO products (
+pub async fn list_users<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: ListUsersParams,
+) -> Result<Vec<ListUsersRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, ListUsersRow>(LIST_USERS);
+    let q = q.bind(params.limit);
+    let q = q.bind(params.offset);
+    q.fetch_all(executor).await
+}
+pub const CREATE_PRODUCT: &str = r"INSERT INTO products (
     category_id, name, description, price, stock_quantity, attributes
 ) VALUES (
     $1, $2, $3, $4, $5, $6
 )
 RETURNING id, category_id, name, description, price, stock_quantity, attributes, created_at, updated_at";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl<'a> CreateProduct<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        CreateProductRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.category_id);
-        let q = q.bind(self.name);
-        let q = q.bind(self.description);
-        let q = q.bind(self.price);
-        let q = q.bind(self.stock_quantity);
-        let q = q.bind(self.attributes);
-        q
-    }
-    pub fn query_one<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<CreateProductRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<CreateProductRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl<'a> CreateProduct<'a> {
-    pub const fn builder() -> CreateProductBuilder<'a, ((), (), (), (), (), ())> {
-        CreateProductBuilder {
-            fields: ((), (), (), (), (), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct CreateProductBuilder<'a, Fields = ((), (), (), (), (), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, Name, Description, Price, StockQuantity, Attributes>
-    CreateProductBuilder<'a, ((), Name, Description, Price, StockQuantity, Attributes)>
-{
-    pub fn category_id(
-        self,
-        category_id: i32,
-    ) -> CreateProductBuilder<'a, (i32, Name, Description, Price, StockQuantity, Attributes)> {
-        let ((), name, description, price, stock_quantity, attributes) = self.fields;
-        let _phantom = self._phantom;
-        CreateProductBuilder {
-            fields: (
-                category_id,
-                name,
-                description,
-                price,
-                stock_quantity,
-                attributes,
-            ),
-            _phantom,
-        }
-    }
-}
-impl<'a, CategoryId, Description, Price, StockQuantity, Attributes>
-    CreateProductBuilder<
-        'a,
-        (
-            CategoryId,
-            (),
-            Description,
-            Price,
-            StockQuantity,
-            Attributes,
-        ),
-    >
-{
-    pub fn name(
-        self,
-        name: &'a str,
-    ) -> CreateProductBuilder<
-        'a,
-        (
-            CategoryId,
-            &'a str,
-            Description,
-            Price,
-            StockQuantity,
-            Attributes,
-        ),
-    > {
-        let (category_id, (), description, price, stock_quantity, attributes) = self.fields;
-        let _phantom = self._phantom;
-        CreateProductBuilder {
-            fields: (
-                category_id,
-                name,
-                description,
-                price,
-                stock_quantity,
-                attributes,
-            ),
-            _phantom,
-        }
-    }
-}
-impl<'a, CategoryId, Name, Price, StockQuantity, Attributes>
-    CreateProductBuilder<'a, (CategoryId, Name, (), Price, StockQuantity, Attributes)>
-{
-    pub fn description(
-        self,
-        description: Option<&'a str>,
-    ) -> CreateProductBuilder<
-        'a,
-        (
-            CategoryId,
-            Name,
-            Option<&'a str>,
-            Price,
-            StockQuantity,
-            Attributes,
-        ),
-    > {
-        let (category_id, name, (), price, stock_quantity, attributes) = self.fields;
-        let _phantom = self._phantom;
-        CreateProductBuilder {
-            fields: (
-                category_id,
-                name,
-                description,
-                price,
-                stock_quantity,
-                attributes,
-            ),
-            _phantom,
-        }
-    }
-}
-impl<'a, CategoryId, Name, Description, StockQuantity, Attributes>
-    CreateProductBuilder<'a, (CategoryId, Name, Description, (), StockQuantity, Attributes)>
-{
-    pub fn price(
-        self,
-        price: i32,
-    ) -> CreateProductBuilder<
-        'a,
-        (
-            CategoryId,
-            Name,
-            Description,
-            i32,
-            StockQuantity,
-            Attributes,
-        ),
-    > {
-        let (category_id, name, description, (), stock_quantity, attributes) = self.fields;
-        let _phantom = self._phantom;
-        CreateProductBuilder {
-            fields: (
-                category_id,
-                name,
-                description,
-                price,
-                stock_quantity,
-                attributes,
-            ),
-            _phantom,
-        }
-    }
-}
-impl<'a, CategoryId, Name, Description, Price, Attributes>
-    CreateProductBuilder<'a, (CategoryId, Name, Description, Price, (), Attributes)>
-{
-    pub fn stock_quantity(
-        self,
-        stock_quantity: i32,
-    ) -> CreateProductBuilder<'a, (CategoryId, Name, Description, Price, i32, Attributes)> {
-        let (category_id, name, description, price, (), attributes) = self.fields;
-        let _phantom = self._phantom;
-        CreateProductBuilder {
-            fields: (
-                category_id,
-                name,
-                description,
-                price,
-                stock_quantity,
-                attributes,
-            ),
-            _phantom,
-        }
-    }
-}
-impl<'a, CategoryId, Name, Description, Price, StockQuantity>
-    CreateProductBuilder<'a, (CategoryId, Name, Description, Price, StockQuantity, ())>
-{
-    pub fn attributes(
-        self,
-        attributes: Option<&'a serde_json::Value>,
-    ) -> CreateProductBuilder<
-        'a,
-        (
-            CategoryId,
-            Name,
-            Description,
-            Price,
-            StockQuantity,
-            Option<&'a serde_json::Value>,
-        ),
-    > {
-        let (category_id, name, description, price, stock_quantity, ()) = self.fields;
-        let _phantom = self._phantom;
-        CreateProductBuilder {
-            fields: (
-                category_id,
-                name,
-                description,
-                price,
-                stock_quantity,
-                attributes,
-            ),
-            _phantom,
-        }
-    }
-}
-impl<'a>
-    CreateProductBuilder<
-        'a,
-        (
-            i32,
-            &'a str,
-            Option<&'a str>,
-            i32,
-            i32,
-            Option<&'a serde_json::Value>,
-        ),
-    >
-{
-    pub fn build(self) -> CreateProduct<'a> {
-        let (category_id, name, description, price, stock_quantity, attributes) = self.fields;
-        CreateProduct {
-            category_id,
-            name,
-            description,
-            price,
-            stock_quantity,
-            attributes,
-        }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct GetProductWithCategoryRow {
-    #[sqlx(rename = "id")]
-    pub id: uuid::Uuid,
-    #[sqlx(rename = "name")]
-    pub name: String,
-    #[sqlx(rename = "description")]
-    pub description: Option<String>,
-    #[sqlx(rename = "price")]
+#[derive(Debug, Clone, Default)]
+pub struct CreateProductParams<'a> {
+    pub category_id: i32,
+    pub name: &'a str,
+    pub description: Option<&'a str>,
     pub price: i32,
-    #[sqlx(rename = "stock_quantity")]
     pub stock_quantity: i32,
-    #[sqlx(rename = "attributes")]
     pub attributes: Option<serde_json::Value>,
-    #[sqlx(rename = "created_at")]
+}
+pub struct CreateProductRow {
+    pub id: uuid::Uuid,
+    pub category_id: i32,
+    pub name: String,
+    pub description: Option<String>,
+    pub price: i32,
+    pub stock_quantity: i32,
+    pub attributes: Option<serde_json::Value>,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    #[sqlx(rename = "category_name")]
-    pub category_name: String,
-    #[sqlx(rename = "category_slug")]
-    pub category_slug: String,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
-pub struct GetProductWithCategory {
-    id: uuid::Uuid,
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for CreateProductRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            category_id: sqlx::Row::try_get(row, 1)?,
+            name: sqlx::Row::try_get(row, 2)?,
+            description: sqlx::Row::try_get(row, 3)?,
+            price: sqlx::Row::try_get(row, 4)?,
+            stock_quantity: sqlx::Row::try_get(row, 5)?,
+            attributes: sqlx::Row::try_get(row, 6)?,
+            created_at: sqlx::Row::try_get(row, 7)?,
+            updated_at: sqlx::Row::try_get(row, 8)?,
+        })
+    }
 }
-impl GetProductWithCategory {
-    pub const QUERY: &'static str = r"SELECT
+pub async fn create_product<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateProductParams<'_>,
+) -> Result<CreateProductRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateProductRow>(CREATE_PRODUCT);
+    let q = q.bind(params.category_id);
+    let q = q.bind(params.name);
+    let q = q.bind(params.description);
+    let q = q.bind(params.price);
+    let q = q.bind(params.stock_quantity);
+    let q = q.bind(params.attributes);
+    q.fetch_one(executor).await
+}
+pub async fn create_product_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateProductParams<'_>,
+) -> Result<Option<CreateProductRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateProductRow>(CREATE_PRODUCT);
+    let q = q.bind(params.category_id);
+    let q = q.bind(params.name);
+    let q = q.bind(params.description);
+    let q = q.bind(params.price);
+    let q = q.bind(params.stock_quantity);
+    let q = q.bind(params.attributes);
+    q.fetch_optional(executor).await
+}
+pub const GET_PRODUCT_WITH_CATEGORY: &str = r"SELECT
     p.id,
     p.name,
     p.description,
@@ -769,111 +232,49 @@ JOIN
     categories c ON p.category_id = c.id
 WHERE
     p.id = $1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl GetProductWithCategory {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        GetProductWithCategoryRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.id);
-        q
-    }
-    pub fn query_one<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<GetProductWithCategoryRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<GetProductWithCategoryRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl GetProductWithCategory {
-    pub const fn builder() -> GetProductWithCategoryBuilder<'static, ((),)> {
-        GetProductWithCategoryBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct GetProductWithCategoryBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetProductWithCategoryBuilder<'a, ((),)> {
-    pub fn id(self, id: uuid::Uuid) -> GetProductWithCategoryBuilder<'a, (uuid::Uuid,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetProductWithCategoryBuilder {
-            fields: (id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetProductWithCategoryBuilder<'a, (uuid::Uuid,)> {
-    pub fn build(self) -> GetProductWithCategory {
-        let (id,) = self.fields;
-        GetProductWithCategory { id }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct SearchProductsRow {
-    #[sqlx(rename = "id")]
+pub struct GetProductWithCategoryRow {
     pub id: uuid::Uuid,
-    #[sqlx(rename = "category_id")]
-    pub category_id: i32,
-    #[sqlx(rename = "name")]
     pub name: String,
-    #[sqlx(rename = "description")]
     pub description: Option<String>,
-    #[sqlx(rename = "price")]
     pub price: i32,
-    #[sqlx(rename = "stock_quantity")]
     pub stock_quantity: i32,
-    #[sqlx(rename = "attributes")]
     pub attributes: Option<serde_json::Value>,
-    #[sqlx(rename = "created_at")]
     pub created_at: chrono::DateTime<chrono::Utc>,
-    #[sqlx(rename = "updated_at")]
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-    #[sqlx(rename = "average_rating")]
-    pub average_rating: f64,
+    pub category_name: String,
+    pub category_slug: String,
 }
-pub struct SearchProducts<'a> {
-    limit: i32,
-    offset: i32,
-    name: Option<&'a str>,
-    category_ids: &'a [i32],
-    min_price: Option<i32>,
-    max_price: Option<i32>,
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for GetProductWithCategoryRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+            description: sqlx::Row::try_get(row, 2)?,
+            price: sqlx::Row::try_get(row, 3)?,
+            stock_quantity: sqlx::Row::try_get(row, 4)?,
+            attributes: sqlx::Row::try_get(row, 5)?,
+            created_at: sqlx::Row::try_get(row, 6)?,
+            category_name: sqlx::Row::try_get(row, 7)?,
+            category_slug: sqlx::Row::try_get(row, 8)?,
+        })
+    }
 }
-impl<'a> SearchProducts<'a> {
-    pub const QUERY: &'static str = r"SELECT
+pub async fn get_product_with_category<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    id: uuid::Uuid,
+) -> Result<GetProductWithCategoryRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetProductWithCategoryRow>(GET_PRODUCT_WITH_CATEGORY);
+    let q = q.bind(id);
+    q.fetch_one(executor).await
+}
+pub async fn get_product_with_category_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    id: uuid::Uuid,
+) -> Result<Option<GetProductWithCategoryRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetProductWithCategoryRow>(GET_PRODUCT_WITH_CATEGORY);
+    let q = q.bind(id);
+    q.fetch_optional(executor).await
+}
+pub const SEARCH_PRODUCTS: &str = r"SELECT
     p.id, p.category_id, p.name, p.description, p.price, p.stock_quantity, p.attributes, p.created_at, p.updated_at,
     (SELECT AVG(r.rating) FROM reviews r WHERE r.product_id = p.id) as average_rating
 FROM products p
@@ -891,638 +292,209 @@ ORDER BY
     p.created_at DESC
 LIMIT $1
 OFFSET $2";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
+#[derive(Debug, Clone, Default)]
+pub struct SearchProductsParams<'a> {
+    pub limit: i32,
+    pub offset: i32,
+    pub name: Option<&'a str>,
+    pub category_ids: &'a [i32],
+    pub min_price: Option<i32>,
+    pub max_price: Option<i32>,
 }
-impl<'a> SearchProducts<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        SearchProductsRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.limit);
-        let q = q.bind(self.offset);
-        let q = q.bind(self.name);
-        let q = q.bind(self.category_ids);
-        let q = q.bind(self.min_price);
-        let q = q.bind(self.max_price);
-        q
-    }
-    pub fn query_many<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<SearchProductsRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
-    }
-}
-impl<'a> SearchProducts<'a> {
-    pub const fn builder() -> SearchProductsBuilder<'a, ((), (), (), (), (), ())> {
-        SearchProductsBuilder {
-            fields: ((), (), (), (), (), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct SearchProductsBuilder<'a, Fields = ((), (), (), (), (), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, Offset, Name, CategoryIds, MinPrice, MaxPrice>
-    SearchProductsBuilder<'a, ((), Offset, Name, CategoryIds, MinPrice, MaxPrice)>
-{
-    pub fn limit(
-        self,
-        limit: i32,
-    ) -> SearchProductsBuilder<'a, (i32, Offset, Name, CategoryIds, MinPrice, MaxPrice)> {
-        let ((), offset, name, category_ids, min_price, max_price) = self.fields;
-        let _phantom = self._phantom;
-        SearchProductsBuilder {
-            fields: (limit, offset, name, category_ids, min_price, max_price),
-            _phantom,
-        }
-    }
-}
-impl<'a, Limit, Name, CategoryIds, MinPrice, MaxPrice>
-    SearchProductsBuilder<'a, (Limit, (), Name, CategoryIds, MinPrice, MaxPrice)>
-{
-    pub fn offset(
-        self,
-        offset: i32,
-    ) -> SearchProductsBuilder<'a, (Limit, i32, Name, CategoryIds, MinPrice, MaxPrice)> {
-        let (limit, (), name, category_ids, min_price, max_price) = self.fields;
-        let _phantom = self._phantom;
-        SearchProductsBuilder {
-            fields: (limit, offset, name, category_ids, min_price, max_price),
-            _phantom,
-        }
-    }
-}
-impl<'a, Limit, Offset, CategoryIds, MinPrice, MaxPrice>
-    SearchProductsBuilder<'a, (Limit, Offset, (), CategoryIds, MinPrice, MaxPrice)>
-{
-    pub fn name(
-        self,
-        name: Option<&'a str>,
-    ) -> SearchProductsBuilder<
-        'a,
-        (
-            Limit,
-            Offset,
-            Option<&'a str>,
-            CategoryIds,
-            MinPrice,
-            MaxPrice,
-        ),
-    > {
-        let (limit, offset, (), category_ids, min_price, max_price) = self.fields;
-        let _phantom = self._phantom;
-        SearchProductsBuilder {
-            fields: (limit, offset, name, category_ids, min_price, max_price),
-            _phantom,
-        }
-    }
-}
-impl<'a, Limit, Offset, Name, MinPrice, MaxPrice>
-    SearchProductsBuilder<'a, (Limit, Offset, Name, (), MinPrice, MaxPrice)>
-{
-    pub fn category_ids(
-        self,
-        category_ids: &'a [i32],
-    ) -> SearchProductsBuilder<'a, (Limit, Offset, Name, &'a [i32], MinPrice, MaxPrice)> {
-        let (limit, offset, name, (), min_price, max_price) = self.fields;
-        let _phantom = self._phantom;
-        SearchProductsBuilder {
-            fields: (limit, offset, name, category_ids, min_price, max_price),
-            _phantom,
-        }
-    }
-}
-impl<'a, Limit, Offset, Name, CategoryIds, MaxPrice>
-    SearchProductsBuilder<'a, (Limit, Offset, Name, CategoryIds, (), MaxPrice)>
-{
-    pub fn min_price(
-        self,
-        min_price: Option<i32>,
-    ) -> SearchProductsBuilder<'a, (Limit, Offset, Name, CategoryIds, Option<i32>, MaxPrice)> {
-        let (limit, offset, name, category_ids, (), max_price) = self.fields;
-        let _phantom = self._phantom;
-        SearchProductsBuilder {
-            fields: (limit, offset, name, category_ids, min_price, max_price),
-            _phantom,
-        }
-    }
-}
-impl<'a, Limit, Offset, Name, CategoryIds, MinPrice>
-    SearchProductsBuilder<'a, (Limit, Offset, Name, CategoryIds, MinPrice, ())>
-{
-    pub fn max_price(
-        self,
-        max_price: Option<i32>,
-    ) -> SearchProductsBuilder<'a, (Limit, Offset, Name, CategoryIds, MinPrice, Option<i32>)> {
-        let (limit, offset, name, category_ids, min_price, ()) = self.fields;
-        let _phantom = self._phantom;
-        SearchProductsBuilder {
-            fields: (limit, offset, name, category_ids, min_price, max_price),
-            _phantom,
-        }
-    }
-}
-impl<'a>
-    SearchProductsBuilder<
-        'a,
-        (
-            i32,
-            i32,
-            Option<&'a str>,
-            &'a [i32],
-            Option<i32>,
-            Option<i32>,
-        ),
-    >
-{
-    pub fn build(self) -> SearchProducts<'a> {
-        let (limit, offset, name, category_ids, min_price, max_price) = self.fields;
-        SearchProducts {
-            limit,
-            offset,
-            name,
-            category_ids,
-            min_price,
-            max_price,
-        }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct GetProductsWithSpecificAttributeRow {
-    #[sqlx(rename = "id")]
+pub struct SearchProductsRow {
     pub id: uuid::Uuid,
-    #[sqlx(rename = "category_id")]
     pub category_id: i32,
-    #[sqlx(rename = "name")]
     pub name: String,
-    #[sqlx(rename = "description")]
     pub description: Option<String>,
-    #[sqlx(rename = "price")]
     pub price: i32,
-    #[sqlx(rename = "stock_quantity")]
     pub stock_quantity: i32,
-    #[sqlx(rename = "attributes")]
     pub attributes: Option<serde_json::Value>,
-    #[sqlx(rename = "created_at")]
     pub created_at: chrono::DateTime<chrono::Utc>,
-    #[sqlx(rename = "updated_at")]
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub average_rating: f64,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for SearchProductsRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            category_id: sqlx::Row::try_get(row, 1)?,
+            name: sqlx::Row::try_get(row, 2)?,
+            description: sqlx::Row::try_get(row, 3)?,
+            price: sqlx::Row::try_get(row, 4)?,
+            stock_quantity: sqlx::Row::try_get(row, 5)?,
+            attributes: sqlx::Row::try_get(row, 6)?,
+            created_at: sqlx::Row::try_get(row, 7)?,
+            updated_at: sqlx::Row::try_get(row, 8)?,
+            average_rating: sqlx::Row::try_get(row, 9)?,
+        })
+    }
+}
+pub async fn search_products<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: SearchProductsParams<'_>,
+) -> Result<Vec<SearchProductsRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, SearchProductsRow>(SEARCH_PRODUCTS);
+    let q = q.bind(params.limit);
+    let q = q.bind(params.offset);
+    let q = q.bind(params.name);
+    let q = q.bind(params.category_ids);
+    let q = q.bind(params.min_price);
+    let q = q.bind(params.max_price);
+    q.fetch_all(executor).await
+}
+pub const GET_PRODUCTS_WITH_SPECIFIC_ATTRIBUTE: &str = r"SELECT id, category_id, name, description, price, stock_quantity, attributes, created_at, updated_at FROM products
+WHERE attributes @> $1::jsonb";
+pub struct GetProductsWithSpecificAttributeRow {
+    pub id: uuid::Uuid,
+    pub category_id: i32,
+    pub name: String,
+    pub description: Option<String>,
+    pub price: i32,
+    pub stock_quantity: i32,
+    pub attributes: Option<serde_json::Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
-pub struct GetProductsWithSpecificAttribute<'a> {
-    column_1: &'a serde_json::Value,
-}
-impl<'a> GetProductsWithSpecificAttribute<'a> {
-    pub const QUERY: &'static str = r"SELECT id, category_id, name, description, price, stock_quantity, attributes, created_at, updated_at FROM products
-WHERE attributes @> $1::jsonb";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for GetProductsWithSpecificAttributeRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            category_id: sqlx::Row::try_get(row, 1)?,
+            name: sqlx::Row::try_get(row, 2)?,
+            description: sqlx::Row::try_get(row, 3)?,
+            price: sqlx::Row::try_get(row, 4)?,
+            stock_quantity: sqlx::Row::try_get(row, 5)?,
+            attributes: sqlx::Row::try_get(row, 6)?,
+            created_at: sqlx::Row::try_get(row, 7)?,
+            updated_at: sqlx::Row::try_get(row, 8)?,
+        })
     }
 }
-impl<'a> GetProductsWithSpecificAttribute<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        GetProductsWithSpecificAttributeRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.column_1);
-        q
-    }
-    pub fn query_many<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<GetProductsWithSpecificAttributeRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
-    }
+pub async fn get_products_with_specific_attribute<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    column_1: serde_json::Value,
+) -> Result<Vec<GetProductsWithSpecificAttributeRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetProductsWithSpecificAttributeRow>(
+        GET_PRODUCTS_WITH_SPECIFIC_ATTRIBUTE,
+    );
+    let q = q.bind(column_1);
+    q.fetch_all(executor).await
 }
-impl<'a> GetProductsWithSpecificAttribute<'a> {
-    pub const fn builder() -> GetProductsWithSpecificAttributeBuilder<'a, ((),)> {
-        GetProductsWithSpecificAttributeBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct GetProductsWithSpecificAttributeBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetProductsWithSpecificAttributeBuilder<'a, ((),)> {
-    pub fn column_1(
-        self,
-        column_1: &'a serde_json::Value,
-    ) -> GetProductsWithSpecificAttributeBuilder<'a, (&'a serde_json::Value,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetProductsWithSpecificAttributeBuilder {
-            fields: (column_1,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetProductsWithSpecificAttributeBuilder<'a, (&'a serde_json::Value,)> {
-    pub fn build(self) -> GetProductsWithSpecificAttribute<'a> {
-        let (column_1,) = self.fields;
-        GetProductsWithSpecificAttribute { column_1 }
-    }
-}
-pub struct UpdateProductStock {
-    id: uuid::Uuid,
-    add_quantity: i32,
-}
-impl UpdateProductStock {
-    pub const QUERY: &'static str = r"UPDATE products
+pub const UPDATE_PRODUCT_STOCK: &str = r"UPDATE products
 SET stock_quantity = stock_quantity + $2
 WHERE id = $1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
+#[derive(Debug, Clone, Default)]
+pub struct UpdateProductStockParams {
+    pub id: uuid::Uuid,
+    pub add_quantity: i32,
 }
-impl UpdateProductStock {
-    pub fn execute<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<<sqlx::Postgres as sqlx::Database>::QueryResult, sqlx::Error>>
-    + Send
-    + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let q = sqlx::query(self.query_str());
-            let q = q.bind(self.id);
-            let q = q.bind(self.add_quantity);
-            q.execute(&mut *conn).await
-        }
-    }
+pub async fn update_product_stock<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: UpdateProductStockParams,
+) -> Result<(), sqlx::Error> {
+    let q = sqlx::query(UPDATE_PRODUCT_STOCK);
+    let q = q.bind(params.id);
+    let q = q.bind(params.add_quantity);
+    q.execute(executor).await.map(|_| ())
 }
-impl UpdateProductStock {
-    pub const fn builder() -> UpdateProductStockBuilder<'static, ((), ())> {
-        UpdateProductStockBuilder {
-            fields: ((), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct UpdateProductStockBuilder<'a, Fields = ((), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, AddQuantity> UpdateProductStockBuilder<'a, ((), AddQuantity)> {
-    pub fn id(self, id: uuid::Uuid) -> UpdateProductStockBuilder<'a, (uuid::Uuid, AddQuantity)> {
-        let ((), add_quantity) = self.fields;
-        let _phantom = self._phantom;
-        UpdateProductStockBuilder {
-            fields: (id, add_quantity),
-            _phantom,
-        }
-    }
-}
-impl<'a, Id> UpdateProductStockBuilder<'a, (Id, ())> {
-    pub fn add_quantity(self, add_quantity: i32) -> UpdateProductStockBuilder<'a, (Id, i32)> {
-        let (id, ()) = self.fields;
-        let _phantom = self._phantom;
-        UpdateProductStockBuilder {
-            fields: (id, add_quantity),
-            _phantom,
-        }
-    }
-}
-impl<'a> UpdateProductStockBuilder<'a, (uuid::Uuid, i32)> {
-    pub fn build(self) -> UpdateProductStock {
-        let (id, add_quantity) = self.fields;
-        UpdateProductStock { id, add_quantity }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct CreateOrderRow {
-    #[sqlx(rename = "id")]
-    pub id: i64,
-    #[sqlx(rename = "user_id")]
-    pub user_id: uuid::Uuid,
-    #[sqlx(rename = "status")]
-    pub status: OrderStatus,
-    #[sqlx(rename = "total_amount")]
-    pub total_amount: i32,
-    #[sqlx(rename = "ordered_at")]
-    pub ordered_at: chrono::DateTime<chrono::Utc>,
-}
-pub struct CreateOrder {
-    user_id: uuid::Uuid,
-    status: OrderStatus,
-    total_amount: i32,
-}
-impl CreateOrder {
-    pub const QUERY: &'static str = r"INSERT INTO orders (user_id, status, total_amount)
+pub const CREATE_ORDER: &str = r"INSERT INTO orders (user_id, status, total_amount)
 VALUES ($1, $2, $3)
 RETURNING id, user_id, status, total_amount, ordered_at";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
+#[derive(Debug, Clone)]
+pub struct CreateOrderParams {
+    pub user_id: uuid::Uuid,
+    pub status: OrderStatus,
+    pub total_amount: i32,
 }
-impl CreateOrder {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        CreateOrderRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.user_id);
-        let q = q.bind(self.status);
-        let q = q.bind(self.total_amount);
-        q
-    }
-    pub fn query_one<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<CreateOrderRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<CreateOrderRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl CreateOrder {
-    pub const fn builder() -> CreateOrderBuilder<'static, ((), (), ())> {
-        CreateOrderBuilder {
-            fields: ((), (), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct CreateOrderBuilder<'a, Fields = ((), (), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, Status, TotalAmount> CreateOrderBuilder<'a, ((), Status, TotalAmount)> {
-    pub fn user_id(
-        self,
-        user_id: uuid::Uuid,
-    ) -> CreateOrderBuilder<'a, (uuid::Uuid, Status, TotalAmount)> {
-        let ((), status, total_amount) = self.fields;
-        let _phantom = self._phantom;
-        CreateOrderBuilder {
-            fields: (user_id, status, total_amount),
-            _phantom,
-        }
-    }
-}
-impl<'a, UserId, TotalAmount> CreateOrderBuilder<'a, (UserId, (), TotalAmount)> {
-    pub fn status(
-        self,
-        status: OrderStatus,
-    ) -> CreateOrderBuilder<'a, (UserId, OrderStatus, TotalAmount)> {
-        let (user_id, (), total_amount) = self.fields;
-        let _phantom = self._phantom;
-        CreateOrderBuilder {
-            fields: (user_id, status, total_amount),
-            _phantom,
-        }
-    }
-}
-impl<'a, UserId, Status> CreateOrderBuilder<'a, (UserId, Status, ())> {
-    pub fn total_amount(self, total_amount: i32) -> CreateOrderBuilder<'a, (UserId, Status, i32)> {
-        let (user_id, status, ()) = self.fields;
-        let _phantom = self._phantom;
-        CreateOrderBuilder {
-            fields: (user_id, status, total_amount),
-            _phantom,
-        }
-    }
-}
-impl<'a> CreateOrderBuilder<'a, (uuid::Uuid, OrderStatus, i32)> {
-    pub fn build(self) -> CreateOrder {
-        let (user_id, status, total_amount) = self.fields;
-        CreateOrder {
-            user_id,
-            status,
-            total_amount,
-        }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct CreateOrderItemRow {
-    #[sqlx(rename = "id")]
+pub struct CreateOrderRow {
     pub id: i64,
-    #[sqlx(rename = "order_id")]
-    pub order_id: i64,
-    #[sqlx(rename = "product_id")]
-    pub product_id: uuid::Uuid,
-    #[sqlx(rename = "quantity")]
-    pub quantity: i32,
-    #[sqlx(rename = "price_at_purchase")]
-    pub price_at_purchase: i32,
+    pub user_id: uuid::Uuid,
+    pub status: OrderStatus,
+    pub total_amount: i32,
+    pub ordered_at: chrono::DateTime<chrono::Utc>,
 }
-pub struct CreateOrderItem {
-    order_id: i64,
-    product_id: uuid::Uuid,
-    quantity: i32,
-    price_at_purchase: i32,
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for CreateOrderRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            user_id: sqlx::Row::try_get(row, 1)?,
+            status: sqlx::Row::try_get(row, 2)?,
+            total_amount: sqlx::Row::try_get(row, 3)?,
+            ordered_at: sqlx::Row::try_get(row, 4)?,
+        })
+    }
 }
-impl CreateOrderItem {
-    pub const QUERY: &'static str = r"INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase)
+pub async fn create_order<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateOrderParams,
+) -> Result<CreateOrderRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateOrderRow>(CREATE_ORDER);
+    let q = q.bind(params.user_id);
+    let q = q.bind(params.status);
+    let q = q.bind(params.total_amount);
+    q.fetch_one(executor).await
+}
+pub async fn create_order_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateOrderParams,
+) -> Result<Option<CreateOrderRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateOrderRow>(CREATE_ORDER);
+    let q = q.bind(params.user_id);
+    let q = q.bind(params.status);
+    let q = q.bind(params.total_amount);
+    q.fetch_optional(executor).await
+}
+pub const CREATE_ORDER_ITEM: &str = r"INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase)
 VALUES ($1, $2, $3, $4)
 RETURNING id, order_id, product_id, quantity, price_at_purchase";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl CreateOrderItem {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        CreateOrderItemRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.order_id);
-        let q = q.bind(self.product_id);
-        let q = q.bind(self.quantity);
-        let q = q.bind(self.price_at_purchase);
-        q
-    }
-    pub fn query_one<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<CreateOrderItemRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<CreateOrderItemRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl CreateOrderItem {
-    pub const fn builder() -> CreateOrderItemBuilder<'static, ((), (), (), ())> {
-        CreateOrderItemBuilder {
-            fields: ((), (), (), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct CreateOrderItemBuilder<'a, Fields = ((), (), (), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, ProductId, Quantity, PriceAtPurchase>
-    CreateOrderItemBuilder<'a, ((), ProductId, Quantity, PriceAtPurchase)>
-{
-    pub fn order_id(
-        self,
-        order_id: i64,
-    ) -> CreateOrderItemBuilder<'a, (i64, ProductId, Quantity, PriceAtPurchase)> {
-        let ((), product_id, quantity, price_at_purchase) = self.fields;
-        let _phantom = self._phantom;
-        CreateOrderItemBuilder {
-            fields: (order_id, product_id, quantity, price_at_purchase),
-            _phantom,
-        }
-    }
-}
-impl<'a, OrderId, Quantity, PriceAtPurchase>
-    CreateOrderItemBuilder<'a, (OrderId, (), Quantity, PriceAtPurchase)>
-{
-    pub fn product_id(
-        self,
-        product_id: uuid::Uuid,
-    ) -> CreateOrderItemBuilder<'a, (OrderId, uuid::Uuid, Quantity, PriceAtPurchase)> {
-        let (order_id, (), quantity, price_at_purchase) = self.fields;
-        let _phantom = self._phantom;
-        CreateOrderItemBuilder {
-            fields: (order_id, product_id, quantity, price_at_purchase),
-            _phantom,
-        }
-    }
-}
-impl<'a, OrderId, ProductId, PriceAtPurchase>
-    CreateOrderItemBuilder<'a, (OrderId, ProductId, (), PriceAtPurchase)>
-{
-    pub fn quantity(
-        self,
-        quantity: i32,
-    ) -> CreateOrderItemBuilder<'a, (OrderId, ProductId, i32, PriceAtPurchase)> {
-        let (order_id, product_id, (), price_at_purchase) = self.fields;
-        let _phantom = self._phantom;
-        CreateOrderItemBuilder {
-            fields: (order_id, product_id, quantity, price_at_purchase),
-            _phantom,
-        }
-    }
-}
-impl<'a, OrderId, ProductId, Quantity>
-    CreateOrderItemBuilder<'a, (OrderId, ProductId, Quantity, ())>
-{
-    pub fn price_at_purchase(
-        self,
-        price_at_purchase: i32,
-    ) -> CreateOrderItemBuilder<'a, (OrderId, ProductId, Quantity, i32)> {
-        let (order_id, product_id, quantity, ()) = self.fields;
-        let _phantom = self._phantom;
-        CreateOrderItemBuilder {
-            fields: (order_id, product_id, quantity, price_at_purchase),
-            _phantom,
-        }
-    }
-}
-impl<'a> CreateOrderItemBuilder<'a, (i64, uuid::Uuid, i32, i32)> {
-    pub fn build(self) -> CreateOrderItem {
-        let (order_id, product_id, quantity, price_at_purchase) = self.fields;
-        CreateOrderItem {
-            order_id,
-            product_id,
-            quantity,
-            price_at_purchase,
-        }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct GetOrderDetailsRow {
-    #[sqlx(rename = "order_id")]
+#[derive(Debug, Clone, Default)]
+pub struct CreateOrderItemParams {
     pub order_id: i64,
-    #[sqlx(rename = "status")]
-    pub status: OrderStatus,
-    #[sqlx(rename = "total_amount")]
-    pub total_amount: i32,
-    #[sqlx(rename = "ordered_at")]
-    pub ordered_at: chrono::DateTime<chrono::Utc>,
-    #[sqlx(rename = "user_id")]
-    pub user_id: uuid::Uuid,
-    #[sqlx(rename = "username")]
-    pub username: String,
-    #[sqlx(rename = "email")]
-    pub email: String,
+    pub product_id: uuid::Uuid,
+    pub quantity: i32,
+    pub price_at_purchase: i32,
 }
-pub struct GetOrderDetails {
-    id: i64,
+pub struct CreateOrderItemRow {
+    pub id: i64,
+    pub order_id: i64,
+    pub product_id: uuid::Uuid,
+    pub quantity: i32,
+    pub price_at_purchase: i32,
 }
-impl GetOrderDetails {
-    pub const QUERY: &'static str = r"SELECT
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for CreateOrderItemRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            order_id: sqlx::Row::try_get(row, 1)?,
+            product_id: sqlx::Row::try_get(row, 2)?,
+            quantity: sqlx::Row::try_get(row, 3)?,
+            price_at_purchase: sqlx::Row::try_get(row, 4)?,
+        })
+    }
+}
+pub async fn create_order_item<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateOrderItemParams,
+) -> Result<CreateOrderItemRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateOrderItemRow>(CREATE_ORDER_ITEM);
+    let q = q.bind(params.order_id);
+    let q = q.bind(params.product_id);
+    let q = q.bind(params.quantity);
+    let q = q.bind(params.price_at_purchase);
+    q.fetch_one(executor).await
+}
+pub async fn create_order_item_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateOrderItemParams,
+) -> Result<Option<CreateOrderItemRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateOrderItemRow>(CREATE_ORDER_ITEM);
+    let q = q.bind(params.order_id);
+    let q = q.bind(params.product_id);
+    let q = q.bind(params.quantity);
+    let q = q.bind(params.price_at_purchase);
+    q.fetch_optional(executor).await
+}
+pub const GET_ORDER_DETAILS: &str = r"SELECT
     o.id as order_id,
     o.status,
     o.total_amount,
@@ -1533,94 +505,45 @@ impl GetOrderDetails {
 FROM orders o
 JOIN users u ON o.user_id = u.id
 WHERE o.id = $1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
+pub struct GetOrderDetailsRow {
+    pub order_id: i64,
+    pub status: OrderStatus,
+    pub total_amount: i32,
+    pub ordered_at: chrono::DateTime<chrono::Utc>,
+    pub user_id: uuid::Uuid,
+    pub username: String,
+    pub email: String,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for GetOrderDetailsRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            order_id: sqlx::Row::try_get(row, 0)?,
+            status: sqlx::Row::try_get(row, 1)?,
+            total_amount: sqlx::Row::try_get(row, 2)?,
+            ordered_at: sqlx::Row::try_get(row, 3)?,
+            user_id: sqlx::Row::try_get(row, 4)?,
+            username: sqlx::Row::try_get(row, 5)?,
+            email: sqlx::Row::try_get(row, 6)?,
+        })
     }
 }
-impl GetOrderDetails {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        GetOrderDetailsRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.id);
-        q
-    }
-    pub fn query_one<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<GetOrderDetailsRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<GetOrderDetailsRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
+pub async fn get_order_details<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    id: i64,
+) -> Result<GetOrderDetailsRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetOrderDetailsRow>(GET_ORDER_DETAILS);
+    let q = q.bind(id);
+    q.fetch_one(executor).await
 }
-impl GetOrderDetails {
-    pub const fn builder() -> GetOrderDetailsBuilder<'static, ((),)> {
-        GetOrderDetailsBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
+pub async fn get_order_details_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    id: i64,
+) -> Result<Option<GetOrderDetailsRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetOrderDetailsRow>(GET_ORDER_DETAILS);
+    let q = q.bind(id);
+    q.fetch_optional(executor).await
 }
-pub struct GetOrderDetailsBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetOrderDetailsBuilder<'a, ((),)> {
-    pub fn id(self, id: i64) -> GetOrderDetailsBuilder<'a, (i64,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetOrderDetailsBuilder {
-            fields: (id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetOrderDetailsBuilder<'a, (i64,)> {
-    pub fn build(self) -> GetOrderDetails {
-        let (id,) = self.fields;
-        GetOrderDetails { id }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct ListOrderItemsByOrderIdRow {
-    #[sqlx(rename = "quantity")]
-    pub quantity: i32,
-    #[sqlx(rename = "price_at_purchase")]
-    pub price_at_purchase: i32,
-    #[sqlx(rename = "product_id")]
-    pub product_id: uuid::Uuid,
-    #[sqlx(rename = "product_name")]
-    pub product_name: String,
-}
-pub struct ListOrderItemsByOrderId {
-    order_id: i64,
-}
-impl ListOrderItemsByOrderId {
-    pub const QUERY: &'static str = r"SELECT
+pub const LIST_ORDER_ITEMS_BY_ORDER_ID: &str = r"SELECT
     oi.quantity,
     oi.price_at_purchase,
     p.id as product_id,
@@ -1628,318 +551,120 @@ impl ListOrderItemsByOrderId {
 FROM order_items oi
 JOIN products p ON oi.product_id = p.id
 WHERE oi.order_id = $1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl ListOrderItemsByOrderId {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        ListOrderItemsByOrderIdRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.order_id);
-        q
-    }
-    pub fn query_many<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<ListOrderItemsByOrderIdRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
-    }
-}
-impl ListOrderItemsByOrderId {
-    pub const fn builder() -> ListOrderItemsByOrderIdBuilder<'static, ((),)> {
-        ListOrderItemsByOrderIdBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct ListOrderItemsByOrderIdBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> ListOrderItemsByOrderIdBuilder<'a, ((),)> {
-    pub fn order_id(self, order_id: i64) -> ListOrderItemsByOrderIdBuilder<'a, (i64,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        ListOrderItemsByOrderIdBuilder {
-            fields: (order_id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> ListOrderItemsByOrderIdBuilder<'a, (i64,)> {
-    pub fn build(self) -> ListOrderItemsByOrderId {
-        let (order_id,) = self.fields;
-        ListOrderItemsByOrderId { order_id }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct CreateReviewRow {
-    #[sqlx(rename = "id")]
-    pub id: i64,
-    #[sqlx(rename = "user_id")]
-    pub user_id: uuid::Uuid,
-    #[sqlx(rename = "product_id")]
+pub struct ListOrderItemsByOrderIdRow {
+    pub quantity: i32,
+    pub price_at_purchase: i32,
     pub product_id: uuid::Uuid,
-    #[sqlx(rename = "rating")]
-    pub rating: i32,
-    #[sqlx(rename = "comment")]
-    pub comment: Option<String>,
-    #[sqlx(rename = "created_at")]
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub product_name: String,
 }
-pub struct CreateReview<'a> {
-    user_id: uuid::Uuid,
-    product_id: uuid::Uuid,
-    rating: i32,
-    comment: Option<&'a str>,
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ListOrderItemsByOrderIdRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            quantity: sqlx::Row::try_get(row, 0)?,
+            price_at_purchase: sqlx::Row::try_get(row, 1)?,
+            product_id: sqlx::Row::try_get(row, 2)?,
+            product_name: sqlx::Row::try_get(row, 3)?,
+        })
+    }
 }
-impl<'a> CreateReview<'a> {
-    pub const QUERY: &'static str = r"INSERT INTO reviews (user_id, product_id, rating, comment)
+pub async fn list_order_items_by_order_id<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    order_id: i64,
+) -> Result<Vec<ListOrderItemsByOrderIdRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, ListOrderItemsByOrderIdRow>(LIST_ORDER_ITEMS_BY_ORDER_ID);
+    let q = q.bind(order_id);
+    q.fetch_all(executor).await
+}
+pub const CREATE_REVIEW: &str = r"INSERT INTO reviews (user_id, product_id, rating, comment)
 VALUES ($1, $2, $3, $4)
 RETURNING id, user_id, product_id, rating, comment, created_at";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl<'a> CreateReview<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        CreateReviewRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.user_id);
-        let q = q.bind(self.product_id);
-        let q = q.bind(self.rating);
-        let q = q.bind(self.comment);
-        q
-    }
-    pub fn query_one<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<CreateReviewRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<CreateReviewRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl<'a> CreateReview<'a> {
-    pub const fn builder() -> CreateReviewBuilder<'a, ((), (), (), ())> {
-        CreateReviewBuilder {
-            fields: ((), (), (), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct CreateReviewBuilder<'a, Fields = ((), (), (), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, ProductId, Rating, Comment> CreateReviewBuilder<'a, ((), ProductId, Rating, Comment)> {
-    pub fn user_id(
-        self,
-        user_id: uuid::Uuid,
-    ) -> CreateReviewBuilder<'a, (uuid::Uuid, ProductId, Rating, Comment)> {
-        let ((), product_id, rating, comment) = self.fields;
-        let _phantom = self._phantom;
-        CreateReviewBuilder {
-            fields: (user_id, product_id, rating, comment),
-            _phantom,
-        }
-    }
-}
-impl<'a, UserId, Rating, Comment> CreateReviewBuilder<'a, (UserId, (), Rating, Comment)> {
-    pub fn product_id(
-        self,
-        product_id: uuid::Uuid,
-    ) -> CreateReviewBuilder<'a, (UserId, uuid::Uuid, Rating, Comment)> {
-        let (user_id, (), rating, comment) = self.fields;
-        let _phantom = self._phantom;
-        CreateReviewBuilder {
-            fields: (user_id, product_id, rating, comment),
-            _phantom,
-        }
-    }
-}
-impl<'a, UserId, ProductId, Comment> CreateReviewBuilder<'a, (UserId, ProductId, (), Comment)> {
-    pub fn rating(self, rating: i32) -> CreateReviewBuilder<'a, (UserId, ProductId, i32, Comment)> {
-        let (user_id, product_id, (), comment) = self.fields;
-        let _phantom = self._phantom;
-        CreateReviewBuilder {
-            fields: (user_id, product_id, rating, comment),
-            _phantom,
-        }
-    }
-}
-impl<'a, UserId, ProductId, Rating> CreateReviewBuilder<'a, (UserId, ProductId, Rating, ())> {
-    pub fn comment(
-        self,
-        comment: Option<&'a str>,
-    ) -> CreateReviewBuilder<'a, (UserId, ProductId, Rating, Option<&'a str>)> {
-        let (user_id, product_id, rating, ()) = self.fields;
-        let _phantom = self._phantom;
-        CreateReviewBuilder {
-            fields: (user_id, product_id, rating, comment),
-            _phantom,
-        }
-    }
-}
-impl<'a> CreateReviewBuilder<'a, (uuid::Uuid, uuid::Uuid, i32, Option<&'a str>)> {
-    pub fn build(self) -> CreateReview<'a> {
-        let (user_id, product_id, rating, comment) = self.fields;
-        CreateReview {
-            user_id,
-            product_id,
-            rating,
-            comment,
-        }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct GetProductAverageRatingRow {
-    #[sqlx(rename = "product_id")]
+#[derive(Debug, Clone, Default)]
+pub struct CreateReviewParams<'a> {
+    pub user_id: uuid::Uuid,
     pub product_id: uuid::Uuid,
-    #[sqlx(rename = "average_rating")]
-    pub average_rating: f64,
-    #[sqlx(rename = "review_count")]
-    pub review_count: i64,
+    pub rating: i32,
+    pub comment: Option<&'a str>,
 }
-pub struct GetProductAverageRating {
-    product_id: uuid::Uuid,
+pub struct CreateReviewRow {
+    pub id: i64,
+    pub user_id: uuid::Uuid,
+    pub product_id: uuid::Uuid,
+    pub rating: i32,
+    pub comment: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
-impl GetProductAverageRating {
-    pub const QUERY: &'static str = r"SELECT
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for CreateReviewRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            user_id: sqlx::Row::try_get(row, 1)?,
+            product_id: sqlx::Row::try_get(row, 2)?,
+            rating: sqlx::Row::try_get(row, 3)?,
+            comment: sqlx::Row::try_get(row, 4)?,
+            created_at: sqlx::Row::try_get(row, 5)?,
+        })
+    }
+}
+pub async fn create_review<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateReviewParams<'_>,
+) -> Result<CreateReviewRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateReviewRow>(CREATE_REVIEW);
+    let q = q.bind(params.user_id);
+    let q = q.bind(params.product_id);
+    let q = q.bind(params.rating);
+    let q = q.bind(params.comment);
+    q.fetch_one(executor).await
+}
+pub async fn create_review_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    params: CreateReviewParams<'_>,
+) -> Result<Option<CreateReviewRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, CreateReviewRow>(CREATE_REVIEW);
+    let q = q.bind(params.user_id);
+    let q = q.bind(params.product_id);
+    let q = q.bind(params.rating);
+    let q = q.bind(params.comment);
+    q.fetch_optional(executor).await
+}
+pub const GET_PRODUCT_AVERAGE_RATING: &str = r"SELECT
     product_id,
     AVG(rating)::float as average_rating,
     COUNT(id) as review_count
 FROM reviews
 WHERE product_id = $1
 GROUP BY product_id";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
+pub struct GetProductAverageRatingRow {
+    pub product_id: uuid::Uuid,
+    pub average_rating: f64,
+    pub review_count: i64,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for GetProductAverageRatingRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            product_id: sqlx::Row::try_get(row, 0)?,
+            average_rating: sqlx::Row::try_get(row, 1)?,
+            review_count: sqlx::Row::try_get(row, 2)?,
+        })
     }
 }
-impl GetProductAverageRating {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        GetProductAverageRatingRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.product_id);
-        q
-    }
-    pub fn query_one<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<GetProductAverageRatingRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<GetProductAverageRatingRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
+pub async fn get_product_average_rating<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    product_id: uuid::Uuid,
+) -> Result<GetProductAverageRatingRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetProductAverageRatingRow>(GET_PRODUCT_AVERAGE_RATING);
+    let q = q.bind(product_id);
+    q.fetch_one(executor).await
 }
-impl GetProductAverageRating {
-    pub const fn builder() -> GetProductAverageRatingBuilder<'static, ((),)> {
-        GetProductAverageRatingBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
+pub async fn get_product_average_rating_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    product_id: uuid::Uuid,
+) -> Result<Option<GetProductAverageRatingRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetProductAverageRatingRow>(GET_PRODUCT_AVERAGE_RATING);
+    let q = q.bind(product_id);
+    q.fetch_optional(executor).await
 }
-pub struct GetProductAverageRatingBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetProductAverageRatingBuilder<'a, ((),)> {
-    pub fn product_id(
-        self,
-        product_id: uuid::Uuid,
-    ) -> GetProductAverageRatingBuilder<'a, (uuid::Uuid,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetProductAverageRatingBuilder {
-            fields: (product_id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetProductAverageRatingBuilder<'a, (uuid::Uuid,)> {
-    pub fn build(self) -> GetProductAverageRating {
-        let (product_id,) = self.fields;
-        GetProductAverageRating { product_id }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct GetCategorySalesRankingRow {
-    #[sqlx(rename = "category_id")]
-    pub category_id: i32,
-    #[sqlx(rename = "category_name")]
-    pub category_name: String,
-    #[sqlx(rename = "total_sales")]
-    pub total_sales: i64,
-    #[sqlx(rename = "total_orders")]
-    pub total_orders: i64,
-}
-pub struct GetCategorySalesRanking;
-impl GetCategorySalesRanking {
-    pub const QUERY: &'static str = r"SELECT
+pub const GET_CATEGORY_SALES_RANKING: &str = r"SELECT
     c.id as category_id,
     c.name as category_name,
     SUM(oi.quantity * oi.price_at_purchase) as total_sales,
@@ -1951,106 +676,55 @@ JOIN orders o ON oi.order_id = o.id
 WHERE o.status IN ('delivered', 'shipped')
 GROUP BY c.id, c.name
 ORDER BY total_sales DESC";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
+pub struct GetCategorySalesRankingRow {
+    pub category_id: i32,
+    pub category_name: String,
+    pub total_sales: i64,
+    pub total_orders: i64,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for GetCategorySalesRankingRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            category_id: sqlx::Row::try_get(row, 0)?,
+            category_name: sqlx::Row::try_get(row, 1)?,
+            total_sales: sqlx::Row::try_get(row, 2)?,
+            total_orders: sqlx::Row::try_get(row, 3)?,
+        })
     }
 }
-impl GetCategorySalesRanking {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Postgres,
-        GetCategorySalesRankingRow,
-        <sqlx::Postgres as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        q
-    }
-    pub fn query_many<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<GetCategorySalesRankingRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
-    }
+pub async fn get_category_sales_ranking<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+) -> Result<Vec<GetCategorySalesRankingRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetCategorySalesRankingRow>(GET_CATEGORY_SALES_RANKING);
+    q.fetch_all(executor).await
 }
-impl GetCategorySalesRanking {
-    pub const fn builder() -> GetCategorySalesRankingBuilder<'static, ()> {
-        GetCategorySalesRankingBuilder {
-            fields: (),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct GetCategorySalesRankingBuilder<'a, Fields = ()> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetCategorySalesRankingBuilder<'a, ()> {
-    pub fn build(self) -> GetCategorySalesRanking {
-        let () = self.fields;
-        GetCategorySalesRanking {}
-    }
-}
-pub struct DeleteUserAndRelatedData {
+pub const DELETE_USER_AND_RELATED_DATA: &str = r"DELETE FROM users WHERE id = $1";
+pub async fn delete_user_and_related_data<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
     id: uuid::Uuid,
+) -> Result<(), sqlx::Error> {
+    let q = sqlx::query(DELETE_USER_AND_RELATED_DATA);
+    let q = q.bind(id);
+    q.execute(executor).await.map(|_| ())
 }
-impl DeleteUserAndRelatedData {
-    pub const QUERY: &'static str = r"DELETE FROM users WHERE id = $1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl DeleteUserAndRelatedData {
-    pub fn execute<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<<sqlx::Postgres as sqlx::Database>::QueryResult, sqlx::Error>>
-    + Send
-    + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Postgres> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let q = sqlx::query(self.query_str());
-            let q = q.bind(self.id);
-            q.execute(&mut *conn).await
-        }
-    }
-}
-impl DeleteUserAndRelatedData {
-    pub const fn builder() -> DeleteUserAndRelatedDataBuilder<'static, ((),)> {
-        DeleteUserAndRelatedDataBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct DeleteUserAndRelatedDataBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> DeleteUserAndRelatedDataBuilder<'a, ((),)> {
-    pub fn id(self, id: uuid::Uuid) -> DeleteUserAndRelatedDataBuilder<'a, (uuid::Uuid,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        DeleteUserAndRelatedDataBuilder {
-            fields: (id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> DeleteUserAndRelatedDataBuilder<'a, (uuid::Uuid,)> {
-    pub fn build(self) -> DeleteUserAndRelatedData {
-        let (id,) = self.fields;
-        DeleteUserAndRelatedData { id }
-    }
-}
+pub const QUERIES: &[(&str, &str)] = &[
+    ("CreateUser", CREATE_USER),
+    ("GetUserByEmail", GET_USER_BY_EMAIL),
+    ("ListUsers", LIST_USERS),
+    ("CreateProduct", CREATE_PRODUCT),
+    ("GetProductWithCategory", GET_PRODUCT_WITH_CATEGORY),
+    ("SearchProducts", SEARCH_PRODUCTS),
+    (
+        "GetProductsWithSpecificAttribute",
+        GET_PRODUCTS_WITH_SPECIFIC_ATTRIBUTE,
+    ),
+    ("UpdateProductStock", UPDATE_PRODUCT_STOCK),
+    ("CreateOrder", CREATE_ORDER),
+    ("CreateOrderItem", CREATE_ORDER_ITEM),
+    ("GetOrderDetails", GET_ORDER_DETAILS),
+    ("ListOrderItemsByOrderID", LIST_ORDER_ITEMS_BY_ORDER_ID),
+    ("CreateReview", CREATE_REVIEW),
+    ("GetProductAverageRating", GET_PRODUCT_AVERAGE_RATING),
+    ("GetCategorySalesRanking", GET_CATEGORY_SALES_RANKING),
+    ("DeleteUserAndRelatedData", DELETE_USER_AND_RELATED_DATA),
+];

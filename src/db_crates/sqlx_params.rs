@@ -1,6 +1,6 @@
 use convert_case::{Case, Casing as _};
 
-use super::{QueryAst, sqlx::Sqlx};
+use super::sqlx::Sqlx;
 use crate::{
     query::{Annotation, Query, ReturningRows},
     value_ident,
@@ -12,7 +12,7 @@ enum ParameterAccess {
     Struct,
 }
 
-pub(super) fn generate_queries(
+pub(crate) fn generate_queries(
     sqlx: &Sqlx,
     rows: &[ReturningRows],
     queries: &[Query],
@@ -59,10 +59,9 @@ fn generate_query(
     query: &Query,
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
-    let query_ast = QueryAst::new(query, (*sqlx).into());
     let constant = query_const_ident(query);
     let sql = query.query_str();
-    let params = params_definition(&query_ast, query, query_parameter_limit);
+    let params = params_definition(query, query_parameter_limit);
     let arguments = function_arguments(query, query_parameter_limit);
     let dynamic = dynamic_static(sqlx, query, &constant);
     let returns = matches!(query.annotation, Annotation::One | Annotation::Many)
@@ -71,7 +70,6 @@ fn generate_query(
         sqlx,
         row,
         query,
-        &query_ast,
         &constant,
         &arguments,
         query_parameter_limit,
@@ -152,20 +150,25 @@ fn uses_params_struct(query: &Query, query_parameter_limit: usize) -> bool {
     query.dynfilter().is_some() || query.fields.len() > query_parameter_limit
 }
 
-fn params_definition(
-    query_ast: &QueryAst<'_>,
-    query: &Query,
-    query_parameter_limit: usize,
-) -> proc_macro2::TokenStream {
+fn params_definition(query: &Query, query_parameter_limit: usize) -> proc_macro2::TokenStream {
     if !uses_params_struct(query, query_parameter_limit) {
         return proc_macro2::TokenStream::new();
     }
 
     let params = params_ident(query);
-    let lifetime = &query_ast.lifetime;
+    let lifetime = syn::Lifetime::new("'a", proc_macro2::Span::call_site());
+    let derive = if query
+        .fields
+        .iter()
+        .all(|field| field.scalar_type().can_default())
+    {
+        quote::quote! {#[derive(Debug, Clone, Default)]}
+    } else {
+        quote::quote! {#[derive(Debug, Clone)]}
+    };
     let fields = query.fields.iter().map(|field| {
         let name = &field.name;
-        let typ = field.scalar_type().to_params_struct_tokens(Some(lifetime));
+        let typ = field.scalar_type().to_params_struct_tokens(Some(&lifetime));
         quote::quote! {pub #name: #typ}
     });
     let flags = query.dynfilter().into_iter().flat_map(|info| {
@@ -181,7 +184,7 @@ fn params_definition(
         .any(|field| field.scalar_type().need_params_struct_lifetime())
     {
         quote::quote! {
-            #[derive(Debug, Clone, Default)]
+            #derive
             pub struct #params<#lifetime> {
                 #(#fields,)*
                 #(#flags,)*
@@ -189,7 +192,7 @@ fn params_definition(
         }
     } else {
         quote::quote! {
-            #[derive(Debug, Clone, Default)]
+            #derive
             pub struct #params {
                 #(#fields,)*
                 #(#flags,)*
@@ -235,7 +238,6 @@ fn query_functions(
     sqlx: &Sqlx,
     row: &ReturningRows,
     query: &Query,
-    query_ast: &QueryAst<'_>,
     constant: &syn::Ident,
     arguments: &proc_macro2::TokenStream,
     query_parameter_limit: usize,
@@ -251,9 +253,9 @@ fn query_functions(
     match query.annotation {
         Annotation::One => {
             let row = row.struct_ident();
-            let setup = make_query_setup(sqlx, query, query_ast, constant, access, Some(&row));
+            let setup = make_query_setup(sqlx, query, constant, access, Some(&row));
             let opt_function = quote::format_ident!("{}_opt", function);
-            let opt_query = make_query_setup(sqlx, query, query_ast, constant, access, Some(&row));
+            let opt_query = make_query_setup(sqlx, query, constant, access, Some(&row));
             quote::quote! {
                 pub async fn #function<'e>(
                     executor: impl sqlx::Executor<'e, Database = #database>
@@ -274,7 +276,7 @@ fn query_functions(
         }
         Annotation::Many => {
             let row = row.struct_ident();
-            let setup = make_query_setup(sqlx, query, query_ast, constant, access, Some(&row));
+            let setup = make_query_setup(sqlx, query, constant, access, Some(&row));
             quote::quote! {
                 pub async fn #function<'e>(
                     executor: impl sqlx::Executor<'e, Database = #database>
@@ -286,7 +288,7 @@ fn query_functions(
             }
         }
         Annotation::Exec => {
-            let setup = make_query_setup(sqlx, query, query_ast, constant, access, None);
+            let setup = make_query_setup(sqlx, query, constant, access, None);
             quote::quote! {
                 pub async fn #function<'e>(
                     executor: impl sqlx::Executor<'e, Database = #database>
@@ -298,7 +300,7 @@ fn query_functions(
             }
         }
         Annotation::ExecRows => {
-            let setup = make_query_setup(sqlx, query, query_ast, constant, access, None);
+            let setup = make_query_setup(sqlx, query, constant, access, None);
             quote::quote! {
                 pub async fn #function<'e>(
                     executor: impl sqlx::Executor<'e, Database = #database>
@@ -312,7 +314,7 @@ fn query_functions(
             }
         }
         Annotation::ExecResult => {
-            let setup = make_query_setup(sqlx, query, query_ast, constant, access, None);
+            let setup = make_query_setup(sqlx, query, constant, access, None);
             quote::quote! {
                 pub async fn #function<'e>(
                     executor: impl sqlx::Executor<'e, Database = #database>
@@ -324,7 +326,7 @@ fn query_functions(
             }
         }
         Annotation::ExecLastId => {
-            let setup = make_query_setup(sqlx, query, query_ast, constant, access, None);
+            let setup = make_query_setup(sqlx, query, constant, access, None);
             match sqlx {
                 Sqlx::Sqlite => quote::quote! {
                     pub async fn #function<'e>(
@@ -357,7 +359,6 @@ fn query_functions(
 fn make_query_setup(
     sqlx: &Sqlx,
     query: &Query,
-    query_ast: &QueryAst<'_>,
     constant: &syn::Ident,
     access: ParameterAccess,
     row: Option<&syn::Ident>,
@@ -366,32 +367,16 @@ fn make_query_setup(
         return make_dynamic_query_setup(query, constant, row);
     }
     let query_ident = quote::format_ident!("q");
-    let sql_ident = quote::format_ident!("sql");
     let bind = make_bind(sqlx, query, query_ident.clone(), access);
-    let cache = query_ast
-        .need_expand_query()
-        .then(|| quote::quote! {let q = q.persistent(false);});
     let query = |sql| match row {
         Some(row) => quote::quote! {sqlx::query_as::<_, #row>(#sql)},
         None => quote::quote! {sqlx::query(#sql)},
     };
 
-    if query_ast.need_expand_query() {
-        let expand = make_expand(query_ast, &sql_ident, access);
-        let query = query(quote::quote! {&#sql_ident});
-        quote::quote! {
-            let #sql_ident = #constant;
-            #expand
-            let #query_ident = #query;
-            #bind
-            #cache
-        }
-    } else {
-        let query = query(quote::quote! {#constant});
-        quote::quote! {
-            let #query_ident = #query;
-            #bind
-        }
+    let query = query(quote::quote! {#constant});
+    quote::quote! {
+        let #query_ident = #query;
+        #bind
     }
 }
 
@@ -512,21 +497,6 @@ fn make_bind(
         }
         ParameterAccess::Struct => {
             sqlx.query_bind(query, query_ident, |name| quote::quote! {params.#name})
-        }
-    }
-}
-
-fn make_expand(
-    query_ast: &QueryAst<'_>,
-    sql_ident: &syn::Ident,
-    access: ParameterAccess,
-) -> proc_macro2::TokenStream {
-    match access {
-        ParameterAccess::Direct => {
-            query_ast.make_expand_query(sql_ident, |name| quote::quote! {#name})
-        }
-        ParameterAccess::Struct => {
-            query_ast.make_expand_query(sql_ident, |name| quote::quote! {params.#name})
         }
     }
 }

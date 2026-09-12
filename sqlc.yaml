@@ -13,21 +13,6 @@ sql:
       - plugin: sqlc-gen-rust
         out: examples/e-commerce/src
         options:
-          output: tokio_query.rs
-          db_crate: tokio-postgres
-      - plugin: sqlc-gen-rust
-        out: examples/e-commerce/src
-        options:
-          output: postgres_query.rs
-          db_crate: postgres
-      - plugin: sqlc-gen-rust
-        out: examples/e-commerce/src
-        options:
-          output: deadpool_query.rs
-          db_crate: deadpool-postgres
-      - plugin: sqlc-gen-rust
-        out: examples/e-commerce/src
-        options:
           output: sqlx_query.rs
           db_crate: sqlx-postgres
           overrides:
@@ -36,41 +21,15 @@ sql:
             - column: .users.created_at
               rs_type: chrono::DateTime<chrono::Local>
 
-  - schema: examples/authors/tokio-postgres/schema.sql
-    queries: examples/authors/tokio-postgres/queries.sql
+  - schema: examples/authors/sqlx-postgres/schema.sql
+    queries: examples/authors/sqlx-postgres/queries.sql
     engine: postgresql
     codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/authors/tokio-postgres/src
-        options:
-          output: queries.rs
-          db_crate: tokio-postgres
-      - plugin: sqlc-gen-rust
-        out: examples/authors/deadpool-postgres/src
-        options:
-          output: queries.rs
-          db_crate: deadpool-postgres
-      - plugin: sqlc-gen-rust
-        out: examples/authors/postgres/src
-        options:
-          output: queries.rs
-          db_crate: postgres
       - plugin: sqlc-gen-rust
         out: examples/authors/sqlx-postgres/src
         options:
           output: queries.rs
           db_crate: sqlx-postgres
-  - schema: examples/authors/sqlx-postgres-params/schema.sql
-    queries: examples/authors/sqlx-postgres-params/queries.sql
-    engine: postgresql
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/authors/sqlx-postgres-params/src
-        options:
-          output: queries.rs
-          db_crate: sqlx-postgres
-          api: params_struct
-
   - schema: examples/authors/sqlx-mysql/schema.sql
     queries: examples/authors/sqlx-mysql/queries.sql
     engine: mysql
@@ -80,18 +39,6 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
-
-  - schema: examples/authors/sqlx-mysql-params/schema.sql
-    queries: examples/authors/sqlx-mysql-params/queries.sql
-    engine: mysql
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/authors/sqlx-mysql-params/src
-        options:
-          output: queries.rs
-          db_crate: sqlx-mysql
-          api: params_struct
-
   - schema: examples/authors/sqlx-sqlite/schema.sql
     queries: examples/authors/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -101,21 +48,7 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-sqlite
-      - plugin: sqlc-gen-rust
-        out: examples/authors/rusqlite/src
-        options:
-          output: queries.rs
-          db_crate: rusqlite
-  - schema: examples/authors/sqlx-sqlite-params/schema.sql
-    queries: examples/authors/sqlx-sqlite-params/queries.sql
-    engine: sqlite
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/authors/sqlx-sqlite-params/src
-        options:
-          output: queries.rs
-          db_crate: sqlx-sqlite
-          api: params_struct
+
   - schema: examples/embed/sqlx-sqlite/schema.sql
     queries: examples/embed/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -125,93 +58,7 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-sqlite
-      - plugin: sqlc-gen-rust
-        out: examples/embed/rusqlite/src
-        options:
-          output: queries.rs
-          db_crate: rusqlite
-  - schema: examples/embed/sqlx-sqlite-params/schema.sql
-    queries: examples/embed/sqlx-sqlite-params/queries.sql
-    engine: sqlite
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/embed/sqlx-sqlite-params/src
-        options:
-          output: queries.rs
-          db_crate: sqlx-sqlite
-          api: params_struct
           query_parameter_limit: 0
-  - schema: examples/embed/tokio-postgres/schema.sql
-    queries: examples/embed/tokio-postgres/queries.sql
-    engine: postgresql
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/embed/tokio-postgres/src
-        options:
-          output: queries.rs
-          db_crate: tokio-postgres
-  - schema: examples/jets/schema.sql
-    queries: examples/jets/queries.sql
-    engine: postgresql
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/jets/src
-        options:
-          output: queries.rs
-          db_crate: deadpool-postgres
-
-  - schema: examples/ondeck/schema
-    queries: examples/ondeck/query
-    engine: postgresql
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/ondeck/src
-        options:
-          output: queries.rs
-          db_crate: tokio-postgres
-
-  - schema: examples/copyfrom/schema.sql
-    queries: examples/copyfrom/queries.sql
-    engine: postgresql
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/copyfrom/src
-        options:
-          output: tokio_query.rs
-          db_crate: tokio-postgres
-      - plugin: sqlc-gen-rust
-        out: examples/copyfrom/src
-        options:
-          output: postgres_query.rs
-          db_crate: postgres
-      - plugin: sqlc-gen-rust
-        out: examples/copyfrom/src
-        options:
-          output: deadpool_query.rs
-          db_crate: deadpool-postgres
-      - plugin: sqlc-gen-rust
-        out: examples/copyfrom/src
-        options:
-          output: sqlx_query.rs
-          db_crate: sqlx-postgres
-
-  - schema: examples/type-mapping/tokio-postgres/schema.sql
-    queries: examples/type-mapping/tokio-postgres/queries.sql
-    engine: postgresql
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/type-mapping/tokio-postgres/src
-        options:
-          output: queries.rs
-          db_crate: tokio-postgres
-          overrides:
-            - db_type: date
-              rs_type: chrono::NaiveDate
-            - db_type: pg_catalog.time
-              rs_type: chrono::NaiveTime
-            - db_type: complex
-              rs_type: crate::Complex
-              copy_cheap: true
 
   - schema: examples/type-mapping/sqlx-postgres/schema.sql
     queries: examples/type-mapping/sqlx-postgres/queries.sql
@@ -234,7 +81,6 @@ sql:
             - db_type: complex
               rs_type: crate::Complex
               copy_cheap: true
-
   - schema: examples/type-mapping/sqlx-mysql/schema.sql
     queries: examples/type-mapping/sqlx-mysql/queries.sql
     engine: mysql
@@ -251,7 +97,6 @@ sql:
               rs_type: chrono::NaiveDateTime
             - db_type: date
               rs_type: chrono::NaiveDate
-
   - schema: examples/type-mapping/sqlx-sqlite/schema.sql
     queries: examples/type-mapping/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -278,7 +123,6 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-postgres
-
   - schema: examples/sqlc-slice/sqlx-mysql/schema.sql
     queries: examples/sqlc-slice/sqlx-mysql/queries.sql
     engine: mysql
@@ -288,7 +132,6 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
-
   - schema: examples/sqlc-slice/sqlx-sqlite/schema.sql
     queries: examples/sqlc-slice/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -298,22 +141,8 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-sqlite
-      - plugin: sqlc-gen-rust
-        out: examples/sqlc-slice/rusqlite/src
-        options:
-          output: queries.rs
-          db_crate: rusqlite
-  - schema: examples/sqlc-slice/sqlx-sqlite-params/schema.sql
-    queries: examples/sqlc-slice/sqlx-sqlite-params/queries.sql
-    engine: sqlite
-    codegen:
-      - plugin: sqlc-gen-rust
-        out: examples/sqlc-slice/sqlx-sqlite-params/src
-        options:
-          output: queries.rs
-          db_crate: sqlx-sqlite
-          api: params_struct
           query_parameter_limit: 0
+
   - schema: examples/dynamic-filter/sqlx-sqlite/schema.sql
     queries: examples/dynamic-filter/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -323,7 +152,6 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-sqlite
-          api: params_struct
   - schema: examples/dynamic-filter/sqlx-postgres/schema.sql
     queries: examples/dynamic-filter/sqlx-postgres/queries.sql
     engine: postgresql
@@ -333,7 +161,6 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-postgres
-          api: params_struct
   - schema: examples/dynamic-filter/sqlx-mysql/schema.sql
     queries: examples/dynamic-filter/sqlx-mysql/queries.sql
     engine: mysql
@@ -343,4 +170,3 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
-          api: params_struct

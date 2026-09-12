@@ -11,6 +11,15 @@ pub struct Books {
     pub author_id: i64,
     pub title: String,
 }
+pub const GET_REVIEW: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+FROM reviews r
+JOIN books b ON b.id = r.book_id
+JOIN authors a ON a.id = b.author_id
+WHERE r.id = ?1";
+#[derive(Debug, Clone, Default)]
+pub struct GetReviewParams {
+    pub review_id: i64,
+}
 pub struct GetReviewRow {
     pub review_id: i64,
     pub authors: Authors,
@@ -34,87 +43,27 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for GetReviewRow {
         })
     }
 }
-pub struct GetReview {
-    review_id: i64,
+pub async fn get_review<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: GetReviewParams,
+) -> Result<GetReviewRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetReviewRow>(GET_REVIEW);
+    let q = q.bind(params.review_id);
+    q.fetch_one(executor).await
 }
-impl GetReview {
-    pub const QUERY: &'static str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub async fn get_review_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: GetReviewParams,
+) -> Result<Option<GetReviewRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetReviewRow>(GET_REVIEW);
+    let q = q.bind(params.review_id);
+    q.fetch_optional(executor).await
+}
+pub const LIST_REVIEWS: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
-WHERE r.id = ?1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl GetReview {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        GetReviewRow,
-        <sqlx::Sqlite as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.review_id);
-        q
-    }
-    pub fn query_one<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<GetReviewRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<GetReviewRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl GetReview {
-    pub const fn builder() -> GetReviewBuilder<'static, ((),)> {
-        GetReviewBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct GetReviewBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetReviewBuilder<'a, ((),)> {
-    pub fn review_id(self, review_id: i64) -> GetReviewBuilder<'a, (i64,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetReviewBuilder {
-            fields: (review_id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetReviewBuilder<'a, (i64,)> {
-    pub fn build(self) -> GetReview {
-        let (review_id,) = self.fields;
-        GetReview { review_id }
-    }
-}
+ORDER BY r.id";
 pub struct ListReviewsRow {
     pub review_id: i64,
     pub authors: Authors,
@@ -138,60 +87,21 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListReviewsRow {
         })
     }
 }
-pub struct ListReviews;
-impl ListReviews {
-    pub const QUERY: &'static str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub async fn list_reviews<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+) -> Result<Vec<ListReviewsRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, ListReviewsRow>(LIST_REVIEWS);
+    q.fetch_all(executor).await
+}
+pub const LIST_REVIEWS_BY_MINIMUM_RATING: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
+WHERE r.rating >= ?1
 ORDER BY r.id";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl ListReviews {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        ListReviewsRow,
-        <sqlx::Sqlite as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        q
-    }
-    pub fn query_many<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<ListReviewsRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
-    }
-}
-impl ListReviews {
-    pub const fn builder() -> ListReviewsBuilder<'static, ()> {
-        ListReviewsBuilder {
-            fields: (),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct ListReviewsBuilder<'a, Fields = ()> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> ListReviewsBuilder<'a, ()> {
-    pub fn build(self) -> ListReviews {
-        let () = self.fields;
-        ListReviews {}
-    }
+#[derive(Debug, Clone, Default)]
+pub struct ListReviewsByMinimumRatingParams {
+    pub min_rating: Option<i64>,
 }
 pub struct ListReviewsByMinimumRatingRow {
     pub review_id: i64,
@@ -216,75 +126,16 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListReviewsByMinimumRati
         })
     }
 }
-pub struct ListReviewsByMinimumRating {
-    min_rating: Option<i64>,
+pub async fn list_reviews_by_minimum_rating<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: ListReviewsByMinimumRatingParams,
+) -> Result<Vec<ListReviewsByMinimumRatingRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, ListReviewsByMinimumRatingRow>(LIST_REVIEWS_BY_MINIMUM_RATING);
+    let q = q.bind(params.min_rating);
+    q.fetch_all(executor).await
 }
-impl ListReviewsByMinimumRating {
-    pub const QUERY: &'static str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
-FROM reviews r
-JOIN books b ON b.id = r.book_id
-JOIN authors a ON a.id = b.author_id
-WHERE r.rating >= ?1
-ORDER BY r.id";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl ListReviewsByMinimumRating {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        ListReviewsByMinimumRatingRow,
-        <sqlx::Sqlite as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.min_rating);
-        q
-    }
-    pub fn query_many<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<ListReviewsByMinimumRatingRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
-    }
-}
-impl ListReviewsByMinimumRating {
-    pub const fn builder() -> ListReviewsByMinimumRatingBuilder<'static, ((),)> {
-        ListReviewsByMinimumRatingBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct ListReviewsByMinimumRatingBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> ListReviewsByMinimumRatingBuilder<'a, ((),)> {
-    pub fn min_rating(
-        self,
-        min_rating: Option<i64>,
-    ) -> ListReviewsByMinimumRatingBuilder<'a, (Option<i64>,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        ListReviewsByMinimumRatingBuilder {
-            fields: (min_rating,),
-            _phantom,
-        }
-    }
-}
-impl<'a> ListReviewsByMinimumRatingBuilder<'a, (Option<i64>,)> {
-    pub fn build(self) -> ListReviewsByMinimumRating {
-        let (min_rating,) = self.fields;
-        ListReviewsByMinimumRating { min_rating }
-    }
-}
+pub const QUERIES: &[(&str, &str)] = &[
+    ("GetReview", GET_REVIEW),
+    ("ListReviews", LIST_REVIEWS),
+    ("ListReviewsByMinimumRating", LIST_REVIEWS_BY_MINIMUM_RATING),
+];

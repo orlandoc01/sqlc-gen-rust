@@ -1,4 +1,4 @@
-#[allow(warnings)]
+#[allow(dead_code)]
 mod queries;
 
 #[cfg(test)]
@@ -32,10 +32,7 @@ mod tests {
         migrate_db(pool).await;
         seed_reviews(pool).await;
 
-        let review = queries::GetReview::builder()
-            .review_id(301)
-            .build()
-            .query_one(pool)
+        let review = queries::get_review(pool, queries::GetReviewParams { review_id: 301 })
             .await
             .unwrap();
         assert_eq!(review.review_id, 301);
@@ -43,18 +40,20 @@ mod tests {
         assert_eq!(review.books.id, 201);
         assert_eq!(review.rating, 5);
 
-        let reviews = queries::ListReviews.query_many(pool).await.unwrap();
+        let reviews = queries::list_reviews(pool).await.unwrap();
         assert_eq!(reviews.len(), 2);
         assert_eq!(reviews[1].review_id, 302);
         assert_eq!(reviews[1].authors.id, 102);
         assert_eq!(reviews[1].books.id, 202);
 
-        let reviews = queries::ListReviewsByMinimumRating::builder()
-            .min_rating(Some(4))
-            .build()
-            .query_many(pool)
-            .await
-            .unwrap();
+        let reviews = queries::list_reviews_by_minimum_rating(
+            pool,
+            queries::ListReviewsByMinimumRatingParams {
+                min_rating: Some(4),
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(reviews.len(), 1);
         assert_eq!(reviews[0].books.id, 201);
     }

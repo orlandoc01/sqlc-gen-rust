@@ -20,6 +20,14 @@ WHERE id IN (sqlc.slice('ids'))
   AND name <> ?
 ORDER BY id;
 
+-- name: ListAuthorsByNamedIDs :many
+SELECT id, name
+FROM authors
+WHERE id >= @min_id
+  AND id IN (sqlc.slice('ids'))
+  AND id <= @max_id
+ORDER BY id;
+
 -- name: DeleteAuthorsByIDs :exec
 DELETE FROM authors
 WHERE id IN (sqlc.slice('ids'));

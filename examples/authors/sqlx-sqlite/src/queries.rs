@@ -2,378 +2,116 @@
 //! sqlc version: v1.31.1
 //! sqlc-gen-rust version: v0.1.0
 
-#[derive(sqlx::FromRow)]
-pub struct GetAuthorRow {
-    #[sqlx(rename = "id")]
-    pub id: i64,
-    #[sqlx(rename = "name")]
-    pub name: String,
-    #[sqlx(rename = "bio")]
-    pub bio: Option<String>,
-}
-pub struct GetAuthor {
-    id: i64,
-}
-impl GetAuthor {
-    pub const QUERY: &'static str = r"SELECT id, name, bio FROM authors
+pub const GET_AUTHOR: &str = r"SELECT id, name, bio FROM authors
 WHERE id = ? LIMIT 1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl GetAuthor {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        GetAuthorRow,
-        <sqlx::Sqlite as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.id);
-        q
-    }
-    pub fn query_one<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<GetAuthorRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<GetAuthorRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl GetAuthor {
-    pub const fn builder() -> GetAuthorBuilder<'static, ((),)> {
-        GetAuthorBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct GetAuthorBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetAuthorBuilder<'a, ((),)> {
-    pub fn id(self, id: i64) -> GetAuthorBuilder<'a, (i64,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetAuthorBuilder {
-            fields: (id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetAuthorBuilder<'a, (i64,)> {
-    pub fn build(self) -> GetAuthor {
-        let (id,) = self.fields;
-        GetAuthor { id }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct ListAuthorsRow {
-    #[sqlx(rename = "id")]
+pub struct GetAuthorRow {
     pub id: i64,
-    #[sqlx(rename = "name")]
     pub name: String,
-    #[sqlx(rename = "bio")]
     pub bio: Option<String>,
 }
-pub struct ListAuthors;
-impl ListAuthors {
-    pub const QUERY: &'static str = r"SELECT id, name, bio FROM authors
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for GetAuthorRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+            bio: sqlx::Row::try_get(row, 2)?,
+        })
+    }
+}
+pub async fn get_author<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    id: i64,
+) -> Result<GetAuthorRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetAuthorRow>(GET_AUTHOR);
+    let q = q.bind(id);
+    q.fetch_one(executor).await
+}
+pub async fn get_author_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    id: i64,
+) -> Result<Option<GetAuthorRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, GetAuthorRow>(GET_AUTHOR);
+    let q = q.bind(id);
+    q.fetch_optional(executor).await
+}
+pub const LIST_AUTHORS: &str = r"SELECT id, name, bio FROM authors
 ORDER BY name";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
+pub struct ListAuthorsRow {
+    pub id: i64,
+    pub name: String,
+    pub bio: Option<String>,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListAuthorsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            name: sqlx::Row::try_get(row, 1)?,
+            bio: sqlx::Row::try_get(row, 2)?,
+        })
     }
 }
-impl ListAuthors {
-    pub fn query_as<'a>(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        ListAuthorsRow,
-        <sqlx::Sqlite as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        q
-    }
-    pub fn query_many<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Vec<ListAuthorsRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let vals = self.query_as().fetch_all(&mut *conn).await?;
-            Ok(vals)
-        }
+pub async fn list_authors<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+) -> Result<Vec<ListAuthorsRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, ListAuthorsRow>(LIST_AUTHORS);
+    q.fetch_all(executor).await
+}
+pub const COUNT_AUTHORS: &str = r"SELECT COUNT(*) FROM authors";
+pub struct CountAuthorsRow {
+    pub count: i64,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for CountAuthorsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            count: sqlx::Row::try_get(row, 0)?,
+        })
     }
 }
-impl ListAuthors {
-    pub const fn builder() -> ListAuthorsBuilder<'static, ()> {
-        ListAuthorsBuilder {
-            fields: (),
-            _phantom: std::marker::PhantomData,
-        }
-    }
+pub async fn count_authors<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+) -> Result<CountAuthorsRow, sqlx::Error> {
+    let q = sqlx::query_as::<_, CountAuthorsRow>(COUNT_AUTHORS);
+    q.fetch_one(executor).await
 }
-pub struct ListAuthorsBuilder<'a, Fields = ()> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
+pub async fn count_authors_opt<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+) -> Result<Option<CountAuthorsRow>, sqlx::Error> {
+    let q = sqlx::query_as::<_, CountAuthorsRow>(COUNT_AUTHORS);
+    q.fetch_optional(executor).await
 }
-impl<'a> ListAuthorsBuilder<'a, ()> {
-    pub fn build(self) -> ListAuthors {
-        let () = self.fields;
-        ListAuthors {}
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct CreateAuthorRow {}
-pub struct CreateAuthor<'a> {
-    name: &'a str,
-    bio: Option<&'a str>,
-}
-impl<'a> CreateAuthor<'a> {
-    pub const QUERY: &'static str = r"INSERT INTO authors (
+pub const CREATE_AUTHOR: &str = r"INSERT INTO authors (
   name, bio
 ) VALUES (
-  ?, ? 
+  ?, ?
 )";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
+#[derive(Debug, Clone, Default)]
+pub struct CreateAuthorParams<'a> {
+    pub name: &'a str,
+    pub bio: Option<&'a str>,
 }
-impl<'a> CreateAuthor<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        CreateAuthorRow,
-        <sqlx::Sqlite as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.name);
-        let q = q.bind(self.bio);
-        q
-    }
-    pub fn execute<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<<sqlx::Sqlite as sqlx::Database>::QueryResult, sqlx::Error>>
-    + Send
-    + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let q = sqlx::query(self.query_str());
-            let q = q.bind(self.name);
-            let q = q.bind(self.bio);
-            q.execute(&mut *conn).await
-        }
-    }
+pub async fn create_author<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: CreateAuthorParams<'_>,
+) -> Result<<sqlx::Sqlite as sqlx::Database>::QueryResult, sqlx::Error> {
+    let q = sqlx::query(CREATE_AUTHOR);
+    let q = q.bind(params.name);
+    let q = q.bind(params.bio);
+    q.execute(executor).await
 }
-impl<'a> CreateAuthor<'a> {
-    pub const fn builder() -> CreateAuthorBuilder<'a, ((), ())> {
-        CreateAuthorBuilder {
-            fields: ((), ()),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct CreateAuthorBuilder<'a, Fields = ((), ())> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a, Bio> CreateAuthorBuilder<'a, ((), Bio)> {
-    pub fn name(self, name: &'a str) -> CreateAuthorBuilder<'a, (&'a str, Bio)> {
-        let ((), bio) = self.fields;
-        let _phantom = self._phantom;
-        CreateAuthorBuilder {
-            fields: (name, bio),
-            _phantom,
-        }
-    }
-}
-impl<'a, Name> CreateAuthorBuilder<'a, (Name, ())> {
-    pub fn bio(self, bio: Option<&'a str>) -> CreateAuthorBuilder<'a, (Name, Option<&'a str>)> {
-        let (name, ()) = self.fields;
-        let _phantom = self._phantom;
-        CreateAuthorBuilder {
-            fields: (name, bio),
-            _phantom,
-        }
-    }
-}
-impl<'a> CreateAuthorBuilder<'a, (&'a str, Option<&'a str>)> {
-    pub fn build(self) -> CreateAuthor<'a> {
-        let (name, bio) = self.fields;
-        CreateAuthor { name, bio }
-    }
-}
-pub struct DeleteAuthor {
-    id: i64,
-}
-impl DeleteAuthor {
-    pub const QUERY: &'static str = r"DELETE FROM authors
+pub const DELETE_AUTHOR: &str = r"DELETE FROM authors
 WHERE id = ?";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
+pub async fn delete_author<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    id: i64,
+) -> Result<(), sqlx::Error> {
+    let q = sqlx::query(DELETE_AUTHOR);
+    let q = q.bind(id);
+    q.execute(executor).await.map(|_| ())
 }
-impl DeleteAuthor {
-    pub fn execute<'a, 'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<<sqlx::Sqlite as sqlx::Database>::QueryResult, sqlx::Error>>
-    + Send
-    + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let q = sqlx::query(self.query_str());
-            let q = q.bind(self.id);
-            q.execute(&mut *conn).await
-        }
-    }
-}
-impl DeleteAuthor {
-    pub const fn builder() -> DeleteAuthorBuilder<'static, ((),)> {
-        DeleteAuthorBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct DeleteAuthorBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> DeleteAuthorBuilder<'a, ((),)> {
-    pub fn id(self, id: i64) -> DeleteAuthorBuilder<'a, (i64,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        DeleteAuthorBuilder {
-            fields: (id,),
-            _phantom,
-        }
-    }
-}
-impl<'a> DeleteAuthorBuilder<'a, (i64,)> {
-    pub fn build(self) -> DeleteAuthor {
-        let (id,) = self.fields;
-        DeleteAuthor { id }
-    }
-}
-#[derive(sqlx::FromRow)]
-pub struct GetKeywordIdentRow {
-    #[sqlx(rename = "id")]
-    pub id: i64,
-    #[sqlx(rename = "type")]
-    pub r#type: String,
-}
-pub struct GetKeywordIdent<'a> {
-    r#type: &'a str,
-}
-impl<'a> GetKeywordIdent<'a> {
-    pub const QUERY: &'static str = r"SELECT id, type FROM keyword_idents
-WHERE type = ?1 LIMIT 1";
-    pub fn query_str(&self) -> &str {
-        Self::QUERY
-    }
-}
-impl<'a> GetKeywordIdent<'a> {
-    pub fn query_as(
-        &'a self,
-    ) -> sqlx::query::QueryAs<
-        'a,
-        sqlx::Sqlite,
-        GetKeywordIdentRow,
-        <sqlx::Sqlite as sqlx::Database>::Arguments<'a>,
-    > {
-        let q = sqlx::query_as(self.query_str());
-        let q = q.bind(self.r#type);
-        q
-    }
-    pub fn query_one<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<GetKeywordIdentRow, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_one(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-    pub fn query_opt<'b, A>(
-        &'a self,
-        conn: A,
-    ) -> impl Future<Output = Result<Option<GetKeywordIdentRow>, sqlx::Error>> + Send + 'a
-    where
-        A: sqlx::Acquire<'b, Database = sqlx::Sqlite> + Send + 'a,
-    {
-        async move {
-            let mut conn = conn.acquire().await?;
-            let val = self.query_as().fetch_optional(&mut *conn).await?;
-            Ok(val)
-        }
-    }
-}
-impl<'a> GetKeywordIdent<'a> {
-    pub const fn builder() -> GetKeywordIdentBuilder<'a, ((),)> {
-        GetKeywordIdentBuilder {
-            fields: ((),),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-pub struct GetKeywordIdentBuilder<'a, Fields = ((),)> {
-    fields: Fields,
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-impl<'a> GetKeywordIdentBuilder<'a, ((),)> {
-    pub fn r#type(self, r#type: &'a str) -> GetKeywordIdentBuilder<'a, (&'a str,)> {
-        let ((),) = self.fields;
-        let _phantom = self._phantom;
-        GetKeywordIdentBuilder {
-            fields: (r#type,),
-            _phantom,
-        }
-    }
-}
-impl<'a> GetKeywordIdentBuilder<'a, (&'a str,)> {
-    pub fn build(self) -> GetKeywordIdent<'a> {
-        let (r#type,) = self.fields;
-        GetKeywordIdent { r#type }
-    }
-}
+pub const QUERIES: &[(&str, &str)] = &[
+    ("GetAuthor", GET_AUTHOR),
+    ("ListAuthors", LIST_AUTHORS),
+    ("CountAuthors", COUNT_AUTHORS),
+    ("CreateAuthor", CREATE_AUTHOR),
+    ("DeleteAuthor", DELETE_AUTHOR),
+];
