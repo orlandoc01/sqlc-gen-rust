@@ -96,6 +96,7 @@ jobs:
         uses: moonrepo/setup-rust@abb2d32350334249b178c401e5ec5836e0cd88d3 # v1.3.0
         with:
           targets: wasm32-wasip1
+          components: rustfmt
           bins: just
           cache-base: main
         env:
