@@ -134,6 +134,7 @@ sql:
         options:
           output: queries.rs
           db_crate: rusqlite
+          query_parameter_limit: 2
           overrides:
             - db_type: datetime
               rs_type: chrono::NaiveDateTime

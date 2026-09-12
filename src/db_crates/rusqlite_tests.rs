@@ -132,7 +132,7 @@ fn generates_exec_last_id() {
         "pub fn create_author (client : & impl RusqliteClient) -> rusqlite :: Result < i64 >"
     ));
     assert!(tokens.contains(
-        "statement . execute (params) ? ; Ok (client . connection () . last_insert_rowid ())"
+        "let mut rows = statement . query (params) ? ; while rows . next () ? . is_some () { } Ok (client . connection () . last_insert_rowid ())"
     ));
 }
 
@@ -153,4 +153,34 @@ fn generates_dynamic_filters() {
     assert!(tokens.contains("dynfilter :: Arg :: from_option (& params . id)"));
     assert!(tokens.contains("map (| bind | -> & dyn rusqlite :: ToSql"));
     assert!(tokens.contains("rusqlite :: params_from_iter (values)"));
+}
+
+#[test]
+fn direct_parameters_never_collide_with_generated_locals() {
+    let tokens = generated(
+        query(
+            "ByStatement",
+            ":many",
+            "SELECT id FROM authors WHERE statement = ?1 AND client = ?2 AND params = ?3",
+            vec![column("id", false)],
+            vec![
+                (1, column("statement", false)),
+                (2, column("client", false)),
+                (3, column("params", false)),
+            ],
+        ),
+        3,
+    );
+
+    assert!(
+        tokens.contains(
+            "pub fn by_statement (client_ : & impl RusqliteClient , statement : i64 , client : i64 , params : i64)"
+        ),
+        "{tokens}"
+    );
+    assert!(tokens.contains("let params_ = rusqlite :: params ! [statement , client , params] ;"));
+    assert!(tokens.contains(
+        "let mut statement_ = client_ . connection () . prepare_cached (BY_STATEMENT) ? ;"
+    ));
+    assert!(tokens.contains("statement_ . query_map (params_ , ByStatementRow :: from_row)"));
 }

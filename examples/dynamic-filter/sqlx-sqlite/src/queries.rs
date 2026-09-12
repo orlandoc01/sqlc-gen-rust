@@ -1171,8 +1171,65 @@ pub async fn touch_users<'e>(
         .await
         .map(|result| result.rows_affected())
 }
+pub const SEARCH_USERS_BY_EMAILS: &str = r"SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email IN (/*SLICE:emails*/?1) -- :if $1
+  AND (phone = ?2 OR email = ?2) -- :if $2
+ORDER BY id";
+static SEARCH_USERS_BY_EMAILS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            SEARCH_USERS_BY_EMAILS,
+            dynfilter::Placeholders::NumberedSqlite,
+            &[1usize, 2usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct SearchUsersByEmailsParams<'a> {
+    pub emails: Option<&'a [String]>,
+    pub contact: Option<&'a str>,
+}
+pub struct SearchUsersByEmailsRow {
+    pub id: i64,
+    pub email: String,
+    pub phone: String,
+}
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for SearchUsersByEmailsRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: sqlx::Row::try_get(row, 0)?,
+            email: sqlx::Row::try_get(row, 1)?,
+            phone: sqlx::Row::try_get(row, 2)?,
+        })
+    }
+}
+pub async fn search_users_by_emails<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    params: SearchUsersByEmailsParams<'_>,
+) -> Result<Vec<SearchUsersByEmailsRow>, sqlx::Error> {
+    let args = [
+        dynfilter::Arg::Slice(params.emails.map(<[_]>::len)),
+        dynfilter::Arg::from_option(&params.contact),
+    ];
+    let (sql, binds) = SEARCH_USERS_BY_EMAILS_DYN.build(&args);
+    let mut q = sqlx::query_as::<_, SearchUsersByEmailsRow>(&sql);
+    for bind in binds {
+        q = match bind {
+            dynfilter::Bind::Elem(0usize, element) => {
+                let elem = &params.emails.unwrap()[element];
+                q.bind(elem)
+            }
+            dynfilter::Bind::Arg(1usize) => q.bind(params.contact.unwrap()),
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        };
+    }
+    let q = q.persistent(false);
+    q.fetch_all(executor).await
+}
 pub const QUERIES: &[(&str, &str)] = &[
     ("SearchUsers", SEARCH_USERS),
     ("CountUsers", COUNT_USERS),
     ("TouchUsers", TOUCH_USERS),
+    ("SearchUsersByEmails", SEARCH_USERS_BY_EMAILS),
 ];

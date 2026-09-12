@@ -191,4 +191,28 @@ mod tests {
             [1, 2, 3]
         );
     }
+
+    #[test_context(RusqliteContext)]
+    #[test]
+    fn test_delete_authors_by_ids(ctx: &mut RusqliteContext) {
+        let conn = &ctx.conn;
+        migrate_db(conn);
+        seed_authors(conn);
+        let remaining = |conn| {
+            queries::list_authors_by_ids(conn, queries::ListAuthorsByIDsParams { ids: &[1, 2, 3] })
+                .unwrap()
+                .iter()
+                .map(|author| author.id)
+                .collect::<Vec<_>>()
+        };
+
+        queries::delete_authors_by_ids(conn, queries::DeleteAuthorsByIDsParams { ids: &[] })
+            .unwrap();
+        assert_eq!(remaining(conn), [1, 2, 3]);
+
+        let ids = [1i64, 3];
+        queries::delete_authors_by_ids(conn, queries::DeleteAuthorsByIDsParams { ids: &ids })
+            .unwrap();
+        assert_eq!(remaining(conn), [2]);
+    }
 }

@@ -28,8 +28,9 @@ pub struct Books {
     pub id: i64,
     pub author_id: i64,
     pub title: String,
+    pub subtitle: Option<String>,
 }
-pub const GET_REVIEW: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub const GET_REVIEW: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, b.subtitle, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
@@ -56,8 +57,9 @@ impl GetReviewRow {
                 id: row.get(3)?,
                 author_id: row.get(4)?,
                 title: row.get(5)?,
+                subtitle: row.get(6)?,
             },
-            rating: row.get(6)?,
+            rating: row.get(7)?,
         })
     }
 }
@@ -65,8 +67,8 @@ pub fn get_review(
     client: &impl RusqliteClient,
     params: GetReviewParams,
 ) -> rusqlite::Result<GetReviewRow> {
-    let mut statement = client.connection().prepare_cached(GET_REVIEW)?;
     let params = rusqlite::params![params.review_id];
+    let mut statement = client.connection().prepare_cached(GET_REVIEW)?;
     statement.query_row(params, GetReviewRow::from_row)
 }
 pub fn get_review_opt(
@@ -74,13 +76,13 @@ pub fn get_review_opt(
     params: GetReviewParams,
 ) -> rusqlite::Result<Option<GetReviewRow>> {
     use rusqlite::OptionalExtension as _;
-    let mut statement = client.connection().prepare_cached(GET_REVIEW)?;
     let params = rusqlite::params![params.review_id];
+    let mut statement = client.connection().prepare_cached(GET_REVIEW)?;
     statement
         .query_row(params, GetReviewRow::from_row)
         .optional()
 }
-pub const LIST_REVIEWS: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub const LIST_REVIEWS: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, b.subtitle, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
@@ -103,19 +105,20 @@ impl ListReviewsRow {
                 id: row.get(3)?,
                 author_id: row.get(4)?,
                 title: row.get(5)?,
+                subtitle: row.get(6)?,
             },
-            rating: row.get(6)?,
+            rating: row.get(7)?,
         })
     }
 }
 pub fn list_reviews(client: &impl RusqliteClient) -> rusqlite::Result<Vec<ListReviewsRow>> {
-    let mut statement = client.connection().prepare_cached(LIST_REVIEWS)?;
     let params = rusqlite::params![];
+    let mut statement = client.connection().prepare_cached(LIST_REVIEWS)?;
     statement
         .query_map(params, ListReviewsRow::from_row)?
         .collect()
 }
-pub const LIST_REVIEWS_BY_MINIMUM_RATING: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub const LIST_REVIEWS_BY_MINIMUM_RATING: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, b.subtitle, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
@@ -143,8 +146,9 @@ impl ListReviewsByMinimumRatingRow {
                 id: row.get(3)?,
                 author_id: row.get(4)?,
                 title: row.get(5)?,
+                subtitle: row.get(6)?,
             },
-            rating: row.get(6)?,
+            rating: row.get(7)?,
         })
     }
 }
@@ -152,10 +156,10 @@ pub fn list_reviews_by_minimum_rating(
     client: &impl RusqliteClient,
     params: ListReviewsByMinimumRatingParams,
 ) -> rusqlite::Result<Vec<ListReviewsByMinimumRatingRow>> {
+    let params = rusqlite::params![params.min_rating];
     let mut statement = client
         .connection()
         .prepare_cached(LIST_REVIEWS_BY_MINIMUM_RATING)?;
-    let params = rusqlite::params![params.min_rating];
     statement
         .query_map(params, ListReviewsByMinimumRatingRow::from_row)?
         .collect()

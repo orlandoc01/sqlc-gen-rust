@@ -99,3 +99,7 @@ INSERT INTO mapping (
     ?,
     ?
 );
+
+-- name: GetMappingByClientAndStatement :many
+SELECT id_val FROM mapping
+WHERE aff_text_val = sqlc.arg(client) AND text_val = sqlc.arg(statement);

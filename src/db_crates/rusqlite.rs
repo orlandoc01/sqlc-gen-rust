@@ -1,4 +1,4 @@
-use crate::query::{ColumnField, DbEnum, ReturningRows};
+use crate::query::{DbEnum, ReturningRows};
 
 use super::{make_return_row, sqlx::Sqlx};
 
@@ -43,39 +43,13 @@ impl Rusqlite {
     pub(crate) fn returning_ordinal_row(self, row: &ReturningRows) -> proc_macro2::TokenStream {
         let struct_tokens = make_return_row(row);
         let ident = row.struct_ident();
-        let row_ident = quote::format_ident!("row");
-        let fields = row
-            .fields
-            .iter()
-            .zip(row.field_ordinals())
-            .map(|(field, ordinal)| Self::field_from_row(field, &row_ident, ordinal));
+        let fields = super::row_field_initializers(row, |index| quote::quote! { row.get(#index)? });
         quote::quote! {
             #struct_tokens
             impl #ident {
-                pub fn from_row(#row_ident: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+                pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
                     Ok(Self { #(#fields,)* })
                 }
-            }
-        }
-    }
-
-    fn field_from_row(
-        field: &ColumnField,
-        row: &syn::Ident,
-        ordinal: std::ops::Range<usize>,
-    ) -> proc_macro2::TokenStream {
-        let field_ident = &field.name;
-        let literal = proc_macro2::Literal::usize_unsuffixed(ordinal.start);
-        match field.embedded_table() {
-            None => quote::quote! {#field_ident: #row.get(#literal)?},
-            Some(table) => {
-                let table_ident = &table.ident;
-                let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
-                    let field_ident = &field.name;
-                    let literal = proc_macro2::Literal::usize_unsuffixed(index);
-                    quote::quote! {#field_ident: #row.get(#literal)?}
-                });
-                quote::quote! {#field_ident: #table_ident { #(#fields,)* }}
             }
         }
     }

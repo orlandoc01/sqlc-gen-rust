@@ -6,7 +6,8 @@ CREATE TABLE authors (
 CREATE TABLE books (
     id        INTEGER PRIMARY KEY,
     author_id INTEGER NOT NULL,
-    title     TEXT NOT NULL
+    title     TEXT NOT NULL,
+    subtitle  TEXT
 );
 
 CREATE TABLE reviews (

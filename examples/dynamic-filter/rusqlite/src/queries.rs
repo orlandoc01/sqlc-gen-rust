@@ -1170,7 +1170,7 @@ pub struct TouchUsersParams<'a> {
 pub fn touch_users(
     client: &impl RusqliteClient,
     params: TouchUsersParams<'_>,
-) -> rusqlite::Result<usize> {
+) -> rusqlite::Result<u64> {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::Slice(params.ids.map(<[_]>::len)),
@@ -1188,10 +1188,71 @@ pub fn touch_users(
         .collect::<Vec<_>>();
     let mut statement = client.connection().prepare(&sql)?;
     let params = rusqlite::params_from_iter(values);
-    statement.execute(params)
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(client.connection().changes())
+}
+pub const SEARCH_USERS_BY_EMAILS: &str = r"SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email IN (/*SLICE:emails*/?1) -- :if $1
+  AND (phone = ?2 OR email = ?2) -- :if $2
+ORDER BY id";
+static SEARCH_USERS_BY_EMAILS_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            SEARCH_USERS_BY_EMAILS,
+            dynfilter::Placeholders::NumberedSqlite,
+            &[1usize, 2usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct SearchUsersByEmailsParams<'a> {
+    pub emails: Option<&'a [String]>,
+    pub contact: Option<&'a str>,
+}
+pub struct SearchUsersByEmailsRow {
+    pub id: i64,
+    pub email: String,
+    pub phone: String,
+}
+impl SearchUsersByEmailsRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            email: row.get(1)?,
+            phone: row.get(2)?,
+        })
+    }
+}
+pub fn search_users_by_emails(
+    client: &impl RusqliteClient,
+    params: SearchUsersByEmailsParams<'_>,
+) -> rusqlite::Result<Vec<SearchUsersByEmailsRow>> {
+    let args = [
+        dynfilter::Arg::Slice(params.emails.map(<[_]>::len)),
+        dynfilter::Arg::from_option(&params.contact),
+    ];
+    let (sql, binds) = SEARCH_USERS_BY_EMAILS_DYN.build(&args);
+    let values = binds
+        .into_iter()
+        .map(|bind| -> &dyn rusqlite::ToSql {
+            match bind {
+                dynfilter::Bind::Elem(0usize, element) => &params.emails.unwrap()[element],
+                dynfilter::Bind::Arg(1usize) => params.contact.as_ref().unwrap(),
+                _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut statement = client.connection().prepare(&sql)?;
+    let params = rusqlite::params_from_iter(values);
+    statement
+        .query_map(params, SearchUsersByEmailsRow::from_row)?
+        .collect()
 }
 pub const QUERIES: &[(&str, &str)] = &[
     ("SearchUsers", SEARCH_USERS),
     ("CountUsers", COUNT_USERS),
     ("TouchUsers", TOUCH_USERS),
+    ("SearchUsersByEmails", SEARCH_USERS_BY_EMAILS),
 ];

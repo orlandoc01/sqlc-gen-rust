@@ -128,11 +128,20 @@ async fn main() {
 Rusqlite functions are synchronous and accept connections, transactions, and savepoints through the generated trait:
 
 ```rust
+pub trait RusqliteClient {
+    fn connection(&self) -> &rusqlite::Connection;
+}
+
 pub fn get_author(
     client: &impl RusqliteClient,
     id: i64,
 ) -> rusqlite::Result<GetAuthorRow> { /* ... */ }
 ```
+
+The trait is the extension point for wrappers that do not deref to `Connection`, such as pool
+guards: implement `connection()` for your type and every generated function accepts it. Execution
+queries (`:exec`, `:execrows`, `:execlastid`) step the statement to completion, so a DML statement
+with `RETURNING` succeeds and reports its write; `:execrows` returns `u64` from `changes()`.
 
 ## Supported Features
 

@@ -124,14 +124,14 @@ impl GetMappingRow {
     }
 }
 pub fn get_mapping(client: &impl RusqliteClient) -> rusqlite::Result<GetMappingRow> {
-    let mut statement = client.connection().prepare_cached(GET_MAPPING)?;
     let params = rusqlite::params![];
+    let mut statement = client.connection().prepare_cached(GET_MAPPING)?;
     statement.query_row(params, GetMappingRow::from_row)
 }
 pub fn get_mapping_opt(client: &impl RusqliteClient) -> rusqlite::Result<Option<GetMappingRow>> {
     use rusqlite::OptionalExtension as _;
-    let mut statement = client.connection().prepare_cached(GET_MAPPING)?;
     let params = rusqlite::params![];
+    let mut statement = client.connection().prepare_cached(GET_MAPPING)?;
     statement
         .query_row(params, GetMappingRow::from_row)
         .optional()
@@ -239,7 +239,6 @@ pub fn insert_mapping(
     client: &impl RusqliteClient,
     params: InsertMappingParams<'_>,
 ) -> rusqlite::Result<()> {
-    let mut statement = client.connection().prepare_cached(INSERT_MAPPING)?;
     let params = rusqlite::params![
         params.aff_integer_val,
         params.aff_real_val,
@@ -273,9 +272,41 @@ pub fn insert_mapping(
         params.time_val,
         params.datetime_val
     ];
-    statement.execute(params).map(|_| ())
+    let mut statement = client.connection().prepare_cached(INSERT_MAPPING)?;
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(())
+}
+pub const GET_MAPPING_BY_CLIENT_AND_STATEMENT: &str = r"SELECT id_val FROM mapping
+WHERE aff_text_val = ?1 AND text_val = ?2";
+pub struct GetMappingByClientAndStatementRow {
+    pub id_val: i64,
+}
+impl GetMappingByClientAndStatementRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id_val: row.get(0)?,
+        })
+    }
+}
+pub fn get_mapping_by_client_and_statement(
+    client_: &impl RusqliteClient,
+    client: &str,
+    statement: &str,
+) -> rusqlite::Result<Vec<GetMappingByClientAndStatementRow>> {
+    let params = rusqlite::params![client, statement];
+    let mut statement_ = client_
+        .connection()
+        .prepare_cached(GET_MAPPING_BY_CLIENT_AND_STATEMENT)?;
+    statement_
+        .query_map(params, GetMappingByClientAndStatementRow::from_row)?
+        .collect()
 }
 pub const QUERIES: &[(&str, &str)] = &[
     ("GetMapping", GET_MAPPING),
     ("InsertMapping", INSERT_MAPPING),
+    (
+        "GetMappingByClientAndStatement",
+        GET_MAPPING_BY_CLIENT_AND_STATEMENT,
+    ),
 ];

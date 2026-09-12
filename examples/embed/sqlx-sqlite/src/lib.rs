@@ -17,7 +17,7 @@ mod tests {
     async fn seed_reviews(pool: &sqlx::SqlitePool) {
         sqlx::raw_sql(
             "INSERT INTO authors (id, name) VALUES (101, 'Ada'), (102, 'Grace');
-             INSERT INTO books (id, author_id, title) VALUES (201, 101, 'Algorithms'), (202, 102, 'Compilers');
+             INSERT INTO books (id, author_id, title, subtitle) VALUES (201, 101, 'Algorithms', NULL), (202, 102, 'Compilers', 'Second Edition');
              INSERT INTO reviews (id, book_id, rating) VALUES (301, 201, 5), (302, 202, 3);",
         )
         .execute(pool)
@@ -38,6 +38,8 @@ mod tests {
         assert_eq!(review.review_id, 301);
         assert_eq!(review.authors.id, 101);
         assert_eq!(review.books.id, 201);
+        assert_eq!(review.books.title, "Algorithms");
+        assert!(review.books.subtitle.is_none());
         assert_eq!(review.rating, 5);
 
         let reviews = queries::list_reviews(pool).await.unwrap();
@@ -45,6 +47,8 @@ mod tests {
         assert_eq!(reviews[1].review_id, 302);
         assert_eq!(reviews[1].authors.id, 102);
         assert_eq!(reviews[1].books.id, 202);
+        assert_eq!(reviews[1].books.subtitle.as_deref(), Some("Second Edition"));
+        assert_eq!(reviews[1].rating, 3);
 
         let reviews = queries::list_reviews_by_minimum_rating(
             pool,

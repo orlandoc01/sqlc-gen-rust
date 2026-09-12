@@ -37,8 +37,8 @@ impl GetAuthorRow {
     }
 }
 pub fn get_author(client: &impl RusqliteClient, id: i64) -> rusqlite::Result<GetAuthorRow> {
-    let mut statement = client.connection().prepare_cached(GET_AUTHOR)?;
     let params = rusqlite::params![id];
+    let mut statement = client.connection().prepare_cached(GET_AUTHOR)?;
     statement.query_row(params, GetAuthorRow::from_row)
 }
 pub fn get_author_opt(
@@ -46,8 +46,8 @@ pub fn get_author_opt(
     id: i64,
 ) -> rusqlite::Result<Option<GetAuthorRow>> {
     use rusqlite::OptionalExtension as _;
-    let mut statement = client.connection().prepare_cached(GET_AUTHOR)?;
     let params = rusqlite::params![id];
+    let mut statement = client.connection().prepare_cached(GET_AUTHOR)?;
     statement
         .query_row(params, GetAuthorRow::from_row)
         .optional()
@@ -69,8 +69,8 @@ impl ListAuthorsRow {
     }
 }
 pub fn list_authors(client: &impl RusqliteClient) -> rusqlite::Result<Vec<ListAuthorsRow>> {
-    let mut statement = client.connection().prepare_cached(LIST_AUTHORS)?;
     let params = rusqlite::params![];
+    let mut statement = client.connection().prepare_cached(LIST_AUTHORS)?;
     statement
         .query_map(params, ListAuthorsRow::from_row)?
         .collect()
@@ -85,16 +85,16 @@ impl CountAuthorsRow {
     }
 }
 pub fn count_authors(client: &impl RusqliteClient) -> rusqlite::Result<CountAuthorsRow> {
-    let mut statement = client.connection().prepare_cached(COUNT_AUTHORS)?;
     let params = rusqlite::params![];
+    let mut statement = client.connection().prepare_cached(COUNT_AUTHORS)?;
     statement.query_row(params, CountAuthorsRow::from_row)
 }
 pub fn count_authors_opt(
     client: &impl RusqliteClient,
 ) -> rusqlite::Result<Option<CountAuthorsRow>> {
     use rusqlite::OptionalExtension as _;
-    let mut statement = client.connection().prepare_cached(COUNT_AUTHORS)?;
     let params = rusqlite::params![];
+    let mut statement = client.connection().prepare_cached(COUNT_AUTHORS)?;
     statement
         .query_row(params, CountAuthorsRow::from_row)
         .optional()
@@ -113,17 +113,162 @@ pub fn create_author(
     client: &impl RusqliteClient,
     params: CreateAuthorParams<'_>,
 ) -> rusqlite::Result<i64> {
-    let mut statement = client.connection().prepare_cached(CREATE_AUTHOR)?;
     let params = rusqlite::params![params.name, params.bio];
-    statement.execute(params)?;
+    let mut statement = client.connection().prepare_cached(CREATE_AUTHOR)?;
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
     Ok(client.connection().last_insert_rowid())
 }
 pub const DELETE_AUTHOR: &str = r"DELETE FROM authors
 WHERE id = ?";
 pub fn delete_author(client: &impl RusqliteClient, id: i64) -> rusqlite::Result<()> {
-    let mut statement = client.connection().prepare_cached(DELETE_AUTHOR)?;
     let params = rusqlite::params![id];
-    statement.execute(params).map(|_| ())
+    let mut statement = client.connection().prepare_cached(DELETE_AUTHOR)?;
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(())
+}
+pub const CREATE_AUTHOR_WITH_ID: &str = r"INSERT INTO authors (id, name) VALUES (?, ?)";
+#[derive(Debug, Clone, Default)]
+pub struct CreateAuthorWithIdParams<'a> {
+    pub id: i64,
+    pub name: &'a str,
+}
+pub fn create_author_with_id(
+    client: &impl RusqliteClient,
+    params: CreateAuthorWithIdParams<'_>,
+) -> rusqlite::Result<i64> {
+    let params = rusqlite::params![params.id, params.name];
+    let mut statement = client.connection().prepare_cached(CREATE_AUTHOR_WITH_ID)?;
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(client.connection().last_insert_rowid())
+}
+pub const CREATE_AUTHOR_RETURNING_ID: &str =
+    r"INSERT INTO authors (name, bio) VALUES (?, ?) RETURNING id";
+#[derive(Debug, Clone, Default)]
+pub struct CreateAuthorReturningIdParams<'a> {
+    pub name: &'a str,
+    pub bio: Option<&'a str>,
+}
+pub fn create_author_returning_id(
+    client: &impl RusqliteClient,
+    params: CreateAuthorReturningIdParams<'_>,
+) -> rusqlite::Result<i64> {
+    let params = rusqlite::params![params.name, params.bio];
+    let mut statement = client
+        .connection()
+        .prepare_cached(CREATE_AUTHOR_RETURNING_ID)?;
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(client.connection().last_insert_rowid())
+}
+pub const RENAME_AUTHOR_RETURNING_ID: &str =
+    r"UPDATE authors SET name = ? WHERE id = ? RETURNING id";
+#[derive(Debug, Clone, Default)]
+pub struct RenameAuthorReturningIdParams<'a> {
+    pub name: &'a str,
+    pub id: i64,
+}
+pub fn rename_author_returning_id(
+    client: &impl RusqliteClient,
+    params: RenameAuthorReturningIdParams<'_>,
+) -> rusqlite::Result<u64> {
+    let params = rusqlite::params![params.name, params.id];
+    let mut statement = client
+        .connection()
+        .prepare_cached(RENAME_AUTHOR_RETURNING_ID)?;
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(client.connection().changes())
+}
+pub const DELETE_AUTHOR_RETURNING_ID: &str = r"DELETE FROM authors WHERE id = ? RETURNING id";
+pub fn delete_author_returning_id(client: &impl RusqliteClient, id: i64) -> rusqlite::Result<()> {
+    let params = rusqlite::params![id];
+    let mut statement = client
+        .connection()
+        .prepare_cached(DELETE_AUTHOR_RETURNING_ID)?;
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(())
+}
+pub const AUTHORS_BY_CLIENT: &str =
+    r"SELECT id, name, bio FROM authors WHERE name = ?1 ORDER BY id";
+pub struct AuthorsByClientRow {
+    pub id: i64,
+    pub name: String,
+    pub bio: Option<String>,
+}
+impl AuthorsByClientRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            bio: row.get(2)?,
+        })
+    }
+}
+pub fn authors_by_client(
+    client_: &impl RusqliteClient,
+    client: &str,
+) -> rusqlite::Result<Vec<AuthorsByClientRow>> {
+    let params = rusqlite::params![client];
+    let mut statement = client_.connection().prepare_cached(AUTHORS_BY_CLIENT)?;
+    statement
+        .query_map(params, AuthorsByClientRow::from_row)?
+        .collect()
+}
+pub const AUTHORS_BY_STATEMENT: &str =
+    r"SELECT id, name, bio FROM authors WHERE bio = ?1 ORDER BY id";
+pub struct AuthorsByStatementRow {
+    pub id: i64,
+    pub name: String,
+    pub bio: Option<String>,
+}
+impl AuthorsByStatementRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            bio: row.get(2)?,
+        })
+    }
+}
+pub fn authors_by_statement(
+    client: &impl RusqliteClient,
+    statement: Option<&str>,
+) -> rusqlite::Result<Vec<AuthorsByStatementRow>> {
+    let params = rusqlite::params![statement];
+    let mut statement_ = client.connection().prepare_cached(AUTHORS_BY_STATEMENT)?;
+    statement_
+        .query_map(params, AuthorsByStatementRow::from_row)?
+        .collect()
+}
+pub const AUTHORS_BY_PARAMS: &str =
+    r"SELECT id, name, bio FROM authors WHERE name = ?1 ORDER BY id";
+pub struct AuthorsByParamsRow {
+    pub id: i64,
+    pub name: String,
+    pub bio: Option<String>,
+}
+impl AuthorsByParamsRow {
+    pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            bio: row.get(2)?,
+        })
+    }
+}
+pub fn authors_by_params(
+    client: &impl RusqliteClient,
+    params: &str,
+) -> rusqlite::Result<Vec<AuthorsByParamsRow>> {
+    let params_ = rusqlite::params![params];
+    let mut statement = client.connection().prepare_cached(AUTHORS_BY_PARAMS)?;
+    statement
+        .query_map(params_, AuthorsByParamsRow::from_row)?
+        .collect()
 }
 pub const QUERIES: &[(&str, &str)] = &[
     ("GetAuthor", GET_AUTHOR),
@@ -131,4 +276,11 @@ pub const QUERIES: &[(&str, &str)] = &[
     ("CountAuthors", COUNT_AUTHORS),
     ("CreateAuthor", CREATE_AUTHOR),
     ("DeleteAuthor", DELETE_AUTHOR),
+    ("CreateAuthorWithID", CREATE_AUTHOR_WITH_ID),
+    ("CreateAuthorReturningID", CREATE_AUTHOR_RETURNING_ID),
+    ("RenameAuthorReturningID", RENAME_AUTHOR_RETURNING_ID),
+    ("DeleteAuthorReturningID", DELETE_AUTHOR_RETURNING_ID),
+    ("AuthorsByClient", AUTHORS_BY_CLIENT),
+    ("AuthorsByStatement", AUTHORS_BY_STATEMENT),
+    ("AuthorsByParams", AUTHORS_BY_PARAMS),
 ];

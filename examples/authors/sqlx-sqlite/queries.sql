@@ -19,3 +19,9 @@ INSERT INTO authors (
 /* name: DeleteAuthor :exec */
 DELETE FROM authors
 WHERE id = ?;
+
+/* name: AuthorsByExecutor :many */
+SELECT * FROM authors WHERE name = sqlc.arg(executor) ORDER BY id;
+
+/* name: AuthorsByQ :many */
+SELECT * FROM authors WHERE bio = sqlc.arg(q) ORDER BY id;

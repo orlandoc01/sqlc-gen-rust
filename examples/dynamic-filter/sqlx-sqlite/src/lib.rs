@@ -295,4 +295,40 @@ mod tests {
             3
         );
     }
+
+    async fn user_ids(
+        pool: &sqlx::SqlitePool,
+        params: queries::SearchUsersByEmailsParams<'_>,
+    ) -> Vec<i64> {
+        queries::search_users_by_emails(pool, params)
+            .await
+            .unwrap()
+            .iter()
+            .map(|user| user.id)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn filters_by_owned_string_slices_and_repeated_scalars() {
+        let pool = pool().await;
+        migrate(&pool).await;
+        let emails = [
+            "alice@example.com".to_string(),
+            "carol@example.com".to_string(),
+        ];
+        let params = |emails, contact| queries::SearchUsersByEmailsParams { emails, contact };
+
+        assert_eq!(user_ids(&pool, Default::default()).await, [1, 2, 3]);
+        assert_eq!(user_ids(&pool, params(Some(&emails), None)).await, [1, 3]);
+        assert_eq!(user_ids(&pool, params(None, Some("222"))).await, [2]);
+        assert_eq!(
+            user_ids(&pool, params(None, Some("bob@example.com"))).await,
+            [2]
+        );
+        assert_eq!(
+            user_ids(&pool, params(Some(&emails), Some("111"))).await,
+            [1]
+        );
+        assert!(user_ids(&pool, params(Some(&[]), None)).await.is_empty());
+    }
 }

@@ -157,6 +157,37 @@ pub(crate) fn make_embedded_tables(
     Ok(quote::quote! {#(#tables)*})
 }
 
+/// Field initializers for a row struct, decoding each column by its SELECT ordinal. `getter`
+/// receives the ordinal literal and yields the backend's `row.get(N)?` expression.
+fn row_field_initializers(
+    row: &ReturningRows,
+    getter: impl Fn(proc_macro2::Literal) -> proc_macro2::TokenStream,
+) -> Vec<proc_macro2::TokenStream> {
+    let get = |index: usize| getter(proc_macro2::Literal::usize_unsuffixed(index));
+    row.fields
+        .iter()
+        .zip(row.field_ordinals())
+        .map(|(field, ordinal)| {
+            let field_ident = &field.name;
+            match field.embedded_table() {
+                None => {
+                    let value = get(ordinal.start);
+                    quote::quote! { #field_ident: #value }
+                }
+                Some(table) => {
+                    let table_ident = &table.ident;
+                    let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
+                        let field_ident = &field.name;
+                        let value = get(index);
+                        quote::quote! { #field_ident: #value }
+                    });
+                    quote::quote! { #field_ident: #table_ident { #(#fields,)* } }
+                }
+            }
+        })
+        .collect()
+}
+
 fn make_struct(
     ident: &syn::Ident,
     attributes: &Option<proc_macro2::TokenStream>,

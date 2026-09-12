@@ -10,8 +10,9 @@ pub struct Books {
     pub id: i64,
     pub author_id: i64,
     pub title: String,
+    pub subtitle: Option<String>,
 }
-pub const GET_REVIEW: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub const GET_REVIEW: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, b.subtitle, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
@@ -38,8 +39,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for GetReviewRow {
                 id: sqlx::Row::try_get(row, 3)?,
                 author_id: sqlx::Row::try_get(row, 4)?,
                 title: sqlx::Row::try_get(row, 5)?,
+                subtitle: sqlx::Row::try_get(row, 6)?,
             },
-            rating: sqlx::Row::try_get(row, 6)?,
+            rating: sqlx::Row::try_get(row, 7)?,
         })
     }
 }
@@ -59,7 +61,7 @@ pub async fn get_review_opt<'e>(
     let q = q.bind(params.review_id);
     q.fetch_optional(executor).await
 }
-pub const LIST_REVIEWS: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub const LIST_REVIEWS: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, b.subtitle, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
@@ -82,8 +84,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListReviewsRow {
                 id: sqlx::Row::try_get(row, 3)?,
                 author_id: sqlx::Row::try_get(row, 4)?,
                 title: sqlx::Row::try_get(row, 5)?,
+                subtitle: sqlx::Row::try_get(row, 6)?,
             },
-            rating: sqlx::Row::try_get(row, 6)?,
+            rating: sqlx::Row::try_get(row, 7)?,
         })
     }
 }
@@ -93,7 +96,7 @@ pub async fn list_reviews<'e>(
     let q = sqlx::query_as::<_, ListReviewsRow>(LIST_REVIEWS);
     q.fetch_all(executor).await
 }
-pub const LIST_REVIEWS_BY_MINIMUM_RATING: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, r.rating
+pub const LIST_REVIEWS_BY_MINIMUM_RATING: &str = r"SELECT r.id AS review_id, a.id, a.name, b.id, b.author_id, b.title, b.subtitle, r.rating
 FROM reviews r
 JOIN books b ON b.id = r.book_id
 JOIN authors a ON a.id = b.author_id
@@ -121,8 +124,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for ListReviewsByMinimumRati
                 id: sqlx::Row::try_get(row, 3)?,
                 author_id: sqlx::Row::try_get(row, 4)?,
                 title: sqlx::Row::try_get(row, 5)?,
+                subtitle: sqlx::Row::try_get(row, 6)?,
             },
-            rating: sqlx::Row::try_get(row, 6)?,
+            rating: sqlx::Row::try_get(row, 7)?,
         })
     }
 }

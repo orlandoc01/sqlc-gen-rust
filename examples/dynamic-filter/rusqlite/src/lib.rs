@@ -251,4 +251,58 @@ mod tests {
             3
         );
     }
+
+    #[test]
+    fn filters_by_owned_string_slices_and_repeated_scalars() {
+        let conn = connection();
+        migrate(&conn);
+        let ids = |params| {
+            queries::search_users_by_emails(&conn, params)
+                .unwrap()
+                .iter()
+                .map(|user| user.id)
+                .collect::<Vec<_>>()
+        };
+        let emails = [
+            "alice@example.com".to_string(),
+            "carol@example.com".to_string(),
+        ];
+
+        assert_eq!(ids(Default::default()), [1, 2, 3]);
+        assert_eq!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: Some(&emails),
+                contact: None,
+            }),
+            [1, 3]
+        );
+        assert_eq!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: None,
+                contact: Some("222"),
+            }),
+            [2]
+        );
+        assert_eq!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: None,
+                contact: Some("bob@example.com"),
+            }),
+            [2]
+        );
+        assert_eq!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: Some(&emails),
+                contact: Some("111"),
+            }),
+            [1]
+        );
+        assert!(
+            ids(queries::SearchUsersByEmailsParams {
+                emails: Some(&[]),
+                contact: None,
+            })
+            .is_empty()
+        );
+    }
 }

@@ -16,6 +16,66 @@ pub(crate) struct QueryParts {
     pub(crate) params: proc_macro2::TokenStream,
     pub(crate) arguments: proc_macro2::TokenStream,
     pub(crate) access: ParameterAccess,
+    /// Direct-argument names owned by the SQL parameters; backend locals must avoid them.
+    /// Empty for struct access, where every parameter is reached through `params.<field>`.
+    taken: Vec<String>,
+}
+
+impl QueryParts {
+    /// A backend identifier (`client`, `statement`, `executor`, ...) that cannot shadow or
+    /// duplicate a direct SQL parameter. Appends `_` until the name is free.
+    pub(crate) fn local(&self, base: &str) -> syn::Ident {
+        let mut name = base.to_string();
+        while self.taken.contains(&name) {
+            name.push('_');
+        }
+        quote::format_ident!("{name}")
+    }
+}
+
+/// One entry of the dynamic bind plan `match`: which `dynfilter::Bind` pattern it answers and
+/// how the backend reaches the value. Ownership decisions stay with the backend.
+pub(crate) struct DynamicBind<'a> {
+    pub(crate) pattern: proc_macro2::TokenStream,
+    pub(crate) field: &'a crate::query::ColumnField,
+    pub(crate) conditional: bool,
+    /// `&params.x[element]` for slice parameters, already unwrapped when conditional.
+    pub(crate) slice_element: Option<proc_macro2::TokenStream>,
+}
+
+pub(crate) fn dynamic_binds(query: &Query) -> Vec<DynamicBind<'_>> {
+    let info = query.dynfilter().expect("dynamic query");
+    query
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let name = &field.name;
+            let number = query.param_number(index);
+            let arg_index = number - 1;
+            let conditional = info.conditional_param_numbers.contains(&number);
+            if query.is_sqlc_slice(index) {
+                let element = if conditional {
+                    quote::quote! {&params.#name.unwrap()[element]}
+                } else {
+                    quote::quote! {&params.#name[element]}
+                };
+                DynamicBind {
+                    pattern: quote::quote! {dynfilter::Bind::Elem(#arg_index, element)},
+                    field,
+                    conditional,
+                    slice_element: Some(element),
+                }
+            } else {
+                DynamicBind {
+                    pattern: quote::quote! {dynfilter::Bind::Arg(#arg_index)},
+                    field,
+                    conditional,
+                    slice_element: None,
+                }
+            }
+        })
+        .collect()
 }
 
 pub(crate) trait ParamsGenerator {
@@ -84,16 +144,18 @@ fn generate_query<G: ParamsGenerator>(
 }
 
 pub(crate) fn query_parts(query: &Query, query_parameter_limit: usize) -> QueryParts {
-    let access = if uses_params_struct(query, query_parameter_limit) {
-        ParameterAccess::Struct
+    let (access, taken) = if uses_params_struct(query, query_parameter_limit) {
+        (ParameterAccess::Struct, Vec::new())
     } else {
-        ParameterAccess::Direct
+        let names = query.fields.iter().map(|field| field.name.to_string());
+        (ParameterAccess::Direct, names.collect())
     };
     QueryParts {
         constant: query_const_ident(query),
         params: params_definition(query, query_parameter_limit),
         arguments: function_arguments(query, query_parameter_limit),
         access,
+        taken,
     }
 }
 

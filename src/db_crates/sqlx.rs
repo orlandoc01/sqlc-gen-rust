@@ -1,5 +1,5 @@
 use crate::{
-    query::{ColumnField, DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper},
+    query::{DbEnum, Query, ReturningRows, RsType, SimpleTypeMap, TypeMapper},
     value_ident,
 };
 
@@ -145,39 +145,15 @@ impl Sqlx {
         let struct_tokens = super::make_return_row(row);
         let ident = row.struct_ident();
         let row_type = self.row_type();
-        let row_ident = quote::format_ident!("row");
-        let fields = row
-            .fields
-            .iter()
-            .zip(row.field_ordinals())
-            .map(|(field, ordinal)| Self::field_from_row(field, &row_ident, ordinal));
+        let fields = super::row_field_initializers(row, |index| {
+            quote::quote! { sqlx::Row::try_get(row, #index)? }
+        });
         quote::quote! {
             #struct_tokens
             impl<'r> sqlx::FromRow<'r, #row_type> for #ident {
-                fn from_row(#row_ident: &'r #row_type) -> Result<Self, sqlx::Error> {
+                fn from_row(row: &'r #row_type) -> Result<Self, sqlx::Error> {
                     Ok(Self { #(#fields,)* })
                 }
-            }
-        }
-    }
-
-    fn field_from_row(
-        field: &ColumnField,
-        row: &syn::Ident,
-        ordinal: std::ops::Range<usize>,
-    ) -> proc_macro2::TokenStream {
-        let field_ident = &field.name;
-        let literal = proc_macro2::Literal::usize_unsuffixed(ordinal.start);
-        match field.embedded_table() {
-            None => quote::quote! { #field_ident: sqlx::Row::try_get(#row, #literal)? },
-            Some(table) => {
-                let table_ident = &table.ident;
-                let fields = table.fields.iter().zip(ordinal).map(|(field, index)| {
-                    let field_ident = &field.name;
-                    let literal = proc_macro2::Literal::usize_unsuffixed(index);
-                    quote::quote! { #field_ident: sqlx::Row::try_get(#row, #literal)? }
-                });
-                quote::quote! { #field_ident: #table_ident { #(#fields,)* } }
             }
         }
     }

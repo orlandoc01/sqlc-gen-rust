@@ -1249,7 +1249,9 @@ pub fn delete_authors_by_ids(
         .collect::<Vec<_>>();
     let mut statement = client.connection().prepare(&sql)?;
     let params = rusqlite::params_from_iter(values);
-    statement.execute(params).map(|_| ())
+    let mut rows = statement.query(params)?;
+    while rows.next()?.is_some() {}
+    Ok(())
 }
 pub const QUERIES: &[(&str, &str)] = &[
     ("ListAuthorsByIDs", LIST_AUTHORS_BY_IDS),
