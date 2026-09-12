@@ -12,14 +12,6 @@ mod tests {
             .unwrap();
     }
 
-    fn count(conn: &rusqlite::Connection) -> i64 {
-        queries::count_authors(conn).unwrap().count
-    }
-
-    fn author<'a>(name: &'a str, bio: Option<&'a str>) -> queries::CreateAuthorParams<'a> {
-        queries::CreateAuthorParams { name, bio }
-    }
-
     #[test_context(RusqliteContext)]
     #[test]
     fn test_authors(ctx: &mut RusqliteContext) {
@@ -30,10 +22,12 @@ mod tests {
         assert!(queries::list_authors(&transaction).unwrap().is_empty());
         let id = queries::create_author(
             &transaction,
-            author(
-                "Brian Kernighan",
-                Some("Co-author of The C Programming Language and The Go Programming Language"),
-            ),
+            queries::CreateAuthorParams {
+                name: "Brian Kernighan",
+                bio: Some(
+                    "Co-author of The C Programming Language and The Go Programming Language",
+                ),
+            },
         )
         .unwrap();
         let savepoint = transaction.savepoint().unwrap();
@@ -41,10 +35,10 @@ mod tests {
         savepoint.commit().unwrap();
         transaction.commit().unwrap();
 
-        assert_eq!(count(conn), 1);
+        assert_eq!(queries::count_authors(conn).unwrap().count, 1);
         assert!(queries::get_author_opt(conn, id + 1).unwrap().is_none());
         queries::delete_author(conn, id).unwrap();
-        assert_eq!(count(conn), 0);
+        assert_eq!(queries::count_authors(conn).unwrap().count, 0);
     }
 
     #[test_context(RusqliteContext)]
@@ -79,13 +73,22 @@ mod tests {
         let conn = &ctx.conn;
         migrate_db(conn);
 
-        let params = |name| queries::CreateAuthorWithIdParams { id: 1, name };
         assert_eq!(
-            queries::create_author_with_id(conn, params("Ada")).unwrap(),
+            queries::create_author_with_id(
+                conn,
+                queries::CreateAuthorWithIdParams { id: 1, name: "Ada" },
+            )
+            .unwrap(),
             1
         );
         assert!(matches!(
-            queries::create_author_with_id(conn, params("Grace")),
+            queries::create_author_with_id(
+                conn,
+                queries::CreateAuthorWithIdParams {
+                    id: 1,
+                    name: "Grace",
+                },
+            ),
             Err(rusqlite::Error::SqliteFailure(
                 rusqlite::ffi::Error {
                     code: rusqlite::ErrorCode::ConstraintViolation,
@@ -94,7 +97,7 @@ mod tests {
                 _
             ))
         ));
-        assert_eq!(count(conn), 1);
+        assert_eq!(queries::count_authors(conn).unwrap().count, 1);
         assert_eq!(queries::get_author(conn, 1).unwrap().name, "Ada");
     }
 
@@ -114,20 +117,30 @@ mod tests {
         .unwrap();
         assert_eq!(queries::get_author(conn, id).unwrap().name, "Ada");
 
-        let rename = |name, id| queries::RenameAuthorReturningIdParams { name, id };
         assert_eq!(
-            queries::rename_author_returning_id(conn, rename("Grace", id)).unwrap(),
+            queries::rename_author_returning_id(
+                conn,
+                queries::RenameAuthorReturningIdParams { name: "Grace", id },
+            )
+            .unwrap(),
             1
         );
         assert_eq!(
-            queries::rename_author_returning_id(conn, rename("Nobody", id + 1)).unwrap(),
+            queries::rename_author_returning_id(
+                conn,
+                queries::RenameAuthorReturningIdParams {
+                    name: "Nobody",
+                    id: id + 1,
+                },
+            )
+            .unwrap(),
             0
         );
         assert_eq!(queries::get_author(conn, id).unwrap().name, "Grace");
 
         queries::delete_author_returning_id(conn, id).unwrap();
         queries::delete_author_returning_id(conn, id).unwrap();
-        assert_eq!(count(conn), 0);
+        assert_eq!(queries::count_authors(conn).unwrap().count, 0);
     }
 
     #[test_context(RusqliteContext)]
@@ -137,19 +150,40 @@ mod tests {
         migrate_db(conn);
 
         let transaction = conn.transaction().unwrap();
-        queries::create_author(&transaction, author("Rolled back", None)).unwrap();
+        queries::create_author(
+            &transaction,
+            queries::CreateAuthorParams {
+                name: "Rolled back",
+                bio: None,
+            },
+        )
+        .unwrap();
         transaction.rollback().unwrap();
-        assert_eq!(count(conn), 0);
+        assert_eq!(queries::count_authors(conn).unwrap().count, 0);
 
         let mut transaction = conn.transaction().unwrap();
-        let kept = queries::create_author(&transaction, author("Kept", None)).unwrap();
+        let kept = queries::create_author(
+            &transaction,
+            queries::CreateAuthorParams {
+                name: "Kept",
+                bio: None,
+            },
+        )
+        .unwrap();
         let mut savepoint = transaction.savepoint().unwrap();
-        queries::create_author(&savepoint, author("Dropped", None)).unwrap();
+        queries::create_author(
+            &savepoint,
+            queries::CreateAuthorParams {
+                name: "Dropped",
+                bio: None,
+            },
+        )
+        .unwrap();
         savepoint.rollback().unwrap();
         drop(savepoint);
         transaction.commit().unwrap();
 
-        assert_eq!(count(conn), 1);
+        assert_eq!(queries::count_authors(conn).unwrap().count, 1);
         assert_eq!(queries::get_author(conn, kept).unwrap().name, "Kept");
     }
 
@@ -158,7 +192,14 @@ mod tests {
     fn direct_parameters_named_like_generated_locals(ctx: &mut RusqliteContext) {
         let conn = &ctx.conn;
         migrate_db(conn);
-        queries::create_author(conn, author("client", Some("statement"))).unwrap();
+        queries::create_author(
+            conn,
+            queries::CreateAuthorParams {
+                name: "client",
+                bio: Some("statement"),
+            },
+        )
+        .unwrap();
 
         assert_eq!(queries::authors_by_client(conn, "client").unwrap().len(), 1);
         assert!(

@@ -14,14 +14,6 @@ mod tests {
             .unwrap();
     }
 
-    fn insert_and_fetch(
-        conn: &rusqlite::Connection,
-        params: &queries::InsertMappingParams<'_>,
-    ) -> queries::GetMappingRow {
-        queries::insert_mapping(conn, params.clone()).unwrap();
-        queries::get_mapping(conn).unwrap()
-    }
-
     /// Every column holds a distinct value, so a swapped ordinal between same-typed
     /// columns fails here.
     fn assert_round_trip(row: &queries::GetMappingRow, params: &queries::InsertMappingParams<'_>) {
@@ -97,7 +89,8 @@ mod tests {
             time_val: chrono::NaiveTime::from_hms_opt(1, 23, 45).unwrap(),
             datetime_val: chrono::NaiveDateTime::from_str("2025-01-23T04:05:06").unwrap(),
         };
-        let row = insert_and_fetch(conn, &params);
+        queries::insert_mapping(conn, params.clone()).unwrap();
+        let row = queries::get_mapping(conn).unwrap();
         assert_round_trip(&row, &params);
 
         let ids = queries::get_mapping_by_client_and_statement(conn, "3", "20").unwrap();
@@ -149,7 +142,8 @@ mod tests {
             time_val: chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap(),
             datetime_val: chrono::NaiveDateTime::from_str("1999-12-31T23:59:59").unwrap(),
         };
-        let row = insert_and_fetch(conn, &params);
+        queries::insert_mapping(conn, params.clone()).unwrap();
+        let row = queries::get_mapping(conn).unwrap();
         assert_round_trip(&row, &params);
     }
 }
