@@ -4,6 +4,32 @@ sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rus
 
 It generates SQLx, rusqlite, postgres, tokio-postgres, and deadpool-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
 
+## Contents
+
+- [Usage](#usage)
+- [Supported crates](#supported-crates)
+- [Example](#example)
+- [Supported Features](#supported-features)
+- [Backend notes](#backend-notes)
+  - [sqlx-postgres, sqlx-mysql, sqlx-sqlite](#sqlx-postgres-sqlx-mysql-sqlx-sqlite)
+  - [rusqlite](#rusqlite)
+  - [postgres](#postgres)
+  - [tokio-postgres](#tokio-postgres)
+  - [deadpool-postgres](#deadpool-postgres)
+  - [PostgreSQL drivers](#postgresql-drivers)
+- [Options](#options)
+  - [`db_crate`](#db_crate)
+  - [Dynamic filters with `-- :if`](#dynamic-filters-with---if)
+  - [`query_parameter_limit`](#query_parameter_limit)
+  - [`overrides`](#overrides)
+  - [`row_attributes` / `column_attributes`](#row_attributes--column_attributes)
+  - [`enum_derives`](#enum_derives)
+  - [`output`](#output)
+- [Compatibility](#compatibility)
+- [Credits](#credits)
+- [License](#license)
+- [Contribution](#contribution)
+
 ## Usage
 
 Add the following to your configuration file to use this plugin.
@@ -34,10 +60,7 @@ sql:
 - [tokio-postgres](https://docs.rs/tokio-postgres/latest/tokio_postgres/)
 - [deadpool-postgres](https://docs.rs/deadpool-postgres/latest/deadpool_postgres/)
 
-> [!NOTE]
-> SQLite uses dynamic typing. Columns with **NUMERIC affinity** may store values as **INTEGER** when they can be represented exactly as integers. 
-> For example, `13.0` may be stored as `13`. The generated code always reads NUMERIC as `f64` (`REAL`), so decoding can fail with a type mismatch when SQLite returns an integer. See the [SQLite type affinity docs](https://www.sqlite.org/datatype3.html) and the [`sqlx` type mapping docs](https://docs.rs/sqlx/latest/sqlx/sqlite/types/index.html) for details.
-
+See [Backend notes](#backend-notes) for crate-specific behavior.
 
 ## Example
 
@@ -124,52 +147,6 @@ async fn main() {
 - [`tokio-postgres` example](./examples/authors/tokio-postgres/src/lib.rs)
 - [`deadpool-postgres` example](./examples/authors/deadpool-postgres/src/lib.rs)
 
-Rusqlite functions are synchronous and accept connections, transactions, and savepoints through the generated trait:
-
-```rust
-pub trait RusqliteClient {
-    fn connection(&self) -> &rusqlite::Connection;
-}
-
-pub fn get_author(
-    client: &impl RusqliteClient,
-    id: i64,
-) -> rusqlite::Result<GetAuthorRow> { /* ... */ }
-```
-
-The trait is the extension point for wrappers that do not deref to `Connection`, such as pool
-guards: implement `connection()` for your type and every generated function accepts it. Execution
-queries (`:exec`, `:execrows`, `:execlastid`) step the statement to completion, so a DML statement
-with `RETURNING` succeeds and reports its write; `:execrows` returns `u64` from `changes()`.
-
-For `tokio-postgres`, generated functions take `&impl tokio_postgres::GenericClient`. Static queries
-also expose preparation, reusable statements, and row streaming:
-
-```rust
-let statement = queries::prepare_get_author(&client).await?;
-let author = queries::get_author_with(&client, &statement, id).await?;
-let stream = queries::list_authors_stream(&client).await?;
-```
-
-`deadpool-postgres` generates the same API with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`.
-All PostgreSQL driver backends support one-dimensional arrays only.
-
-For `postgres`, generated functions are synchronous and take `&mut impl postgres::GenericClient`.
-Static queries expose `prepare_<fn>` and `<fn>_with`; `:many` also exposes `<fn>_iter`, returning
-`Result<postgres::RowIter<'_>, postgres::Error>`.
-
-Dynamic (`-- :if`) queries do not expose `prepare_*` or `*_with` variants. On postgres,
-tokio-postgres, and deadpool-postgres, `:execrows` and `:execresult` return `u64`.
-
-PostgreSQL infers untyped `LIMIT` and `OFFSET` parameters as `bigint`. Cast them explicitly
-(`::int` or `::bigint`) or add an override so the generated Rust parameter type matches. A bare
-`$1::int` loses sqlc's inferred parameter name, so use `sqlc.arg` when casting named parameters.
-Because `limit` and `offset` are SQL keywords, quote them in the macro:
-
-```sql
-LIMIT sqlc.arg('limit')::int OFFSET sqlc.arg('offset')::int
-```
-
 ## Supported Features
 
 ### Query Annotations
@@ -201,6 +178,75 @@ SELECT position. See the [embed examples](./examples/embed/) for joined rows.
 
 PostgreSQL binds slices as arrays. MySQL, SQLx SQLite, and rusqlite expand slice markers through
 the generated dynamic bind plan.
+
+## Backend notes
+
+Implementation details that differ per `db_crate`. The generated API is otherwise the same
+across backends.
+
+### sqlx-postgres, sqlx-mysql, sqlx-sqlite
+
+Generated functions are async and take any `sqlx::Executor`, so a pool, a connection, or a
+transaction all work.
+
+> [!NOTE]
+> SQLite uses dynamic typing. Columns with **NUMERIC affinity** may store values as **INTEGER** when they can be represented exactly as integers. 
+> For example, `13.0` may be stored as `13`. The generated code always reads NUMERIC as `f64` (`REAL`), so decoding can fail with a type mismatch when SQLite returns an integer. See the [SQLite type affinity docs](https://www.sqlite.org/datatype3.html) and the [`sqlx` type mapping docs](https://docs.rs/sqlx/latest/sqlx/sqlite/types/index.html) for details.
+
+### rusqlite
+
+Rusqlite functions are synchronous and accept connections, transactions, and savepoints through the generated trait:
+
+```rust
+pub trait RusqliteClient {
+    fn connection(&self) -> &rusqlite::Connection;
+}
+
+pub fn get_author(
+    client: &impl RusqliteClient,
+    id: i64,
+) -> rusqlite::Result<GetAuthorRow> { /* ... */ }
+```
+
+The trait is the extension point for wrappers that do not deref to `Connection`, such as pool
+guards: implement `connection()` for your type and every generated function accepts it. Execution
+queries (`:exec`, `:execrows`, `:execlastid`) step the statement to completion, so a DML statement
+with `RETURNING` succeeds and reports its write; `:execrows` returns `u64` from `changes()`.
+
+### postgres
+
+For `postgres`, generated functions are synchronous and take `&mut impl postgres::GenericClient`.
+Static queries expose `prepare_<fn>` and `<fn>_with`; `:many` also exposes `<fn>_iter`, returning
+`Result<postgres::RowIter<'_>, postgres::Error>`.
+
+### tokio-postgres
+
+For `tokio-postgres`, generated functions take `&impl tokio_postgres::GenericClient`. Static queries
+also expose preparation, reusable statements, and row streaming:
+
+```rust
+let statement = queries::prepare_get_author(&client).await?;
+let author = queries::get_author_with(&client, &statement, id).await?;
+let stream = queries::list_authors_stream(&client).await?;
+```
+
+### deadpool-postgres
+
+`deadpool-postgres` generates the same API as `tokio-postgres` with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`.
+
+### PostgreSQL drivers
+
+These notes apply to `postgres`, `tokio-postgres`, and `deadpool-postgres`. All three support one-dimensional arrays only. Dynamic (`-- :if`) queries do not expose
+`prepare_*` or `*_with` variants. `:execrows` and `:execresult` return `u64`.
+
+On every PostgreSQL backend, including `sqlx-postgres`, sqlc infers untyped `LIMIT` and `OFFSET` parameters as `bigint`. Cast them explicitly
+(`::int` or `::bigint`) or add an override so the generated Rust parameter type matches. A bare
+`$1::int` loses sqlc's inferred parameter name, so use `sqlc.arg` when casting named parameters.
+Because `limit` and `offset` are SQL keywords, quote them in the macro:
+
+```sql
+LIMIT sqlc.arg('limit')::int OFFSET sqlc.arg('offset')::int
+```
 
 ## Options
 
