@@ -15,23 +15,15 @@ impl ParamsGenerator for Postgres {
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        let struct_tokens = super::make_return_row(row);
-        let ident = row.struct_ident();
-        let row_ident = quote::format_ident!("row");
         let paths = self.paths();
         let row_type = paths.row;
         let error = paths.error;
-        let fields = super::row_field_initializers(row, |index| {
-            quote::quote! { #row_ident.try_get(#index)? }
-        });
-        quote::quote! {
-            #struct_tokens
-            impl #ident {
-                pub fn from_row(#row_ident: &#row_type) -> Result<Self, #error> {
-                    Ok(Self { #(#fields,)* })
-                }
-            }
-        }
+        super::ordinal_from_row(
+            row,
+            row_type,
+            quote::quote! {Result<Self, #error>},
+            |index| quote::quote! {row.try_get(#index)?},
+        )
     }
 
     fn generated_functions(&self, query: &Query) -> Vec<params_common::GeneratedFunction> {

@@ -12,17 +12,12 @@ impl ParamsGenerator for Rusqlite {
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        let struct_tokens = super::make_return_row(row);
-        let ident = row.struct_ident();
-        let fields = super::row_field_initializers(row, |index| quote::quote! { row.get(#index)? });
-        quote::quote! {
-            #struct_tokens
-            impl #ident {
-                pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
-                    Ok(Self { #(#fields,)* })
-                }
-            }
-        }
+        super::ordinal_from_row(
+            row,
+            quote::quote! {rusqlite::Row<'_>},
+            quote::quote! {rusqlite::Result<Self>},
+            |index| quote::quote! {row.get(#index)?},
+        )
     }
 
     fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
@@ -174,8 +169,8 @@ impl<'a> Function<'a> {
             params,
             ..
         } = self;
-        let dynamic = quote::format_ident!("{}_DYN", self.parts.constant);
-        let args = params_common::dynamic_args(self.query);
+        let dynamic_setup = params_common::dynamic_plan_setup(self.query, &self.parts.constant);
+        let unknown_bind_arm = params_common::unknown_bind_arm();
         let binds = params_common::dynamic_binds(self.query)
             .into_iter()
             .map(|bind| {
@@ -189,14 +184,13 @@ impl<'a> Function<'a> {
                 quote::quote! {#pattern => #value,}
             });
         quote::quote! {
-            let args = [#(#args,)*];
-            let (sql, binds) = #dynamic.build(&args);
+            #dynamic_setup
             let values = binds
                 .into_iter()
                 .map(|bind| -> &dyn rusqlite::ToSql {
                     match bind {
                         #(#binds)*
-                        _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+                        #unknown_bind_arm
                     }
                 })
                 .collect::<Vec<_>>();

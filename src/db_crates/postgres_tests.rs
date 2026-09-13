@@ -13,9 +13,18 @@ fn generated_tokens(
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
     let type_map = backend.db_type_map();
-    let row = ReturningRows::from_query(&type_map, &ReturnRowAttributes::default(), None, &query)
-        .unwrap();
-    let mut query = Query::from_query(&type_map, &query).unwrap();
+    generated_tokens_with_type_map(backend, &type_map, query, query_parameter_limit)
+}
+
+fn generated_tokens_with_type_map(
+    backend: Postgres,
+    type_map: &query::DbTypeMap,
+    query: plugin::Query,
+    query_parameter_limit: usize,
+) -> proc_macro2::TokenStream {
+    let row =
+        ReturningRows::from_query(type_map, &ReturnRowAttributes::default(), None, &query).unwrap();
+    let mut query = Query::from_query(type_map, &query).unwrap();
     query.apply_dynfilter();
     params_common::generate_queries(&backend, &[row], &[query], query_parameter_limit).unwrap()
 }
@@ -31,6 +40,18 @@ fn static_query() -> plugin::Query {
         "SELECT id FROM authors WHERE id = $1",
         vec![column("id", false)],
         vec![(1, column("id", false))],
+    )
+}
+
+fn echo_timestamp_query() -> plugin::Query {
+    let mut timestamp = column("timestamp", false);
+    timestamp.r#type = Some(identifier("timestamp"));
+    query(
+        "EchoTimestamp",
+        ":one",
+        "SELECT $1::timestamp AS timestamp",
+        vec![timestamp.clone()],
+        vec![(1, timestamp)],
     )
 }
 
@@ -245,24 +266,44 @@ fn direct_parameters_do_not_shadow_forwarding_functions() {
 
 #[test]
 fn required_system_time_params_do_not_derive_default() {
-    let mut timestamp = column("timestamp", false);
-    timestamp.r#type = Some(identifier("timestamp"));
     for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
-        let tokens = generated(
-            backend,
-            query(
-                "EchoTimestamp",
-                ":one",
-                "SELECT $1::timestamp AS timestamp",
-                vec![timestamp.clone()],
-                vec![(1, timestamp.clone())],
-            ),
-            0,
-        );
+        let tokens = generated(backend, echo_timestamp_query(), 0);
 
         assert!(tokens.contains("pub struct EchoTimestampParams"));
         assert!(tokens.contains("std :: time :: SystemTime"));
         assert!(!tokens.contains("Default"));
+    }
+}
+
+#[test]
+fn defaultable_timestamp_override_params_derive_default() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let mut type_map = backend.db_type_map();
+        type_map.insert_db_type(
+            "timestamp",
+            query::RsType::new(syn::parse_str("crate::Timestamp").unwrap(), None, true)
+                .with_can_default(true),
+        );
+        let tokens = generated_tokens_with_type_map(backend, &type_map, echo_timestamp_query(), 0)
+            .to_string();
+
+        assert!(tokens.contains("# [derive (Debug , Clone , Default)]"));
+    }
+}
+
+#[test]
+fn non_defaultable_timestamp_override_params_do_not_derive_default() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let mut type_map = backend.db_type_map();
+        type_map.insert_db_type(
+            "timestamp",
+            query::RsType::new(syn::parse_str("crate::Timestamp").unwrap(), None, true)
+                .with_can_default(false),
+        );
+        let tokens = generated_tokens_with_type_map(backend, &type_map, echo_timestamp_query(), 0)
+            .to_string();
+
+        assert!(!tokens.contains("# [derive (Debug , Clone , Default)]"));
     }
 }
 

@@ -287,6 +287,11 @@ impl RsType {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn can_default(&self) -> bool {
+        self.can_default
+    }
+
     /// 自己所有の型を返す
     pub(crate) fn owned(&self) -> proc_macro2::TokenStream {
         self.owned.to_token_stream()
@@ -498,6 +503,11 @@ impl DbTypeMap {
 }
 
 impl DbTypeMap {
+    #[cfg(test)]
+    pub(crate) fn find_rs_type(&self, db_type: &str) -> Option<&RsType> {
+        self.type_map.find_rs_type(db_type)
+    }
+
     pub(crate) fn get_column_type(&self, column: &plugin::Column) -> Result<RsType, QueryError> {
         let db_col_name = make_column_name(column);
         if let Some(rs_type) = self.column_map.find_type(&db_col_name) {
