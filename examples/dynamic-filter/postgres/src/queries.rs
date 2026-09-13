@@ -1191,12 +1191,12 @@ pub fn touch_users(
     params: TouchUsersParams<'_>,
 ) -> Result<u64, postgres::Error> {
     let (sql, values) = touch_users_query(&params);
-    let mut it = client.query_typed_raw(
+    let mut rows = client.query_typed_raw(
         sql.as_str(),
         values.iter().map(|(value, typ)| (*value, typ.clone())),
     )?;
-    while postgres::fallible_iterator::FallibleIterator::next(&mut it)?.is_some() {}
-    let rows_affected = it.rows_affected().unwrap_or(0);
+    while postgres::fallible_iterator::FallibleIterator::next(&mut rows)?.is_some() {}
+    let rows_affected = rows.rows_affected().unwrap_or(0);
     Ok(rows_affected)
 }
 pub const LIST_ALL_USERS: &str = r"SELECT id, email, phone
@@ -1383,12 +1383,12 @@ pub fn set_user_phone(
     params: SetUserPhoneParams<'_>,
 ) -> Result<u64, postgres::Error> {
     let (sql, values) = set_user_phone_query(&params);
-    let mut it = client.query_typed_raw(
+    let mut rows = client.query_typed_raw(
         sql.as_str(),
         values.iter().map(|(value, typ)| (*value, typ.clone())),
     )?;
-    while postgres::fallible_iterator::FallibleIterator::next(&mut it)?.is_some() {}
-    let rows_affected = it.rows_affected().unwrap_or(0);
+    while postgres::fallible_iterator::FallibleIterator::next(&mut rows)?.is_some() {}
+    let rows_affected = rows.rows_affected().unwrap_or(0);
     Ok(rows_affected)
 }
 pub const GET_USER_BY_EMAIL: &str = r"SELECT id, email, phone
@@ -1508,11 +1508,11 @@ pub fn update_user_email(
     params: UpdateUserEmailParams<'_>,
 ) -> Result<(), postgres::Error> {
     let (sql, values) = update_user_email_query(&params);
-    let mut it = client.query_typed_raw(
+    let mut rows = client.query_typed_raw(
         sql.as_str(),
         values.iter().map(|(value, typ)| (*value, typ.clone())),
     )?;
-    while postgres::fallible_iterator::FallibleIterator::next(&mut it)?.is_some() {}
+    while postgres::fallible_iterator::FallibleIterator::next(&mut rows)?.is_some() {}
     Ok(())
 }
 pub const QUERIES: &[(&str, &str)] = &[

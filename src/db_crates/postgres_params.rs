@@ -9,20 +9,19 @@ mod dynamic;
 mod functions;
 mod names;
 mod typed;
-mod typed_dynamic;
 
 pub(crate) struct PostgresParams {
     pub(crate) backend: Postgres,
     pub(crate) query_typed: bool,
 }
 
-impl ParamsGenerator for Postgres {
+impl ParamsGenerator for PostgresParams {
     fn placeholders(&self) -> proc_macro2::TokenStream {
         quote::quote! {dynfilter::Placeholders::Numbered}
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        let paths = self.paths();
+        let paths = self.backend.paths();
         let row_type = paths.row;
         let error = paths.error;
         super::ordinal_from_row(
@@ -31,29 +30,6 @@ impl ParamsGenerator for Postgres {
             quote::quote! {Result<Self, #error>},
             |index| quote::quote! {row.try_get(#index)?},
         )
-    }
-
-    fn generated_functions(&self, query: &Query) -> Vec<params_common::GeneratedFunction> {
-        names::generated_functions(*self, query)
-    }
-
-    fn query_functions(
-        &self,
-        query: &Query,
-        row: &ReturningRows,
-        parts: &QueryParts,
-    ) -> proc_macro2::TokenStream {
-        Function::new(*self, false, query, row, parts).generate()
-    }
-}
-
-impl ParamsGenerator for PostgresParams {
-    fn placeholders(&self) -> proc_macro2::TokenStream {
-        self.backend.placeholders()
-    }
-
-    fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        self.backend.returning_row(row)
     }
 
     fn generated_functions(&self, query: &Query) -> Vec<params_common::GeneratedFunction> {
@@ -134,15 +110,19 @@ impl<'a> Function<'a> {
         }
     }
 
-    fn uses_query_typed(&self) -> bool {
-        self.query_typed
-            && self.query.fields.iter().all(|field| {
-                super::postgres_types::type_ident(
-                    field.scalar_type().db_type(),
-                    field.scalar_type().array_dimensions(),
-                )
-                .is_some()
-            })
+    fn typed_parameters(&self) -> Option<Vec<syn::Ident>> {
+        self.query_typed.then(|| {
+            self.query
+                .fields
+                .iter()
+                .map(|field| {
+                    super::postgres_types::type_ident(
+                        field.scalar_type().db_type(),
+                        field.scalar_type().array_dimensions(),
+                    )
+                })
+                .collect()
+        })?
     }
 
     fn static_parts(&self) -> StaticParts {

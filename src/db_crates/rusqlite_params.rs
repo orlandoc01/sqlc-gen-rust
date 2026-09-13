@@ -170,27 +170,23 @@ impl<'a> Function<'a> {
             ..
         } = self;
         let dynamic_setup = params_common::dynamic_plan_setup(self.query, &self.parts.constant);
-        let unknown_bind_arm = params_common::unknown_bind_arm();
-        let binds = params_common::dynamic_binds(self.query)
-            .into_iter()
-            .map(|bind| {
-                let pattern = bind.pattern;
-                let name = &bind.field.name;
-                let value = match (bind.slice_element, bind.conditional) {
-                    (Some(element), _) => element,
-                    (None, true) => quote::quote! {params.#name.as_ref().unwrap()},
-                    (None, false) => quote::quote! {&params.#name},
-                };
-                quote::quote! {#pattern => #value,}
-            });
+        let binds = params_common::dynamic_bind_arms(self.query, |bind| {
+            let pattern = bind.pattern;
+            let name = &bind.field.name;
+            let value = match (bind.slice_element, bind.conditional) {
+                (Some(element), _) => element,
+                (None, true) => quote::quote! {params.#name.as_ref().unwrap()},
+                (None, false) => quote::quote! {&params.#name},
+            };
+            quote::quote! {#pattern => #value,}
+        });
         quote::quote! {
             #dynamic_setup
             let values = binds
                 .into_iter()
                 .map(|bind| -> &dyn rusqlite::ToSql {
                     match bind {
-                        #(#binds)*
-                        #unknown_bind_arm
+                        #binds
                     }
                 })
                 .collect::<Vec<_>>();

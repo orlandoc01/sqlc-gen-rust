@@ -67,12 +67,9 @@ pub(crate) fn type_map(
 }
 
 pub(crate) fn type_ident(db_type: &str, dimensions: usize) -> Option<syn::Ident> {
-    let name = db_type
-        .to_ascii_lowercase()
-        .strip_prefix("pg_catalog.")
-        .unwrap_or(db_type)
-        .to_string();
-    let (scalar, array) = match name.as_str() {
+    let lowercase = db_type.to_ascii_lowercase();
+    let name = lowercase.strip_prefix("pg_catalog.").unwrap_or(&lowercase);
+    let (scalar, array) = match name {
         "boolean" | "bool" => ("BOOL", Some("BOOL_ARRAY")),
         "bytea" => ("BYTEA", Some("BYTEA_ARRAY")),
         "char" | "\"char\"" => ("CHAR", Some("CHAR_ARRAY")),
@@ -88,13 +85,9 @@ pub(crate) fn type_ident(db_type: &str, dimensions: usize) -> Option<syn::Ident>
         "xid" => ("XID", Some("XID_ARRAY")),
         "cid" => ("CID", Some("CID_ARRAY")),
         "oidvector" => ("OID_VECTOR", Some("OID_VECTOR_ARRAY")),
-        "pg_ddl_command" => ("PG_DDL_COMMAND", None),
         "json" => ("JSON", Some("JSON_ARRAY")),
         "xml" => ("XML", Some("XML_ARRAY")),
-        "pg_node_tree" => ("PG_NODE_TREE", None),
-        "table_am_handler" => ("TABLE_AM_HANDLER", None),
         "xid8" => ("XID8", Some("XID8_ARRAY")),
-        "index_am_handler" => ("INDEX_AM_HANDLER", None),
         "point" => ("POINT", Some("POINT_ARRAY")),
         "lseg" => ("LSEG", Some("LSEG_ARRAY")),
         "path" => ("PATH", Some("PATH_ARRAY")),
@@ -104,13 +97,13 @@ pub(crate) fn type_ident(db_type: &str, dimensions: usize) -> Option<syn::Ident>
         "cidr" => ("CIDR", Some("CIDR_ARRAY")),
         "real" | "float4" => ("FLOAT4", Some("FLOAT4_ARRAY")),
         "double precision" | "float8" | "float" => ("FLOAT8", Some("FLOAT8_ARRAY")),
-        "unknown" => ("UNKNOWN", None),
         "circle" => ("CIRCLE", Some("CIRCLE_ARRAY")),
         "macaddr8" => ("MACADDR8", Some("MACADDR8_ARRAY")),
         "money" => ("MONEY", Some("MONEY_ARRAY")),
         "macaddr" => ("MACADDR", Some("MACADDR_ARRAY")),
         "inet" => ("INET", Some("INET_ARRAY")),
-        "bpchar" | "character" | "character varying" => ("BPCHAR", Some("BPCHAR_ARRAY")),
+        "bpchar" | "character" => ("BPCHAR", Some("BPCHAR_ARRAY")),
+        "character varying" => ("VARCHAR", Some("VARCHAR_ARRAY")),
         "varchar" => ("VARCHAR", Some("VARCHAR_ARRAY")),
         "date" => ("DATE", Some("DATE_ARRAY")),
         "time" | "time without time zone" => ("TIME", Some("TIME_ARRAY")),
@@ -118,7 +111,6 @@ pub(crate) fn type_ident(db_type: &str, dimensions: usize) -> Option<syn::Ident>
         "timestamptz" | "timestamp with time zone" => ("TIMESTAMPTZ", Some("TIMESTAMPTZ_ARRAY")),
         "interval" => ("INTERVAL", Some("INTERVAL_ARRAY")),
         "numeric" | "decimal" => ("NUMERIC", Some("NUMERIC_ARRAY")),
-        "cstring" => ("CSTRING", Some("CSTRING_ARRAY")),
         "timetz" | "time with time zone" => ("TIMETZ", Some("TIMETZ_ARRAY")),
         "bit" => ("BIT", Some("BIT_ARRAY")),
         "varbit" | "bit varying" => ("VARBIT", Some("VARBIT_ARRAY")),
@@ -128,31 +120,15 @@ pub(crate) fn type_ident(db_type: &str, dimensions: usize) -> Option<syn::Ident>
         "regoperator" => ("REGOPERATOR", Some("REGOPERATOR_ARRAY")),
         "regclass" => ("REGCLASS", Some("REGCLASS_ARRAY")),
         "regtype" => ("REGTYPE", Some("REGTYPE_ARRAY")),
-        "record" => ("RECORD", Some("RECORD_ARRAY")),
-        "any" => ("ANY", None),
-        "anyarray" => ("ANYARRAY", None),
-        "void" => ("VOID", None),
-        "trigger" => ("TRIGGER", None),
-        "language_handler" => ("LANGUAGE_HANDLER", None),
-        "internal" => ("INTERNAL", None),
-        "anyelement" => ("ANYELEMENT", None),
-        "anynonarray" => ("ANYNONARRAY", None),
         "txid_snapshot" => ("TXID_SNAPSHOT", Some("TXID_SNAPSHOT_ARRAY")),
         "uuid" => ("UUID", Some("UUID_ARRAY")),
-        "fdw_handler" => ("FDW_HANDLER", None),
         "pg_lsn" => ("PG_LSN", Some("PG_LSN_ARRAY")),
-        "tsm_handler" => ("TSM_HANDLER", None),
-        "pg_ndistinct" => ("PG_NDISTINCT", None),
-        "pg_dependencies" => ("PG_DEPENDENCIES", None),
-        "anyenum" => ("ANYENUM", None),
         "tsvector" => ("TS_VECTOR", Some("TS_VECTOR_ARRAY")),
         "tsquery" => ("TSQUERY", Some("TSQUERY_ARRAY")),
         "gtsvector" => ("GTS_VECTOR", Some("GTS_VECTOR_ARRAY")),
         "regconfig" => ("REGCONFIG", Some("REGCONFIG_ARRAY")),
         "regdictionary" => ("REGDICTIONARY", Some("REGDICTIONARY_ARRAY")),
         "jsonb" => ("JSONB", Some("JSONB_ARRAY")),
-        "anyrange" => ("ANY_RANGE", None),
-        "event_trigger" => ("EVENT_TRIGGER", None),
         "int4range" => ("INT4_RANGE", Some("INT4_RANGE_ARRAY")),
         "numrange" => ("NUM_RANGE", Some("NUM_RANGE_ARRAY")),
         "tsrange" => ("TS_RANGE", Some("TS_RANGE_ARRAY")),
@@ -169,16 +145,7 @@ pub(crate) fn type_ident(db_type: &str, dimensions: usize) -> Option<syn::Ident>
         "tstzmultirange" => ("TSTZMULTI_RANGE", Some("TSTZMULTI_RANGE_ARRAY")),
         "datemultirange" => ("DATEMULTI_RANGE", Some("DATEMULTI_RANGE_ARRAY")),
         "int8multirange" => ("INT8MULTI_RANGE", Some("INT8MULTI_RANGE_ARRAY")),
-        "anymultirange" => ("ANYMULTI_RANGE", None),
-        "anycompatiblemultirange" => ("ANYCOMPATIBLEMULTI_RANGE", None),
-        "pg_brin_bloom_summary" => ("PG_BRIN_BLOOM_SUMMARY", None),
-        "pg_brin_minmax_multi_summary" => ("PG_BRIN_MINMAX_MULTI_SUMMARY", None),
-        "pg_mcv_list" => ("PG_MCV_LIST", None),
         "pg_snapshot" => ("PG_SNAPSHOT", Some("PG_SNAPSHOT_ARRAY")),
-        "anycompatible" => ("ANYCOMPATIBLE", None),
-        "anycompatiblearray" => ("ANYCOMPATIBLEARRAY", None),
-        "anycompatiblenonarray" => ("ANYCOMPATIBLENONARRAY", None),
-        "anycompatiblerange" => ("ANYCOMPATIBLE_RANGE", None),
         _ => return None,
     };
     let ident = if dimensions == 0 { scalar } else { array? };
@@ -196,7 +163,14 @@ mod tests {
             type_ident("pg_catalog.int4", 1).unwrap().to_string(),
             "INT4_ARRAY"
         );
+        assert_eq!(type_ident("INT4", 0).unwrap().to_string(), "INT4");
         assert_eq!(type_ident("decimal", 0).unwrap().to_string(), "NUMERIC");
+        assert_eq!(
+            type_ident("character varying", 0).unwrap().to_string(),
+            "VARCHAR"
+        );
+        assert_eq!(type_ident("any", 0), None);
+        assert_eq!(type_ident("pg_brin_bloom_summary", 0), None);
         assert_eq!(type_ident("citext", 0), None);
     }
 }

@@ -305,12 +305,14 @@ pub struct CreateAuthorParams<'a> {
 Default: `false`. Available only for `postgres`, `tokio-postgres`, and `deadpool-postgres`.
 When enabled, plain static-query functions and `-- :if` dynamic-filter functions whose parameters
 have known PostgreSQL `Type` constants use the driver's `query_typed*` APIs, avoiding the prepare
-round trip. Queries with enum, domain, `citext`, `hstore`, or another unknown parameter type keep
-the existing prepared-statement path.
+round trip. Queries with enum, domain, `citext`, `hstore`, another unknown parameter type, or a
+pseudo-type such as `any` keep the existing prepared-statement path.
 
 `prepare_<fn>` and `<fn>_with` remain unchanged for callers that want prepared statements. Typed
 `:exec` queries on `tokio-postgres` and `deadpool-postgres` drain a typed stream and therefore
 require `futures-util`, as their existing `:many` stream helpers do.
+On `deadpool-postgres`, a pooled `Transaction` should use `prepare_<fn>` / `<fn>_with` because
+typed plain functions take the pooled `Client`.
 
 #### Dynamic filters with `-- :if`
 

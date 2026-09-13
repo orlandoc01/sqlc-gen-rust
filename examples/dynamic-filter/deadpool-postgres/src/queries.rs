@@ -1224,7 +1224,7 @@ pub async fn touch_users(
     params: TouchUsersParams<'_>,
 ) -> Result<u64, deadpool_postgres::tokio_postgres::Error> {
     let (sql, values) = touch_users_query(&params);
-    let mut s = ::std::pin::pin!(
+    let mut rows = ::std::pin::pin!(
         client
             .query_typed_raw(
                 sql.as_str(),
@@ -1232,11 +1232,11 @@ pub async fn touch_users(
             )
             .await?
     );
-    while futures_util::TryStreamExt::try_next(&mut s)
+    while futures_util::TryStreamExt::try_next(&mut rows)
         .await?
         .is_some()
     {}
-    let rows_affected = s.rows_affected().unwrap_or(0);
+    let rows_affected = rows.rows_affected().unwrap_or(0);
     Ok(rows_affected)
 }
 pub const LIST_ALL_USERS: &str = r"SELECT id, email, phone
@@ -1455,7 +1455,7 @@ pub async fn set_user_phone(
     params: SetUserPhoneParams<'_>,
 ) -> Result<u64, deadpool_postgres::tokio_postgres::Error> {
     let (sql, values) = set_user_phone_query(&params);
-    let mut s = ::std::pin::pin!(
+    let mut rows = ::std::pin::pin!(
         client
             .query_typed_raw(
                 sql.as_str(),
@@ -1463,11 +1463,11 @@ pub async fn set_user_phone(
             )
             .await?
     );
-    while futures_util::TryStreamExt::try_next(&mut s)
+    while futures_util::TryStreamExt::try_next(&mut rows)
         .await?
         .is_some()
     {}
-    let rows_affected = s.rows_affected().unwrap_or(0);
+    let rows_affected = rows.rows_affected().unwrap_or(0);
     Ok(rows_affected)
 }
 pub const GET_USER_BY_EMAIL: &str = r"SELECT id, email, phone
@@ -1602,7 +1602,7 @@ pub async fn update_user_email(
     params: UpdateUserEmailParams<'_>,
 ) -> Result<(), deadpool_postgres::tokio_postgres::Error> {
     let (sql, values) = update_user_email_query(&params);
-    let mut s = ::std::pin::pin!(
+    let mut rows = ::std::pin::pin!(
         client
             .query_typed_raw(
                 sql.as_str(),
@@ -1610,7 +1610,7 @@ pub async fn update_user_email(
             )
             .await?
     );
-    while futures_util::TryStreamExt::try_next(&mut s)
+    while futures_util::TryStreamExt::try_next(&mut rows)
         .await?
         .is_some()
     {}

@@ -1532,7 +1532,7 @@ fn search_sync_entries_query(
 ) {
     let args = [dynfilter::Arg::from_option(&params.state)];
     let (sql, binds) = SEARCH_SYNC_ENTRIES_DYN.build(&args);
-    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
             dynfilter::Bind::Arg(0usize) => &params.state as _,
@@ -1556,6 +1556,114 @@ pub async fn search_sync_entries_stream(
     let (sql, values) = search_sync_entries_query(&params);
     client.query_raw(sql.as_str(), values).await
 }
+pub const UPDATE_KNOWN_TYPES: &str = r"UPDATE mapping
+SET bool_array_val = $1,
+    timestamptz_val = $2,
+    timestamp_val = $3,
+    date_val = $4,
+    uuid_val = $5,
+    json_val = $6,
+    jsonb_val = $7,
+    int_val = $8,
+    bytea_val = $9,
+    text_val = $10,
+    bool_val = $11,
+    double_val = $12
+WHERE id = $13";
+#[derive(Debug, Clone)]
+pub struct UpdateKnownTypesParams<'a> {
+    pub bool_array_val: &'a [bool],
+    pub timestamptz_val: chrono::DateTime<chrono::Utc>,
+    pub timestamp_val: chrono::NaiveDateTime,
+    pub date_val: chrono::NaiveDate,
+    pub uuid_val: uuid::Uuid,
+    pub json_val: serde_json::Value,
+    pub jsonb_val: serde_json::Value,
+    pub int_val: i32,
+    pub bytea_val: &'a [u8],
+    pub text_val: &'a str,
+    pub bool_val: bool,
+    pub double_val: f64,
+    pub id: i64,
+}
+pub async fn prepare_update_known_types(
+    client: &impl tokio_postgres::GenericClient,
+) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
+    client.prepare(UPDATE_KNOWN_TYPES).await
+}
+pub async fn update_known_types(
+    client: &impl tokio_postgres::GenericClient,
+    params: UpdateKnownTypesParams<'_>,
+) -> Result<u64, tokio_postgres::Error> {
+    let values: &[(
+        &(dyn tokio_postgres::types::ToSql + ::std::marker::Sync),
+        tokio_postgres::types::Type,
+    )] = &[
+        (
+            &params.bool_array_val,
+            tokio_postgres::types::Type::BOOL_ARRAY,
+        ),
+        (
+            &params.timestamptz_val,
+            tokio_postgres::types::Type::TIMESTAMPTZ,
+        ),
+        (
+            &params.timestamp_val,
+            tokio_postgres::types::Type::TIMESTAMP,
+        ),
+        (&params.date_val, tokio_postgres::types::Type::DATE),
+        (&params.uuid_val, tokio_postgres::types::Type::UUID),
+        (&params.json_val, tokio_postgres::types::Type::JSON),
+        (&params.jsonb_val, tokio_postgres::types::Type::JSONB),
+        (&params.int_val, tokio_postgres::types::Type::INT4),
+        (&params.bytea_val, tokio_postgres::types::Type::BYTEA),
+        (&params.text_val, tokio_postgres::types::Type::TEXT),
+        (&params.bool_val, tokio_postgres::types::Type::BOOL),
+        (&params.double_val, tokio_postgres::types::Type::FLOAT8),
+        (&params.id, tokio_postgres::types::Type::INT8),
+    ];
+    let mut rows = ::std::pin::pin!(
+        client
+            .query_typed_raw(
+                UPDATE_KNOWN_TYPES,
+                values.iter().map(|(value, typ)| (*value, typ.clone()))
+            )
+            .await?
+    );
+    while futures_util::TryStreamExt::try_next(&mut rows)
+        .await?
+        .is_some()
+    {}
+    let rows_affected = rows.rows_affected().unwrap_or(0);
+    Ok(rows_affected)
+}
+pub async fn update_known_types_with(
+    client: &impl tokio_postgres::GenericClient,
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
+    params: UpdateKnownTypesParams<'_>,
+) -> Result<u64, tokio_postgres::Error> {
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[
+        &params.bool_array_val,
+        &params.timestamptz_val,
+        &params.timestamp_val,
+        &params.date_val,
+        &params.uuid_val,
+        &params.json_val,
+        &params.jsonb_val,
+        &params.int_val,
+        &params.bytea_val,
+        &params.text_val,
+        &params.bool_val,
+        &params.double_val,
+        &params.id,
+    ];
+    client.execute(statement, values).await
+}
 pub const QUERIES: &[(&str, &str)] = &[
     ("GetMapping", GET_MAPPING),
     ("InsertMapping", INSERT_MAPPING),
@@ -1564,4 +1672,5 @@ pub const QUERIES: &[(&str, &str)] = &[
     ("GetByStateWithMinimumID", GET_BY_STATE_WITH_MINIMUM_ID),
     ("GetSyncEntry", GET_SYNC_ENTRY),
     ("SearchSyncEntries", SEARCH_SYNC_ENTRIES),
+    ("UpdateKnownTypes", UPDATE_KNOWN_TYPES),
 ];

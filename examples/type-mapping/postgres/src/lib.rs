@@ -122,6 +122,42 @@ mod tests {
         assert_eq!(mapping.composite_val.r, 12.3);
         assert_eq!(mapping.composite_val.i, 45.6);
 
+        let bool_array_val = [false, true, true];
+        let bytea_val = [9, 8];
+        let uuid_val = "f898c203-0d2d-42bb-a8df-f1692fd8d31d".parse().unwrap();
+        assert_eq!(
+            queries::update_known_types(
+                client,
+                queries::UpdateKnownTypesParams {
+                    bool_array_val: &bool_array_val,
+                    timestamptz_val,
+                    timestamp_val,
+                    date_val,
+                    uuid_val,
+                    json_val: serde_json::json!({"updated": "json"}),
+                    jsonb_val: serde_json::json!({"updated": "jsonb"}),
+                    int_val: 42,
+                    bytea_val: &bytea_val,
+                    text_val: "updated",
+                    bool_val: false,
+                    double_val: -4.5,
+                    id: 1,
+                },
+            )
+            .unwrap(),
+            1
+        );
+        let mapping = queries::get_mapping(client).unwrap();
+        assert!(!mapping.bool_val);
+        assert_eq!(mapping.bool_array_val, bool_array_val);
+        assert_eq!(mapping.int_val, 42);
+        assert_eq!(mapping.double_val, -4.5);
+        assert_eq!(mapping.text_val, "updated");
+        assert_eq!(mapping.bytea_val, bytea_val);
+        assert_eq!(mapping.json_val, serde_json::json!({"updated": "json"}));
+        assert_eq!(mapping.jsonb_val, serde_json::json!({"updated": "jsonb"}));
+        assert_eq!(mapping.uuid_val, uuid_val);
+
         client.execute("DELETE FROM mapping", &[]).unwrap();
         let empty_bool_array = [];
         queries::insert_mapping(

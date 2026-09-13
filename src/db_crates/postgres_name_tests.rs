@@ -1,11 +1,12 @@
 use crate::{
     db_crates::{
         Postgres, params_common,
+        postgres_params::PostgresParams,
         sqlx::Sqlx,
-        test_support::{column, query},
+        test_support::{column, parse_query, query},
     },
     plugin,
-    query::{self, Query, ReturnRowAttributes, ReturningRows},
+    query::{self, Query, ReturningRows},
 };
 
 fn parsed_queries(
@@ -14,23 +15,24 @@ fn parsed_queries(
 ) -> (Vec<ReturningRows>, Vec<Query>) {
     queries
         .into_iter()
-        .map(|query| {
-            let row =
-                ReturningRows::from_query(type_map, &ReturnRowAttributes::default(), None, &query)
-                    .unwrap();
-            let mut query = Query::from_query(type_map, &query).unwrap();
-            query.apply_dynfilter();
-            (row, query)
-        })
+        .map(|query| parse_query(type_map, None, &query))
         .unzip()
 }
 
 fn collision_error(backend: Postgres, first: plugin::Query, second: plugin::Query) -> String {
     let type_map = backend.db_type_map();
     let (rows, queries) = parsed_queries(&type_map, vec![first, second]);
-    params_common::generate_queries(&backend, &rows, &queries, 1)
-        .unwrap_err()
-        .to_string()
+    params_common::generate_queries(
+        &PostgresParams {
+            backend,
+            query_typed: false,
+        },
+        &rows,
+        &queries,
+        1,
+    )
+    .unwrap_err()
+    .to_string()
 }
 
 #[test]
@@ -238,7 +240,18 @@ fn reserves_only_the_backend_iterator_suffix() {
             ),
         ],
     );
-    assert!(params_common::generate_queries(&sync, &rows, &queries, 1).is_ok());
+    assert!(
+        params_common::generate_queries(
+            &PostgresParams {
+                backend: sync,
+                query_typed: false,
+            },
+            &rows,
+            &queries,
+            1,
+        )
+        .is_ok()
+    );
 
     let tokio = Postgres::Tokio;
     let tokio_type_map = tokio.db_type_map();
@@ -261,7 +274,18 @@ fn reserves_only_the_backend_iterator_suffix() {
             ),
         ],
     );
-    assert!(params_common::generate_queries(&tokio, &rows, &queries, 1).is_ok());
+    assert!(
+        params_common::generate_queries(
+            &PostgresParams {
+                backend: tokio,
+                query_typed: false,
+            },
+            &rows,
+            &queries,
+            1,
+        )
+        .is_ok()
+    );
 }
 
 #[test]

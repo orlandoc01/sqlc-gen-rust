@@ -2,10 +2,10 @@ use crate::{
     db_crates::{
         Postgres, params_common,
         postgres_params::PostgresParams,
-        test_support::{column, identifier, query},
+        test_support::{column, identifier, parse_query, query},
     },
     plugin,
-    query::{self, EmbeddedTable, Query, ReturnRowAttributes, ReturningRows},
+    query::{self, EmbeddedTable, ReturningRows},
 };
 
 fn generated_tokens(
@@ -23,11 +23,17 @@ fn generated_tokens_with_type_map(
     query: plugin::Query,
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
-    let row =
-        ReturningRows::from_query(type_map, &ReturnRowAttributes::default(), None, &query).unwrap();
-    let mut query = Query::from_query(type_map, &query).unwrap();
-    query.apply_dynfilter();
-    params_common::generate_queries(&backend, &[row], &[query], query_parameter_limit).unwrap()
+    let (row, query) = parse_query(type_map, None, &query);
+    params_common::generate_queries(
+        &PostgresParams {
+            backend,
+            query_typed: false,
+        },
+        &[row],
+        &[query],
+        query_parameter_limit,
+    )
+    .unwrap()
 }
 
 fn generated(backend: Postgres, query: plugin::Query, query_parameter_limit: usize) -> String {
@@ -40,10 +46,7 @@ fn generated_typed(
     query_parameter_limit: usize,
 ) -> String {
     let type_map = backend.db_type_map();
-    let row = ReturningRows::from_query(&type_map, &ReturnRowAttributes::default(), None, &query)
-        .unwrap();
-    let mut query = Query::from_query(&type_map, &query).unwrap();
-    query.apply_dynfilter();
+    let (row, query) = parse_query(&type_map, None, &query);
     params_common::generate_queries(
         &PostgresParams {
             backend,
@@ -156,41 +159,129 @@ fn maps_typed_arrays_and_catalog_spellings() {
 }
 
 #[test]
-fn falls_back_for_unknown_typed_parameters() {
+fn maps_character_varying_to_varchar() {
     for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
         let mut type_map = backend.db_type_map();
         type_map.insert_db_type(
-            "state",
-            query::RsType::new(syn::parse_str("crate::State").unwrap(), None, true),
+            "character varying",
+            query::RsType::new(
+                syn::parse_str("String").unwrap(),
+                Some(syn::parse_str("str").unwrap()),
+                false,
+            ),
         );
-        let enum_column = plugin::Column {
-            r#type: Some(identifier("state")),
+        let mut value = column("value", false);
+        value.r#type = Some(identifier("character varying"));
+        let tokens = generated_tokens_with_type_map(
+            backend,
+            &type_map,
+            query(
+                "ByValue",
+                ":one",
+                "SELECT id FROM authors WHERE value = $1",
+                vec![column("id", false)],
+                vec![(1, value)],
+            ),
+            1,
+        )
+        .to_string();
+        assert!(!tokens.contains("query_typed"));
+
+        let (row, query) = parse_query(
+            &type_map,
+            None,
+            &query(
+                "ByValue",
+                ":one",
+                "SELECT id FROM authors WHERE value = $1",
+                vec![column("id", false)],
+                vec![(1, {
+                    let mut value = column("value", false);
+                    value.r#type = Some(identifier("character varying"));
+                    value
+                })],
+            ),
+        );
+        let typed = params_common::generate_queries(
+            &PostgresParams {
+                backend,
+                query_typed: true,
+            },
+            &[row],
+            &[query],
+            1,
+        )
+        .unwrap()
+        .to_string();
+        assert!(typed.contains("Type :: VARCHAR"));
+    }
+}
+
+#[test]
+fn typed_many_without_parameters_uses_an_empty_values_slice() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated_typed(
+            backend,
+            query(
+                "ListAuthors",
+                ":many",
+                "SELECT id FROM authors",
+                vec![column("id", false)],
+                Vec::new(),
+            ),
+            1,
+        );
+        assert!(tokens.contains("let values : & [(& (dyn"));
+        assert!(tokens.contains("= & [] ;"));
+        assert!(tokens.contains("query_typed (LIST_AUTHORS , values)"));
+    }
+}
+
+#[test]
+fn typed_execrows_drains_each_backend_stream() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated_typed(
+            backend,
+            query(
+                "TouchAuthors",
+                ":execrows",
+                "UPDATE authors SET id = id WHERE id = $1",
+                Vec::new(),
+                vec![(1, column("id", false))],
+            ),
+            1,
+        );
+        let drain = match backend {
+            Postgres::Sync => "postgres :: fallible_iterator :: FallibleIterator :: next",
+            Postgres::Tokio | Postgres::Deadpool => "futures_util :: TryStreamExt :: try_next",
+        };
+        assert!(tokens.contains(drain));
+    }
+}
+
+#[test]
+fn falls_back_for_unknown_typed_parameters() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let mut type_map = backend.db_type_map();
+        let any_column = plugin::Column {
+            r#type: Some(identifier("any")),
             ..column("state", false)
         };
-        let row = ReturningRows::from_query(
+        type_map.insert_db_type(
+            "any",
+            query::RsType::new(syn::parse_str("crate::Any").unwrap(), None, true),
+        );
+        let (row, query) = parse_query(
             &type_map,
-            &ReturnRowAttributes::default(),
             None,
             &query(
                 "ByState",
                 ":one",
                 "SELECT id FROM authors WHERE state = $1",
                 vec![column("id", false)],
-                vec![(1, enum_column.clone())],
+                vec![(1, any_column)],
             ),
-        )
-        .unwrap();
-        let query = Query::from_query(
-            &type_map,
-            &query(
-                "ByState",
-                ":one",
-                "SELECT id FROM authors WHERE state = $1",
-                vec![column("id", false)],
-                vec![(1, enum_column)],
-            ),
-        )
-        .unwrap();
+        );
         let tokens = params_common::generate_queries(
             &PostgresParams {
                 backend,
@@ -218,7 +309,6 @@ fn generates_typed_dynamic_queries_and_leaves_the_default_off() {
             vec![(1, column("id", false))],
         );
         let typed = generated_typed(backend, query.clone(), 1);
-        assert!(typed.contains("Vec < (& (dyn"));
         assert!(typed.contains("Type :: INT4"));
         assert!(typed.contains("query_typed (sql . as_str ()"));
         assert!(typed.contains("query_typed_raw (sql . as_str ()"));
@@ -529,7 +619,14 @@ fn embedded_rows_decode_by_select_ordinal() {
     };
 
     for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
-        let tokens = params_common::ParamsGenerator::returning_row(&backend, &row).to_string();
+        let tokens = params_common::ParamsGenerator::returning_row(
+            &PostgresParams {
+                backend,
+                query_typed: false,
+            },
+            &row,
+        )
+        .to_string();
         assert!(tokens.contains("before : row . try_get (0) ?"));
         assert!(tokens.contains("id : row . try_get (1) ?"));
         assert!(tokens.contains("name : row . try_get (2) ?"));

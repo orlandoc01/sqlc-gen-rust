@@ -82,3 +82,19 @@ SELECT id, state FROM sync_mappings
 WHERE TRUE
   AND state = @state -- :if @state
 ORDER BY id;
+
+-- name: UpdateKnownTypes :execrows
+UPDATE mapping
+SET bool_array_val = $1,
+    timestamptz_val = $2,
+    timestamp_val = $3,
+    date_val = $4,
+    uuid_val = $5,
+    json_val = $6,
+    jsonb_val = $7,
+    int_val = $8,
+    bytea_val = $9,
+    text_val = $10,
+    bool_val = $11,
+    double_val = $12
+WHERE id = $13;
