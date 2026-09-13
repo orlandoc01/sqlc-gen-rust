@@ -139,13 +139,7 @@ async fn main() {
 }
 ```
 
-- [`sqlx-postgres` example](./examples/authors/sqlx-postgres/src/lib.rs)
-- [`sqlx-mysql` example](./examples/authors/sqlx-mysql/src/lib.rs)
-- [`sqlx-sqlite` example](./examples/authors/sqlx-sqlite/src/lib.rs)
-- [`rusqlite` example](./examples/authors/rusqlite/src/lib.rs)
-- [`postgres` example](./examples/authors/postgres/src/lib.rs)
-- [`tokio-postgres` example](./examples/authors/tokio-postgres/src/lib.rs)
-- [`deadpool-postgres` example](./examples/authors/deadpool-postgres/src/lib.rs)
+Each backend note below links to the same authors example written against that crate.
 
 ## Supported Features
 
@@ -186,6 +180,8 @@ across backends.
 
 ### sqlx-postgres, sqlx-mysql, sqlx-sqlite
 
+Examples: [`sqlx-postgres`](./examples/authors/sqlx-postgres/src/lib.rs), [`sqlx-mysql`](./examples/authors/sqlx-mysql/src/lib.rs), [`sqlx-sqlite`](./examples/authors/sqlx-sqlite/src/lib.rs)
+
 Generated functions are async and take any `sqlx::Executor`, so a pool, a connection, or a
 transaction all work.
 
@@ -194,6 +190,8 @@ transaction all work.
 > For example, `13.0` may be stored as `13`. The generated code always reads NUMERIC as `f64` (`REAL`), so decoding can fail with a type mismatch when SQLite returns an integer. See the [SQLite type affinity docs](https://www.sqlite.org/datatype3.html) and the [`sqlx` type mapping docs](https://docs.rs/sqlx/latest/sqlx/sqlite/types/index.html) for details.
 
 ### rusqlite
+
+Example: [`examples/authors/rusqlite`](./examples/authors/rusqlite/src/lib.rs)
 
 Rusqlite functions are synchronous and accept connections, transactions, and savepoints through the generated trait:
 
@@ -215,11 +213,15 @@ with `RETURNING` succeeds and reports its write; `:execrows` returns `u64` from 
 
 ### postgres
 
+Example: [`examples/authors/postgres`](./examples/authors/postgres/src/lib.rs)
+
 For `postgres`, generated functions are synchronous and take `&mut impl postgres::GenericClient`.
 Static queries expose `prepare_<fn>` and `<fn>_with`; `:many` also exposes `<fn>_iter`, returning
 `Result<postgres::RowIter<'_>, postgres::Error>`.
 
 ### tokio-postgres
+
+Example: [`examples/authors/tokio-postgres`](./examples/authors/tokio-postgres/src/lib.rs)
 
 For `tokio-postgres`, generated functions take `&impl tokio_postgres::GenericClient`. Static queries
 also expose preparation, reusable statements, and row streaming:
@@ -231,6 +233,8 @@ let stream = queries::list_authors_stream(&client).await?;
 ```
 
 ### deadpool-postgres
+
+Example: [`examples/authors/deadpool-postgres`](./examples/authors/deadpool-postgres/src/lib.rs)
 
 `deadpool-postgres` generates the same API as `tokio-postgres` with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`.
 
