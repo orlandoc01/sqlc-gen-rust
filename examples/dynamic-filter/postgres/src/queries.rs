@@ -1026,7 +1026,10 @@ fn search_users_query<'p>(
     params: &'p SearchUsersParams<'_>,
 ) -> (
     String,
-    Vec<&'p (dyn postgres::types::ToSql + ::std::marker::Sync)>,
+    Vec<(
+        &'p (dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )>,
 ) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
@@ -1039,14 +1042,16 @@ fn search_users_query<'p>(
         dynfilter::Arg::Flag(params.id_desc),
     ];
     let (sql, binds) = SEARCH_USERS_DYN.build(&args);
-    let values: Vec<&(dyn postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
-            dynfilter::Bind::Arg(0usize) => &params.email as _,
-            dynfilter::Bind::Arg(1usize) => &params.phone as _,
-            dynfilter::Bind::Arg(2usize) => &params.orders_since as _,
-            dynfilter::Bind::Arg(3usize) => &params.ids as _,
-            dynfilter::Bind::Arg(4usize) => &params.row_limit as _,
+            dynfilter::Bind::Arg(0usize) => (&params.email as _, postgres::types::Type::TEXT),
+            dynfilter::Bind::Arg(1usize) => (&params.phone as _, postgres::types::Type::TEXT),
+            dynfilter::Bind::Arg(2usize) => {
+                (&params.orders_since as _, postgres::types::Type::TEXT)
+            }
+            dynfilter::Bind::Arg(3usize) => (&params.ids as _, postgres::types::Type::INT8_ARRAY),
+            dynfilter::Bind::Arg(4usize) => (&params.row_limit as _, postgres::types::Type::INT4),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         })
         .collect();
@@ -1057,7 +1062,7 @@ pub fn search_users(
     params: SearchUsersParams<'_>,
 ) -> Result<Vec<SearchUsersRow>, postgres::Error> {
     let (sql, values) = search_users_query(&params);
-    let rows = client.query(sql.as_str(), &values)?;
+    let rows = client.query_typed(sql.as_str(), &values)?;
     rows.iter().map(SearchUsersRow::from_row).collect()
 }
 pub fn search_users_iter<'c>(
@@ -1065,7 +1070,10 @@ pub fn search_users_iter<'c>(
     params: SearchUsersParams<'_>,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
     let (sql, values) = search_users_query(&params);
-    client.query_raw(sql.as_str(), values)
+    client.query_typed_raw(
+        sql.as_str(),
+        values.iter().map(|(value, typ)| (*value, typ.clone())),
+    )
 }
 pub const COUNT_USERS: &str = r"SELECT COUNT(*) AS total
 FROM users
@@ -1099,18 +1107,21 @@ fn count_users_query<'p>(
     params: &'p CountUsersParams<'_>,
 ) -> (
     String,
-    Vec<&'p (dyn postgres::types::ToSql + ::std::marker::Sync)>,
+    Vec<(
+        &'p (dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )>,
 ) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::from_option(&params.ids),
     ];
     let (sql, binds) = COUNT_USERS_DYN.build(&args);
-    let values: Vec<&(dyn postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
-            dynfilter::Bind::Arg(0usize) => &params.email as _,
-            dynfilter::Bind::Arg(1usize) => &params.ids as _,
+            dynfilter::Bind::Arg(0usize) => (&params.email as _, postgres::types::Type::TEXT),
+            dynfilter::Bind::Arg(1usize) => (&params.ids as _, postgres::types::Type::INT8_ARRAY),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         })
         .collect();
@@ -1121,7 +1132,7 @@ pub fn count_users(
     params: CountUsersParams<'_>,
 ) -> Result<CountUsersRow, postgres::Error> {
     let (sql, values) = count_users_query(&params);
-    let row = client.query_one(sql.as_str(), &values)?;
+    let row = client.query_typed_one(sql.as_str(), &values)?;
     CountUsersRow::from_row(&row)
 }
 pub fn count_users_opt(
@@ -1130,7 +1141,7 @@ pub fn count_users_opt(
 ) -> Result<Option<CountUsersRow>, postgres::Error> {
     let (sql, values) = count_users_query(&params);
     client
-        .query_opt(sql.as_str(), &values)?
+        .query_typed_opt(sql.as_str(), &values)?
         .map(|row| CountUsersRow::from_row(&row))
         .transpose()
 }
@@ -1155,18 +1166,21 @@ fn touch_users_query<'p>(
     params: &'p TouchUsersParams<'_>,
 ) -> (
     String,
-    Vec<&'p (dyn postgres::types::ToSql + ::std::marker::Sync)>,
+    Vec<(
+        &'p (dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )>,
 ) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::from_option(&params.ids),
     ];
     let (sql, binds) = TOUCH_USERS_DYN.build(&args);
-    let values: Vec<&(dyn postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
-            dynfilter::Bind::Arg(0usize) => &params.email as _,
-            dynfilter::Bind::Arg(1usize) => &params.ids as _,
+            dynfilter::Bind::Arg(0usize) => (&params.email as _, postgres::types::Type::TEXT),
+            dynfilter::Bind::Arg(1usize) => (&params.ids as _, postgres::types::Type::INT8_ARRAY),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         })
         .collect();
@@ -1177,7 +1191,13 @@ pub fn touch_users(
     params: TouchUsersParams<'_>,
 ) -> Result<u64, postgres::Error> {
     let (sql, values) = touch_users_query(&params);
-    client.execute(sql.as_str(), &values)
+    let mut rows = client.query_typed_raw(
+        sql.as_str(),
+        values.iter().map(|(value, typ)| (*value, typ.clone())),
+    )?;
+    while postgres::fallible_iterator::FallibleIterator::next(&mut rows)?.is_some() {}
+    let rows_affected = rows.rows_affected().unwrap_or(0);
+    Ok(rows_affected)
 }
 pub const LIST_ALL_USERS: &str = r"SELECT id, email, phone
 FROM users
@@ -1204,7 +1224,12 @@ pub fn prepare_list_all_users(
 pub fn list_all_users(
     client: &mut impl postgres::GenericClient,
 ) -> Result<Vec<ListAllUsersRow>, postgres::Error> {
-    self::list_all_users_with(client, LIST_ALL_USERS)
+    let values: &[(
+        &(dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )] = &[];
+    let rows = client.query_typed(LIST_ALL_USERS, values)?;
+    rows.iter().map(ListAllUsersRow::from_row).collect()
 }
 pub fn list_all_users_with(
     client: &mut impl postgres::GenericClient,
@@ -1219,7 +1244,14 @@ pub fn list_all_users_with(
 pub fn list_all_users_iter<'c>(
     client: &'c mut impl postgres::GenericClient,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    self::list_all_users_iter_with(client, LIST_ALL_USERS)
+    let values: &[(
+        &(dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )] = &[];
+    client.query_typed_raw(
+        LIST_ALL_USERS,
+        values.iter().map(|(value, typ)| (*value, typ.clone())),
+    )
 }
 pub fn list_all_users_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
@@ -1267,18 +1299,21 @@ fn search_users_by_profile_query<'p>(
     params: &'p SearchUsersByProfileParams<'_>,
 ) -> (
     String,
-    Vec<&'p (dyn postgres::types::ToSql + ::std::marker::Sync)>,
+    Vec<(
+        &'p (dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )>,
 ) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::from_option(&params.profile),
     ];
     let (sql, binds) = SEARCH_USERS_BY_PROFILE_DYN.build(&args);
-    let values: Vec<&(dyn postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
-            dynfilter::Bind::Arg(0usize) => &params.email as _,
-            dynfilter::Bind::Arg(1usize) => &params.profile as _,
+            dynfilter::Bind::Arg(0usize) => (&params.email as _, postgres::types::Type::TEXT),
+            dynfilter::Bind::Arg(1usize) => (&params.profile as _, postgres::types::Type::JSONB),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         })
         .collect();
@@ -1289,7 +1324,7 @@ pub fn search_users_by_profile(
     params: SearchUsersByProfileParams<'_>,
 ) -> Result<Vec<SearchUsersByProfileRow>, postgres::Error> {
     let (sql, values) = search_users_by_profile_query(&params);
-    let rows = client.query(sql.as_str(), &values)?;
+    let rows = client.query_typed(sql.as_str(), &values)?;
     rows.iter().map(SearchUsersByProfileRow::from_row).collect()
 }
 pub fn search_users_by_profile_iter<'c>(
@@ -1297,7 +1332,10 @@ pub fn search_users_by_profile_iter<'c>(
     params: SearchUsersByProfileParams<'_>,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
     let (sql, values) = search_users_by_profile_query(&params);
-    client.query_raw(sql.as_str(), values)
+    client.query_typed_raw(
+        sql.as_str(),
+        values.iter().map(|(value, typ)| (*value, typ.clone())),
+    )
 }
 pub const SET_USER_PHONE: &str = r"UPDATE users SET phone = $1
 WHERE TRUE
@@ -1320,18 +1358,21 @@ fn set_user_phone_query<'p>(
     params: &'p SetUserPhoneParams<'_>,
 ) -> (
     String,
-    Vec<&'p (dyn postgres::types::ToSql + ::std::marker::Sync)>,
+    Vec<(
+        &'p (dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )>,
 ) {
     let args = [
         dynfilter::Arg::Active,
         dynfilter::Arg::from_option(&params.user_id),
     ];
     let (sql, binds) = SET_USER_PHONE_DYN.build(&args);
-    let values: Vec<&(dyn postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
-            dynfilter::Bind::Arg(0usize) => &params.new_phone as _,
-            dynfilter::Bind::Arg(1usize) => &params.user_id as _,
+            dynfilter::Bind::Arg(0usize) => (&params.new_phone as _, postgres::types::Type::TEXT),
+            dynfilter::Bind::Arg(1usize) => (&params.user_id as _, postgres::types::Type::INT8),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         })
         .collect();
@@ -1342,7 +1383,13 @@ pub fn set_user_phone(
     params: SetUserPhoneParams<'_>,
 ) -> Result<u64, postgres::Error> {
     let (sql, values) = set_user_phone_query(&params);
-    client.execute(sql.as_str(), &values)
+    let mut rows = client.query_typed_raw(
+        sql.as_str(),
+        values.iter().map(|(value, typ)| (*value, typ.clone())),
+    )?;
+    while postgres::fallible_iterator::FallibleIterator::next(&mut rows)?.is_some() {}
+    let rows_affected = rows.rows_affected().unwrap_or(0);
+    Ok(rows_affected)
 }
 pub const GET_USER_BY_EMAIL: &str = r"SELECT id, email, phone
 FROM users
@@ -1379,14 +1426,17 @@ fn get_user_by_email_query<'p>(
     params: &'p GetUserByEmailParams<'_>,
 ) -> (
     String,
-    Vec<&'p (dyn postgres::types::ToSql + ::std::marker::Sync)>,
+    Vec<(
+        &'p (dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )>,
 ) {
     let args = [dynfilter::Arg::from_option(&params.email)];
     let (sql, binds) = GET_USER_BY_EMAIL_DYN.build(&args);
-    let values: Vec<&(dyn postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
-            dynfilter::Bind::Arg(0usize) => &params.email as _,
+            dynfilter::Bind::Arg(0usize) => (&params.email as _, postgres::types::Type::TEXT),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         })
         .collect();
@@ -1397,7 +1447,7 @@ pub fn get_user_by_email(
     params: GetUserByEmailParams<'_>,
 ) -> Result<GetUserByEmailRow, postgres::Error> {
     let (sql, values) = get_user_by_email_query(&params);
-    let row = client.query_one(sql.as_str(), &values)?;
+    let row = client.query_typed_one(sql.as_str(), &values)?;
     GetUserByEmailRow::from_row(&row)
 }
 pub fn get_user_by_email_opt(
@@ -1406,7 +1456,7 @@ pub fn get_user_by_email_opt(
 ) -> Result<Option<GetUserByEmailRow>, postgres::Error> {
     let (sql, values) = get_user_by_email_query(&params);
     client
-        .query_opt(sql.as_str(), &values)?
+        .query_typed_opt(sql.as_str(), &values)?
         .map(|row| GetUserByEmailRow::from_row(&row))
         .transpose()
 }
@@ -1431,7 +1481,10 @@ fn update_user_email_query<'p>(
     params: &'p UpdateUserEmailParams<'_>,
 ) -> (
     String,
-    Vec<&'p (dyn postgres::types::ToSql + ::std::marker::Sync)>,
+    Vec<(
+        &'p (dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )>,
 ) {
     let args = [
         dynfilter::Arg::Active,
@@ -1439,12 +1492,12 @@ fn update_user_email_query<'p>(
         dynfilter::Arg::from_option(&params.email),
     ];
     let (sql, binds) = UPDATE_USER_EMAIL_DYN.build(&args);
-    let values: Vec<&(dyn postgres::types::ToSql + ::std::marker::Sync)> = binds
+    let values = binds
         .iter()
         .map(|bind| match bind {
-            dynfilter::Bind::Arg(0usize) => &params.new_email as _,
-            dynfilter::Bind::Arg(1usize) => &params.id as _,
-            dynfilter::Bind::Arg(2usize) => &params.email as _,
+            dynfilter::Bind::Arg(0usize) => (&params.new_email as _, postgres::types::Type::TEXT),
+            dynfilter::Bind::Arg(1usize) => (&params.id as _, postgres::types::Type::INT8),
+            dynfilter::Bind::Arg(2usize) => (&params.email as _, postgres::types::Type::TEXT),
             _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
         })
         .collect();
@@ -1455,7 +1508,12 @@ pub fn update_user_email(
     params: UpdateUserEmailParams<'_>,
 ) -> Result<(), postgres::Error> {
     let (sql, values) = update_user_email_query(&params);
-    client.execute(sql.as_str(), &values).map(|_| ())
+    let mut rows = client.query_typed_raw(
+        sql.as_str(),
+        values.iter().map(|(value, typ)| (*value, typ.clone())),
+    )?;
+    while postgres::fallible_iterator::FallibleIterator::next(&mut rows)?.is_some() {}
+    Ok(())
 }
 pub const QUERIES: &[(&str, &str)] = &[
     ("SearchUsers", SEARCH_USERS),

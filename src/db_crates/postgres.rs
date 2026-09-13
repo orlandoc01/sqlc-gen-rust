@@ -84,6 +84,7 @@ impl Postgres {
             row: self.item("Row"),
             error: self.item("Error"),
             to_sql: self.item("types::ToSql"),
+            typ: self.item("types::Type"),
         }
     }
 
@@ -157,4 +158,5 @@ pub(crate) struct PostgresPaths {
     pub(crate) row: proc_macro2::TokenStream,
     pub(crate) error: proc_macro2::TokenStream,
     pub(crate) to_sql: proc_macro2::TokenStream,
+    pub(crate) typ: proc_macro2::TokenStream,
 }

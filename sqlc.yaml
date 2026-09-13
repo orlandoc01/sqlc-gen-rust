@@ -179,6 +179,7 @@ sql:
         options:
           output: queries.rs
           db_crate: tokio-postgres
+          query_typed: true
           overrides:
             - db_type: timestamptz
               rs_type: chrono::DateTime<chrono::Utc>
@@ -200,6 +201,7 @@ sql:
         options:
           output: queries.rs
           db_crate: postgres
+          query_typed: true
           overrides:
             - db_type: timestamptz
               rs_type: chrono::DateTime<chrono::Utc>
@@ -221,6 +223,7 @@ sql:
         options:
           output: queries.rs
           db_crate: deadpool-postgres
+          query_typed: true
           overrides:
             - db_type: timestamptz
               rs_type: chrono::DateTime<chrono::Utc>
@@ -360,6 +363,7 @@ sql:
         options:
           output: queries.rs
           db_crate: tokio-postgres
+          query_typed: true
   - schema: examples/dynamic-filter/postgres/schema.sql
     queries: examples/dynamic-filter/postgres/queries.sql
     engine: postgresql
@@ -369,6 +373,7 @@ sql:
         options:
           output: queries.rs
           db_crate: postgres
+          query_typed: true
   - schema: examples/dynamic-filter/deadpool-postgres/schema.sql
     queries: examples/dynamic-filter/deadpool-postgres/queries.sql
     engine: postgresql
@@ -378,3 +383,4 @@ sql:
         options:
           output: queries.rs
           db_crate: deadpool-postgres
+          query_typed: true

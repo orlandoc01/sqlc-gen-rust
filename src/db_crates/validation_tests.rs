@@ -2,11 +2,12 @@ use crate::{
     db_crates::{
         DbCrate, Postgres, Sqlx,
         params_common::ParamsGenerator,
+        postgres_params::PostgresParams,
         rusqlite::Rusqlite,
-        test_support::{column, identifier, query},
+        test_support::{column, identifier, parse_query, query},
     },
     plugin,
-    query::{Annotation, Query, ReturnRowAttributes, ReturningRows},
+    query::{Annotation, Query},
 };
 
 fn generate(
@@ -17,20 +18,9 @@ fn generate(
     let type_map = backend.db_type_map();
     let (rows, queries): (Vec<_>, Vec<_>) = plugin_queries
         .into_iter()
-        .map(|plugin_query| {
-            let row = ReturningRows::from_query(
-                &type_map,
-                &ReturnRowAttributes::default(),
-                catalog,
-                &plugin_query,
-            )
-            .unwrap();
-            let mut query = Query::from_query(&type_map, &plugin_query).unwrap();
-            query.apply_dynfilter();
-            (row, query)
-        })
+        .map(|plugin_query| parse_query(&type_map, catalog, &plugin_query))
         .unzip();
-    backend.generate_queries(&rows, &queries, 1)
+    backend.generate_queries(&rows, &queries, 1, false)
 }
 
 fn generated_functions(
@@ -40,7 +30,11 @@ fn generated_functions(
     match backend {
         DbCrate::Sqlx(sqlx) => sqlx.generated_functions(query),
         DbCrate::Rusqlite => Rusqlite.generated_functions(query),
-        DbCrate::Postgres(postgres) => postgres.generated_functions(query),
+        DbCrate::Postgres(backend) => PostgresParams {
+            backend,
+            query_typed: false,
+        }
+        .generated_functions(query),
     }
 }
 
@@ -57,9 +51,7 @@ fn parsed_query(backend: DbCrate, annotation: Annotation, dynamic: bool) -> Quer
         vec![column("id", false)],
         vec![(1, column("id", false))],
     );
-    let mut query = Query::from_query(&backend.db_type_map(), &plugin_query).unwrap();
-    query.apply_dynfilter();
-    query
+    parse_query(&backend.db_type_map(), None, &plugin_query).1
 }
 
 fn backends() -> [DbCrate; 7] {

@@ -21,6 +21,7 @@ This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-
   - [PostgreSQL drivers](#postgresql-drivers)
 - [Options](#options)
   - [`db_crate`](#db_crate)
+  - [`query_typed`](#query_typed)
   - [Dynamic filters with `-- :if`](#dynamic-filters-with---if)
   - [`query_parameter_limit`](#query_parameter_limit)
   - [`overrides`](#overrides)
@@ -219,7 +220,8 @@ Example: [`examples/authors/postgres`](./examples/authors/postgres/src/lib.rs)
 
 For `postgres`, generated functions are synchronous and take `&mut impl postgres::GenericClient`.
 Static queries expose `prepare_<fn>` and `<fn>_with`. `:many` also exposes `<fn>_iter`, returning
-`Result<postgres::RowIter<'_>, postgres::Error>`.
+`Result<postgres::RowIter<'_>, postgres::Error>`. Set [`query_typed`](#query_typed) to use
+one-round-trip typed queries when parameter types are known.
 
 ### tokio-postgres
 
@@ -234,11 +236,13 @@ let author = queries::get_author_with(&client, &statement, id).await?;
 let stream = queries::list_authors_stream(&client).await?;
 ```
 
+Set [`query_typed`](#query_typed) to use one-round-trip typed queries when parameter types are known.
+
 ### deadpool-postgres
 
 Example: [`examples/authors/deadpool-postgres`](./examples/authors/deadpool-postgres/src/lib.rs)
 
-`deadpool-postgres` generates the same API as `tokio-postgres` with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`.
+`deadpool-postgres` generates the same API as `tokio-postgres` with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`. Set [`query_typed`](#query_typed) to use one-round-trip typed queries when parameter types are known; typed plain functions take a pooled `Client` because its 0.14 `GenericClient` trait predates the typed methods.
 
 ### PostgreSQL drivers
 
@@ -295,6 +299,20 @@ pub struct CreateAuthorParams<'a> {
     pub bio: Option<&'a str>,
 }
 ```
+
+### `query_typed`
+
+Default: `false`. Available only for `postgres`, `tokio-postgres`, and `deadpool-postgres`.
+When enabled, plain static-query functions and `-- :if` dynamic-filter functions whose parameters
+have known PostgreSQL `Type` constants use the driver's `query_typed*` APIs, avoiding the prepare
+round trip. Queries with enum, domain, `citext`, `hstore`, another unknown parameter type, or a
+pseudo-type such as `any` keep the existing prepared-statement path.
+
+`prepare_<fn>` and `<fn>_with` remain unchanged for callers that want prepared statements. Typed
+`:exec` queries on `tokio-postgres` and `deadpool-postgres` drain a typed stream and therefore
+require `futures-util`, as their existing `:many` stream helpers do.
+On `deadpool-postgres`, a pooled `Transaction` should use `prepare_<fn>` / `<fn>_with` because
+typed plain functions take the pooled `Client`.
 
 #### Dynamic filters with `-- :if`
 

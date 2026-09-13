@@ -1,10 +1,11 @@
 use crate::{
     db_crates::{
         Postgres, params_common,
-        test_support::{column, identifier, query},
+        postgres_params::PostgresParams,
+        test_support::{column, identifier, parse_query, query},
     },
     plugin,
-    query::{self, EmbeddedTable, Query, ReturnRowAttributes, ReturningRows},
+    query::{self, EmbeddedTable, ReturningRows},
 };
 
 fn generated_tokens(
@@ -22,15 +23,41 @@ fn generated_tokens_with_type_map(
     query: plugin::Query,
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
-    let row =
-        ReturningRows::from_query(type_map, &ReturnRowAttributes::default(), None, &query).unwrap();
-    let mut query = Query::from_query(type_map, &query).unwrap();
-    query.apply_dynfilter();
-    params_common::generate_queries(&backend, &[row], &[query], query_parameter_limit).unwrap()
+    let (row, query) = parse_query(type_map, None, &query);
+    params_common::generate_queries(
+        &PostgresParams {
+            backend,
+            query_typed: false,
+        },
+        &[row],
+        &[query],
+        query_parameter_limit,
+    )
+    .unwrap()
 }
 
 fn generated(backend: Postgres, query: plugin::Query, query_parameter_limit: usize) -> String {
     generated_tokens(backend, query, query_parameter_limit).to_string()
+}
+
+fn generated_typed(
+    backend: Postgres,
+    query: plugin::Query,
+    query_parameter_limit: usize,
+) -> String {
+    let type_map = backend.db_type_map();
+    let (row, query) = parse_query(&type_map, None, &query);
+    params_common::generate_queries(
+        &PostgresParams {
+            backend,
+            query_typed: true,
+        },
+        &[row],
+        &[query],
+        query_parameter_limit,
+    )
+    .unwrap()
+    .to_string()
 }
 
 fn static_query() -> plugin::Query {
@@ -73,6 +100,221 @@ fn generates_static_statement_functions_and_parameter_array() {
         let tokens = generated(backend, static_query(), 1);
         assert!(tokens.contains(":: std :: marker :: Sync"));
         assert!(!tokens.contains("+ Sync"));
+    }
+}
+
+#[test]
+fn generates_typed_static_queries_and_keeps_prepared_helpers() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        for (annotation, method) in [
+            (":one", "query_typed_one"),
+            (":many", "query_typed ("),
+            (":exec", "query_typed_raw"),
+            (":execrows", "query_typed_raw"),
+        ] {
+            let tokens = generated_typed(
+                backend,
+                query(
+                    "TypedQuery",
+                    annotation,
+                    "SELECT id FROM authors WHERE id = $1",
+                    vec![column("id", false)],
+                    vec![(1, column("id", false))],
+                ),
+                1,
+            );
+            assert!(tokens.contains(method));
+            assert!(tokens.contains("Type :: INT4"));
+            assert!(tokens.contains("prepare_typed_query"));
+            assert!(tokens.contains("typed_query_with"));
+        }
+    }
+}
+
+#[test]
+fn maps_typed_arrays_and_catalog_spellings() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let mut ids = column("ids", false);
+        ids.array_dims = 1;
+        let mut catalog_id = column("catalog_id", false);
+        catalog_id.r#type = Some(plugin::Identifier {
+            name: "int4".to_string(),
+            schema: "pg_catalog".to_string(),
+            catalog: String::new(),
+        });
+        let tokens = generated_typed(
+            backend,
+            query(
+                "TypedArrays",
+                ":one",
+                "SELECT id FROM authors WHERE id = ANY($1) AND id = $2",
+                vec![column("id", false)],
+                vec![(1, ids), (2, catalog_id)],
+            ),
+            1,
+        );
+        assert!(tokens.contains("Type :: INT4_ARRAY"));
+        assert!(tokens.contains("Type :: INT4"));
+    }
+}
+
+#[test]
+fn maps_character_varying_to_varchar() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let mut type_map = backend.db_type_map();
+        type_map.insert_db_type(
+            "character varying",
+            query::RsType::new(
+                syn::parse_str("String").unwrap(),
+                Some(syn::parse_str("str").unwrap()),
+                false,
+            ),
+        );
+        let mut value = column("value", false);
+        value.r#type = Some(identifier("character varying"));
+        let tokens = generated_tokens_with_type_map(
+            backend,
+            &type_map,
+            query(
+                "ByValue",
+                ":one",
+                "SELECT id FROM authors WHERE value = $1",
+                vec![column("id", false)],
+                vec![(1, value)],
+            ),
+            1,
+        )
+        .to_string();
+        assert!(!tokens.contains("query_typed"));
+
+        let (row, query) = parse_query(
+            &type_map,
+            None,
+            &query(
+                "ByValue",
+                ":one",
+                "SELECT id FROM authors WHERE value = $1",
+                vec![column("id", false)],
+                vec![(1, {
+                    let mut value = column("value", false);
+                    value.r#type = Some(identifier("character varying"));
+                    value
+                })],
+            ),
+        );
+        let typed = params_common::generate_queries(
+            &PostgresParams {
+                backend,
+                query_typed: true,
+            },
+            &[row],
+            &[query],
+            1,
+        )
+        .unwrap()
+        .to_string();
+        assert!(typed.contains("Type :: VARCHAR"));
+    }
+}
+
+#[test]
+fn typed_many_without_parameters_uses_an_empty_values_slice() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated_typed(
+            backend,
+            query(
+                "ListAuthors",
+                ":many",
+                "SELECT id FROM authors",
+                vec![column("id", false)],
+                Vec::new(),
+            ),
+            1,
+        );
+        assert!(tokens.contains("let values : & [(& (dyn"));
+        assert!(tokens.contains("= & [] ;"));
+        assert!(tokens.contains("query_typed (LIST_AUTHORS , values)"));
+    }
+}
+
+#[test]
+fn typed_execrows_drains_each_backend_stream() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated_typed(
+            backend,
+            query(
+                "TouchAuthors",
+                ":execrows",
+                "UPDATE authors SET id = id WHERE id = $1",
+                Vec::new(),
+                vec![(1, column("id", false))],
+            ),
+            1,
+        );
+        let drain = match backend {
+            Postgres::Sync => "postgres :: fallible_iterator :: FallibleIterator :: next",
+            Postgres::Tokio | Postgres::Deadpool => "futures_util :: TryStreamExt :: try_next",
+        };
+        assert!(tokens.contains(drain));
+    }
+}
+
+#[test]
+fn falls_back_for_unknown_typed_parameters() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let mut type_map = backend.db_type_map();
+        let any_column = plugin::Column {
+            r#type: Some(identifier("any")),
+            ..column("state", false)
+        };
+        type_map.insert_db_type(
+            "any",
+            query::RsType::new(syn::parse_str("crate::Any").unwrap(), None, true),
+        );
+        let (row, query) = parse_query(
+            &type_map,
+            None,
+            &query(
+                "ByState",
+                ":one",
+                "SELECT id FROM authors WHERE state = $1",
+                vec![column("id", false)],
+                vec![(1, any_column)],
+            ),
+        );
+        let tokens = params_common::generate_queries(
+            &PostgresParams {
+                backend,
+                query_typed: true,
+            },
+            &[row],
+            &[query],
+            1,
+        )
+        .unwrap()
+        .to_string();
+        assert!(tokens.contains("query_one ("));
+        assert!(!tokens.contains("query_typed"));
+    }
+}
+
+#[test]
+fn generates_typed_dynamic_queries_and_leaves_the_default_off() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let query = query(
+            "SearchAuthors",
+            ":many",
+            "SELECT id FROM authors WHERE TRUE\nAND id = $1 -- :if @id",
+            vec![column("id", false)],
+            vec![(1, column("id", false))],
+        );
+        let typed = generated_typed(backend, query.clone(), 1);
+        assert!(typed.contains("Type :: INT4"));
+        assert!(typed.contains("query_typed (sql . as_str ()"));
+        assert!(typed.contains("query_typed_raw (sql . as_str ()"));
+        assert!(!typed.contains("prepare_search_authors"));
+
+        assert!(!generated(backend, query, 1).contains("query_typed"));
     }
 }
 
@@ -377,7 +619,14 @@ fn embedded_rows_decode_by_select_ordinal() {
     };
 
     for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
-        let tokens = params_common::ParamsGenerator::returning_row(&backend, &row).to_string();
+        let tokens = params_common::ParamsGenerator::returning_row(
+            &PostgresParams {
+                backend,
+                query_typed: false,
+            },
+            &row,
+        )
+        .to_string();
         assert!(tokens.contains("before : row . try_get (0) ?"));
         assert!(tokens.contains("id : row . try_get (1) ?"));
         assert!(tokens.contains("name : row . try_get (2) ?"));

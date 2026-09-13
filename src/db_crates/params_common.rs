@@ -8,6 +8,7 @@ use super::params_common_types::{query_const_ident, query_parts};
 /// One entry of the dynamic bind plan `match`: which `dynfilter::Bind` pattern it answers and
 /// how the backend reaches the value. Ownership decisions stay with the backend.
 pub(crate) struct DynamicBind<'a> {
+    pub(crate) index: usize,
     pub(crate) pattern: proc_macro2::TokenStream,
     pub(crate) field: &'a crate::query::ColumnField,
     pub(crate) conditional: bool,
@@ -33,6 +34,7 @@ pub(crate) fn dynamic_binds(query: &Query) -> Vec<DynamicBind<'_>> {
                     quote::quote! {&params.#name[element]}
                 };
                 DynamicBind {
+                    index,
                     pattern: quote::quote! {dynfilter::Bind::Elem(#arg_index, element)},
                     field,
                     conditional,
@@ -40,6 +42,7 @@ pub(crate) fn dynamic_binds(query: &Query) -> Vec<DynamicBind<'_>> {
                 }
             } else {
                 DynamicBind {
+                    index,
                     pattern: quote::quote! {dynfilter::Bind::Arg(#arg_index)},
                     field,
                     conditional,
@@ -272,6 +275,15 @@ pub(crate) fn unknown_bind_arm() -> proc_macro2::TokenStream {
     quote::quote! {
         _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
     }
+}
+
+pub(crate) fn dynamic_bind_arms(
+    query: &Query,
+    mut arm: impl FnMut(DynamicBind<'_>) -> proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let arms = dynamic_binds(query).into_iter().map(&mut arm);
+    let unknown = unknown_bind_arm();
+    quote::quote! { #(#arms)* #unknown }
 }
 
 fn dynfilter_runtime() -> proc_macro2::TokenStream {

@@ -1,4 +1,5 @@
 use crate::plugin;
+use crate::query::{DbTypeMap, Query, ReturnRowAttributes, ReturningRows};
 
 pub(crate) fn identifier(name: &str) -> plugin::Identifier {
     plugin::Identifier {
@@ -52,4 +53,21 @@ pub(crate) fn query(
         filename: String::new(),
         insert_into_table: None,
     }
+}
+
+pub(crate) fn parse_query(
+    type_map: &DbTypeMap,
+    catalog: Option<&plugin::Catalog>,
+    plugin_query: &plugin::Query,
+) -> (ReturningRows, Query) {
+    let row = ReturningRows::from_query(
+        type_map,
+        &ReturnRowAttributes::default(),
+        catalog,
+        plugin_query,
+    )
+    .unwrap();
+    let mut query = Query::from_query(type_map, plugin_query).unwrap();
+    query.apply_dynfilter();
+    (row, query)
 }

@@ -278,6 +278,7 @@ struct Config {
     db_crate: db_crates::DbCrate,
     api: Option<String>,
     query_parameter_limit: usize,
+    query_typed: bool,
     overrides: Vec<OverrideType>,
     debug: bool,
     #[serde(flatten)]
@@ -292,6 +293,7 @@ impl Default for Config {
             db_crate: Default::default(),
             api: None,
             query_parameter_limit: 1,
+            query_typed: false,
             overrides: Default::default(),
             debug: false,
             return_row_attributes: Default::default(),
@@ -309,6 +311,13 @@ impl Config {
         if self.api.as_deref() == Some("builder") {
             return Err(Error::any(
                 "the builder API was removed; only params_struct is generated".into(),
+            ));
+        }
+
+        if self.query_typed && !matches!(self.db_crate, db_crates::DbCrate::Postgres(_)) {
+            return Err(Error::any(
+                "query_typed is only supported for postgres, tokio-postgres, and deadpool-postgres"
+                    .into(),
             ));
         }
 
@@ -460,6 +469,7 @@ pub fn try_main() -> Result<(), Error> {
         &returning_rows,
         &queries,
         config.query_parameter_limit,
+        config.query_typed,
     )?;
     let tt = quote::quote! {
         #init_tt
@@ -532,6 +542,24 @@ mod tests {
                 .as_deref(),
             Some("params_struct")
         );
+    }
+
+    #[test]
+    fn validates_query_typed_backends() {
+        let config = Config::from_option(br#"{"db_crate":"postgres","query_typed":true}"#).unwrap();
+        assert!(config.query_typed);
+        assert!(config.validate(&[]).is_ok());
+
+        for db_crate in ["sqlx-postgres", "rusqlite"] {
+            let config = Config::from_option(
+                format!(r#"{{"db_crate":"{db_crate}","query_typed":true}}"#).as_bytes(),
+            )
+            .unwrap();
+            assert_eq!(
+                config.validate(&[]).unwrap_err().to_string(),
+                "query_typed is only supported for postgres, tokio-postgres, and deadpool-postgres"
+            );
+        }
     }
 
     #[test]

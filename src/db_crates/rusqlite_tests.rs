@@ -2,18 +2,14 @@ use crate::{
     db_crates::{
         params_common,
         rusqlite::Rusqlite,
-        test_support::{column, query},
+        test_support::{column, parse_query, query},
     },
     plugin,
-    query::{Query, ReturnRowAttributes, ReturningRows},
 };
 
 fn generated(query: plugin::Query, query_parameter_limit: usize) -> String {
     let type_map = Rusqlite.db_type_map();
-    let row = ReturningRows::from_query(&type_map, &ReturnRowAttributes::default(), None, &query)
-        .unwrap();
-    let mut query = Query::from_query(&type_map, &query).unwrap();
-    query.apply_dynfilter();
+    let (row, mut query) = parse_query(&type_map, None, &query);
     if query.dynfilter().is_none() {
         query.apply_static_slices();
     }

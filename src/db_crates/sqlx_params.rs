@@ -190,30 +190,27 @@ impl<'a> Function<'a> {
     fn dynamic_setup(&self, row: Option<&syn::Ident>) -> proc_macro2::TokenStream {
         let q = &self.q;
         let dynamic_setup = params_common::dynamic_plan_setup(self.query, &self.parts.constant);
-        let unknown_bind_arm = params_common::unknown_bind_arm();
-        let binds = params_common::dynamic_binds(self.query)
-            .into_iter()
-            .map(|bind| {
-                let pattern = bind.pattern;
-                let name = &bind.field.name;
-                if let Some(element) = bind.slice_element {
-                    return quote::quote! {
-                        #pattern => {
-                            let elem = #element;
-                            #q.bind(elem)
-                        }
-                    };
-                }
-                let scalar = bind.field.scalar_type();
-                let by_value = scalar.copy_cheap() || scalar.need_params_struct_lifetime();
-                let value = match (bind.conditional, by_value) {
-                    (true, true) => quote::quote! {params.#name.unwrap()},
-                    (true, false) => quote::quote! {params.#name.as_ref().unwrap()},
-                    (false, true) => quote::quote! {params.#name},
-                    (false, false) => quote::quote! {&params.#name},
+        let binds = params_common::dynamic_bind_arms(self.query, |bind| {
+            let pattern = bind.pattern;
+            let name = &bind.field.name;
+            if let Some(element) = bind.slice_element {
+                return quote::quote! {
+                    #pattern => {
+                        let elem = #element;
+                        #q.bind(elem)
+                    }
                 };
-                quote::quote! {#pattern => #q.bind(#value),}
-            });
+            }
+            let scalar = bind.field.scalar_type();
+            let by_value = scalar.copy_cheap() || scalar.need_params_struct_lifetime();
+            let value = match (bind.conditional, by_value) {
+                (true, true) => quote::quote! {params.#name.unwrap()},
+                (true, false) => quote::quote! {params.#name.as_ref().unwrap()},
+                (false, true) => quote::quote! {params.#name},
+                (false, false) => quote::quote! {&params.#name},
+            };
+            quote::quote! {#pattern => #q.bind(#value),}
+        });
         let query = match row {
             Some(row) => quote::quote! {sqlx::query_as::<_, #row>(&sql)},
             None => quote::quote! {sqlx::query(&sql)},
@@ -224,8 +221,7 @@ impl<'a> Function<'a> {
             let mut #q = #query;
             for bind in binds {
                 #q = match bind {
-                    #(#binds)*
-                    #unknown_bind_arm
+                    #binds
                 };
             }
             let #q = #q.persistent(false);
