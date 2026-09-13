@@ -189,8 +189,8 @@ impl<'a> Function<'a> {
 
     fn dynamic_setup(&self, row: Option<&syn::Ident>) -> proc_macro2::TokenStream {
         let q = &self.q;
-        let dynamic = quote::format_ident!("{}_DYN", self.parts.constant);
-        let args = params_common::dynamic_args(self.query);
+        let dynamic_setup = params_common::dynamic_plan_setup(self.query, &self.parts.constant);
+        let unknown_bind_arm = params_common::unknown_bind_arm();
         let binds = params_common::dynamic_binds(self.query)
             .into_iter()
             .map(|bind| {
@@ -220,13 +220,12 @@ impl<'a> Function<'a> {
         };
 
         quote::quote! {
-            let args = [#(#args,)*];
-            let (sql, binds) = #dynamic.build(&args);
+            #dynamic_setup
             let mut #q = #query;
             for bind in binds {
                 #q = match bind {
                     #(#binds)*
-                    _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+                    #unknown_bind_arm
                 };
             }
             let #q = #q.persistent(false);

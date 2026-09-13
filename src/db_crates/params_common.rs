@@ -259,6 +259,21 @@ pub(crate) fn dynamic_args(query: &Query) -> Vec<proc_macro2::TokenStream> {
     fields.chain(flags).collect()
 }
 
+pub(crate) fn dynamic_plan_setup(query: &Query, constant: &syn::Ident) -> proc_macro2::TokenStream {
+    let dynamic = quote::format_ident!("{constant}_DYN");
+    let args = dynamic_args(query);
+    quote::quote! {
+        let args = [#(#args,)*];
+        let (sql, binds) = #dynamic.build(&args);
+    }
+}
+
+pub(crate) fn unknown_bind_arm() -> proc_macro2::TokenStream {
+    quote::quote! {
+        _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+    }
+}
+
 fn dynfilter_runtime() -> proc_macro2::TokenStream {
     let runtime = include_str!("dynfilter_runtime.rs")
         .parse::<proc_macro2::TokenStream>()

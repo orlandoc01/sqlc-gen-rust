@@ -221,6 +221,25 @@ pub(crate) fn row_field_initializers(
         .collect()
 }
 
+pub(crate) fn ordinal_from_row(
+    row: &ReturningRows,
+    row_type: proc_macro2::TokenStream,
+    result_type: proc_macro2::TokenStream,
+    getter: impl Fn(proc_macro2::Literal) -> proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let struct_tokens = make_return_row(row);
+    let ident = row.struct_ident();
+    let fields = row_field_initializers(row, getter);
+    quote::quote! {
+        #struct_tokens
+        impl #ident {
+            pub fn from_row(row: &#row_type) -> #result_type {
+                Ok(Self { #(#fields,)* })
+            }
+        }
+    }
+}
+
 pub(crate) fn make_enum(
     enum_type: &query::DbEnum,
     backend_derives: proc_macro2::TokenStream,

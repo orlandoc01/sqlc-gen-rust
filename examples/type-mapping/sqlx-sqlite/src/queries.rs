@@ -182,7 +182,7 @@ pub const INSERT_MAPPING: &str = r"INSERT INTO mapping (
     ?,
     ?
 )";
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct InsertMappingParams<'a> {
     pub aff_integer_val: i64,
     pub aff_real_val: f64,

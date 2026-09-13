@@ -67,4 +67,28 @@ mod tests {
 
         queries::get_mapping(pool).await.unwrap();
     }
+
+    #[test_context(SqlxSqliteContext)]
+    #[tokio::test]
+    async fn derives_default_for_flagged_override_types(ctx: &mut SqlxSqliteContext) {
+        let pool = &ctx.pool;
+        migrate_db(pool).await;
+
+        // NUMERIC affinity stores a default 0.0 as INTEGER, which the f64 row type cannot decode.
+        queries::insert_mapping(
+            pool,
+            queries::InsertMappingParams {
+                numeric_val: 26.1,
+                decimal_10_5_val: 27.1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let mapping = queries::get_mapping(pool).await.unwrap();
+        assert_eq!(mapping.date_val, chrono::NaiveDate::default());
+        assert_eq!(mapping.time_val, chrono::NaiveTime::default());
+        assert_eq!(mapping.datetime_val, chrono::NaiveDateTime::default());
+    }
 }

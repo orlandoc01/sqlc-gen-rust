@@ -98,8 +98,8 @@ fn make_helper(
         Some(lifetime) => quote::quote! {&#lifetime},
         None => quote::quote! {&},
     };
-    let dynamic = quote::format_ident!("{}_DYN", function.parts.constant);
-    let args = params_common::dynamic_args(function.query);
+    let dynamic_setup = params_common::dynamic_plan_setup(function.query, &function.parts.constant);
+    let unknown_bind_arm = params_common::unknown_bind_arm();
     let binds = params_common::dynamic_binds(function.query)
         .into_iter()
         .map(|bind| {
@@ -114,13 +114,12 @@ fn make_helper(
         });
     quote::quote! {
         fn #helper #generics(params: #params_ref) -> (String, Vec<#values_ref (dyn #to_sql + ::std::marker::Sync)>) {
-            let args = [#(#args,)*];
-            let (sql, binds) = #dynamic.build(&args);
+            #dynamic_setup
             let values: Vec<&(dyn #to_sql + ::std::marker::Sync)> = binds
                 .iter()
                 .map(|bind| match bind {
                     #(#binds)*
-                    _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+                    #unknown_bind_arm
                 })
                 .collect();
             (sql, values)
