@@ -267,6 +267,8 @@ struct OverrideType {
     rs_slice: Option<String>,
     /// Marker is copy cheap
     copy_cheap: bool,
+    /// Marker the type implements `Default`, so params structs using it can derive it
+    can_default: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -362,30 +364,14 @@ pub fn try_main() -> Result<(), Error> {
             .transpose()
             .map_err(|e| Error::any(e.into()))?;
 
+        let rs_type = RsType::new(owned_type, slice_type, override_type.copy_cheap)
+            .with_can_default(override_type.can_default);
         match (
             override_type.db_type.as_deref(),
             override_type.column.as_deref(),
         ) {
-            (None, Some(column)) => {
-                db_type.insert_column_type(
-                    column,
-                    RsType::new(
-                        owned_type.clone(),
-                        slice_type.clone(),
-                        override_type.copy_cheap,
-                    ),
-                );
-            }
-            (Some(db_type_name), None) => {
-                db_type.insert_db_type(
-                    db_type_name,
-                    RsType::new(
-                        owned_type.clone(),
-                        slice_type.clone(),
-                        override_type.copy_cheap,
-                    ),
-                );
-            }
+            (None, Some(column)) => db_type.insert_column_type(column, rs_type),
+            (Some(db_type_name), None) => db_type.insert_db_type(db_type_name, rs_type),
 
             (Some(_), Some(_)) => {
                 let message = "Cannot override both db_type and column name at the same time.";

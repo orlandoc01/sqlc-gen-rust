@@ -266,6 +266,8 @@ pub(crate) struct RsType {
     owned: syn::Type,
     slice: Option<syn::Type>,
     copy_cheap: bool,
+    /// Set by an override; the built-in list in `RsColType::can_default` covers std types.
+    can_default: bool,
 }
 
 impl RsType {
@@ -274,6 +276,14 @@ impl RsType {
             owned,
             slice,
             copy_cheap,
+            can_default: false,
+        }
+    }
+
+    pub(crate) fn with_can_default(self, can_default: bool) -> Self {
+        Self {
+            can_default,
+            ..self
         }
     }
 
@@ -330,7 +340,7 @@ impl RsColType {
     }
 
     pub(crate) fn can_default(&self) -> bool {
-        if self.optional || self.need_params_struct_lifetime() {
+        if self.optional || self.need_params_struct_lifetime() || self.rs_type.can_default {
             return true;
         }
 
@@ -1392,6 +1402,19 @@ mod tests {
             row.field_ordinals().collect::<Vec<_>>(),
             vec![0..1, 1..3, 3..4, 4..7]
         );
+    }
+
+    #[test]
+    fn override_types_default_only_when_flagged() {
+        let column = |can_default| RsColType {
+            rs_type: RsType::new(syn::parse_str("crate::Cents").unwrap(), None, true)
+                .with_can_default(can_default),
+            dim: 0,
+            optional: false,
+        };
+
+        assert!(!column(false).can_default());
+        assert!(column(true).can_default());
     }
 
     #[test]

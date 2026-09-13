@@ -362,8 +362,10 @@ bracket identifiers, and PostgreSQL nested block comments are supported.
 The maximum number of parameters emitted as individual function arguments. The default is `1`. `0` always emits a params struct for parameterized
 queries. A params struct is emitted only when the parameter count is greater than this limit.
 
-Params structs derive `Default` when all fields can be defaulted. String, bytes, and array params
-are borrowed; all other params, including non-copy override types, are stored by value.
+Params structs derive `Default` when all fields can be defaulted: optional and borrowed fields,
+primitives, `String`, `uuid::Uuid`, `serde_json::Value`, and override types marked
+`can_default: true`. String, bytes, and array params are borrowed; all other params, including
+non-copy override types, are stored by value.
 
 ### `overrides`
 
@@ -392,6 +394,7 @@ sql:
               rs_type: std::borrow::Cow<'static,str>  # Rust type to use in generated code
               rs_slice: str # Optional. If set, the argument of the generated code uses `&str` instead of `&std::borrow::Cow<'static,str>`
               copy_cheap: false # Optional. If true, the argument of the generated code uses `std::borrow::Cow<'static,str>` instead of `&std::borrow::Cow<'static,str>`.
+              can_default: false # Optional. If true, the type implements `Default`, so params structs that use it still derive `Default`.
             - column: .users.created_at # A column name to override. This will be searched for in the `.{TableName}.{ColumnName}` path. For details about matching columns see `row_attributes` / `column_attributes` below
               rs_type: serde_json::Value
 ```

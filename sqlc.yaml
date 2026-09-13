@@ -245,10 +245,13 @@ sql:
           overrides:
             - db_type: datetime
               rs_type: chrono::NaiveDateTime
+              can_default: true
             - db_type: date
               rs_type: chrono::NaiveDate
+              can_default: true
             - db_type: time
               rs_type: chrono::NaiveTime
+              can_default: true
       - plugin: sqlc-gen-rust
         out: examples/type-mapping/rusqlite/src
         options:
