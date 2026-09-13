@@ -1,8 +1,10 @@
 # sqlc-gen-rust
 
-sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust); the `-- :if` dynamic filter idea comes from [sqlc-dev/sqlc-gen-go](https://github.com/sqlc-dev/sqlc-gen-go).
+sqlc plugin for Rust database crates. 
 
 It generates SQLx, rusqlite, postgres, tokio-postgres, and deadpool-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
+
+This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust), with the idea for `-- :if` annotated dynamic filters coming from a similar feature for golang at [sqlc-dev/sqlc-gen-go](https://github.com/sqlc-dev/sqlc-gen-go).
 
 ## Contents
 
@@ -102,9 +104,9 @@ WHERE id = $1;
 ### Generated API
 
 Each query becomes a free function with a public params struct. The first argument is the
-database handle for the configured `db_crate`; a pool, a connection, or a transaction all work.
+database handle for the configured `db_crate`: a pool, a connection, or a transaction all work.
 Functions are async for the async crates and synchronous for `rusqlite` and `postgres`. The
-example below uses `sqlx-postgres`; see [Backend notes](#backend-notes) for each crate's handle type:
+example below uses `sqlx-postgres`. See [Backend notes](#backend-notes) for each crate's handle type:
 
 ```rust
 mod queries;
@@ -140,7 +142,7 @@ async fn main() {
 }
 ```
 
-Each backend note below links to the same authors example written against that crate.
+See backend notes below for links to the same authors example written against that crate.
 
 ## Supported Features
 
@@ -183,8 +185,7 @@ across backends.
 
 Examples: [`sqlx-postgres`](./examples/authors/sqlx-postgres/src/lib.rs), [`sqlx-mysql`](./examples/authors/sqlx-mysql/src/lib.rs), [`sqlx-sqlite`](./examples/authors/sqlx-sqlite/src/lib.rs)
 
-Generated functions are async and take any `sqlx::Executor`, so a pool, a connection, or a
-transaction all work.
+Generated functions are async and take any `sqlx::Executor`.
 
 > [!NOTE]
 > SQLite uses dynamic typing. Columns with **NUMERIC affinity** may store values as **INTEGER** when they can be represented exactly as integers. 
@@ -217,7 +218,7 @@ with `RETURNING` succeeds and reports its write; `:execrows` returns `u64` from 
 Example: [`examples/authors/postgres`](./examples/authors/postgres/src/lib.rs)
 
 For `postgres`, generated functions are synchronous and take `&mut impl postgres::GenericClient`.
-Static queries expose `prepare_<fn>` and `<fn>_with`; `:many` also exposes `<fn>_iter`, returning
+Static queries expose `prepare_<fn>` and `<fn>_with`. `:many` also exposes `<fn>_iter`, returning
 `Result<postgres::RowIter<'_>, postgres::Error>`.
 
 ### tokio-postgres
@@ -256,9 +257,8 @@ LIMIT sqlc.arg('limit')::int OFFSET sqlc.arg('offset')::int
 ## Options
 
 The plugin always generates SQL constants, free functions, and public params/row structs. SQLx,
-tokio-postgres, and deadpool-postgres functions are async; postgres and rusqlite functions are
+tokio-postgres, and deadpool-postgres functions are async while postgres and rusqlite functions are
 synchronous.
-The `api` key is no longer needed; existing `api: params_struct` configurations continue to work.
 `:copyfrom` and `:batch*` queries are not supported. Rusqlite does not support `:execresult`.
 
 ### `db_crate`
@@ -304,7 +304,7 @@ as usual, and the `dynfilter` runtime module is only emitted when a query uses i
 
 Conditional SQL parameters become `Option<T>` (`None` skips the line), and names that
 appear only in an annotation become appended `bool` fields. End an `ORDER BY` list with a
-trailing `TRUE` so the SQL stays valid for sqlc; the runtime strips it, and drops the whole
+trailing `TRUE` so the SQL stays valid for sqlc. The runtime strips it, and drops the whole
 `ORDER BY` when no direction is selected. Conditional `sqlc.slice()`
 parameters become `Option<&[T]>`: `None` skips the line, while `Some(&[])` keeps it and
 renders `NULL`, matching zero rows. Use `dynfilter::nilable(ids)` when an empty slice
@@ -359,7 +359,7 @@ bracket identifiers, and PostgreSQL nested block comments are supported.
 
 ### `query_parameter_limit`
 
-The maximum number of parameters emitted as individual function arguments. The default is `1`; `0` always emits a params struct for parameterized
+The maximum number of parameters emitted as individual function arguments. The default is `1`. `0` always emits a params struct for parameterized
 queries. A params struct is emitted only when the parameter count is greater than this limit.
 
 Params structs derive `Default` when all fields can be defaulted. String, bytes, and array params
@@ -472,7 +472,7 @@ Generated code destination. Default is `queries.rs`.
 ## Compatibility
 
 The plugin is pre-1.0. Generated code and configuration options may change between minor
-versions; release notes call out breaking changes.
+versions. Release notes call out breaking changes.
 
 | Component | Tested with |
 | --- | --- |
@@ -486,7 +486,7 @@ versions; release notes call out breaking changes.
 
 The pinned toolchain is only needed to build the plugin itself. Projects that consume the
 generated Rust need a compiler with `std::sync::LazyLock` (Rust 1.80 or newer) and one of the
-backend crate versions above; the example crates use edition 2024.
+backend crate versions above. The example crates use edition 2024.
 
 ## Credits
 
