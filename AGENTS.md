@@ -2,7 +2,7 @@
 
 ## Scope
 
-This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust. It is published from `github.com/orlandoc01/sqlc-gen-rust`; a Forgejo remote mirrors it.
+This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust. It is published from `github.com/orlandoc01/sqlc-gen-rust`
 
 - `main` carries `sqlc.embed` support, params-struct output, and `-- :if` dynamic filters.
 - New behavior must be behind an opt-in config option. Dynamic filters are opted into per query by the `-- :if` annotation, not by a separate option.
