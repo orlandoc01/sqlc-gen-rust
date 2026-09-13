@@ -76,6 +76,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "authors-postgres"
+version = "0.1.0"
+dependencies = [
+ "postgres",
+ "test-context",
+ "test-utils",
+]
+
+[[package]]
 name = "authors-rusqlite"
 version = "0.1.0"
 dependencies = [
@@ -443,6 +452,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dynamic-filter-postgres"
+version = "0.1.0"
+dependencies = [
+ "postgres",
+ "serde_json",
+ "test-context",
+ "test-utils",
+]
+
+[[package]]
 name = "dynamic-filter-rusqlite"
 version = "0.1.0"
 dependencies = [
@@ -495,6 +514,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures-util",
+ "postgres",
  "postgres-types",
  "serde_json",
  "sqlx",
@@ -1328,6 +1348,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "postgres"
+version = "0.19.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33ad20e0aa0b24f5a394eab4f78c781d248982b22b25cecc7e3aa46a681605bd"
+dependencies = [
+ "bytes",
+ "fallible-iterator 0.2.0",
+ "futures-util",
+ "log",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "postgres-derive"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1833,6 +1867,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlc-slice-postgres"
+version = "0.1.0"
+dependencies = [
+ "postgres",
+ "test-context",
+ "test-utils",
+]
+
+[[package]]
 name = "sqlc-slice-rusqlite"
 version = "0.1.0"
 dependencies = [
@@ -2175,6 +2218,7 @@ version = "0.1.0"
 dependencies = [
  "deadpool-postgres",
  "fastrand",
+ "postgres",
  "rusqlite",
  "sqlx",
  "test-context",
@@ -2351,6 +2395,19 @@ dependencies = [
  "test-context",
  "test-utils",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "type-mapping-postgres"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "postgres",
+ "postgres-types",
+ "serde_json",
+ "test-context",
+ "test-utils",
  "uuid",
 ]
 

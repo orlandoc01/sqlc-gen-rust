@@ -1,7 +1,8 @@
 use crate::query::{Annotation, Query, ReturningRows};
 
 use super::{
-    params_common::{self, GeneratedFunction, ParameterAccess, ParamsGenerator, QueryParts},
+    DbCrate,
+    params_common::{self, GeneratedFunction, ParamsGenerator, QueryParts},
     rusqlite::Rusqlite,
 };
 
@@ -11,26 +12,23 @@ impl ParamsGenerator for Rusqlite {
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        self.returning_ordinal_row(row)
+        let struct_tokens = super::make_return_row(row);
+        let ident = row.struct_ident();
+        let fields = super::row_field_initializers(row, |index| quote::quote! { row.get(#index)? });
+        quote::quote! {
+            #struct_tokens
+            impl #ident {
+                pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+                    Ok(Self { #(#fields,)* })
+                }
+            }
+        }
     }
 
     fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
-        let name = params_common::query_function_ident(query);
-        let function = |ident, helper| GeneratedFunction { ident, helper };
-        match query.annotation {
-            Annotation::One => vec![
-                function(name.clone(), "query function"),
-                function(quote::format_ident!("{name}_opt"), "optional query helper"),
-            ],
-            Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecLastId => {
-                vec![function(name, "query function")]
-            }
-            Annotation::ExecResult
-            | Annotation::BatchExec
-            | Annotation::BatchMany
-            | Annotation::BatchOne
-            | Annotation::CopyFrom => Vec::new(),
-        }
+        params_common::simple_generated_functions(query, |annotation| {
+            DbCrate::Rusqlite.supports(annotation)
+        })
     }
 
     fn query_functions(
@@ -161,10 +159,7 @@ impl<'a> Function<'a> {
         let constant = &self.parts.constant;
         let values = self.query.fields.iter().map(|field| {
             let name = &field.name;
-            match self.parts.access {
-                ParameterAccess::Direct => quote::quote! {#name},
-                ParameterAccess::Struct => quote::quote! {params.#name},
-            }
+            self.parts.access.field(name)
         });
         quote::quote! {
             let #params = rusqlite::params![#(#values),*];

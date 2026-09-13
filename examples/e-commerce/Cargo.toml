@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 sqlx = { workspace = true }
+postgres = { workspace = true }
 tokio-postgres = { workspace = true }
 postgres-types = { workspace = true }
 

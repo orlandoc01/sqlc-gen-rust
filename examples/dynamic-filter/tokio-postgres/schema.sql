@@ -1,6 +1,6 @@
 CREATE TABLE users (
     id BIGINT PRIMARY KEY,
-    email TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
     phone TEXT NOT NULL,
     profile JSONB NOT NULL
 );

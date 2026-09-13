@@ -2,7 +2,7 @@
 
 sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
 
-It generates SQLx, rusqlite, tokio-postgres, and deadpool-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
+It generates SQLx, rusqlite, postgres, tokio-postgres, and deadpool-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
 
 ## Usage
 
@@ -30,13 +30,9 @@ sql:
 - [sqlx-mysql](https://docs.rs/sqlx/latest/sqlx/mysql/index.html)
 - [sqlx-sqlite](https://docs.rs/sqlx/latest/sqlx/sqlite/index.html)
 - [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/)
+- [postgres](https://docs.rs/postgres/latest/postgres/)
 - [tokio-postgres](https://docs.rs/tokio-postgres/latest/tokio_postgres/)
 - [deadpool-postgres](https://docs.rs/deadpool-postgres/latest/deadpool_postgres/)
-
-The upstream builder API and its remaining non-sqlx backends were removed. Support for these
-crates will return on top of the params-struct API:
-
-- TODO: [postgres](https://crates.io/crates/postgres)
 
 > [!NOTE]
 > SQLite uses dynamic typing. Columns with **NUMERIC affinity** may store values as **INTEGER** when they can be represented exactly as integers. 
@@ -124,6 +120,7 @@ async fn main() {
 - [`sqlx-mysql` example](./examples/authors/sqlx-mysql/src/lib.rs)
 - [`sqlx-sqlite` example](./examples/authors/sqlx-sqlite/src/lib.rs)
 - [`rusqlite` example](./examples/authors/rusqlite/src/lib.rs)
+- [`postgres` example](./examples/authors/postgres/src/lib.rs)
 - [`tokio-postgres` example](./examples/authors/tokio-postgres/src/lib.rs)
 - [`deadpool-postgres` example](./examples/authors/deadpool-postgres/src/lib.rs)
 
@@ -155,10 +152,14 @@ let stream = queries::list_authors_stream(&client).await?;
 ```
 
 `deadpool-postgres` generates the same API with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`.
-Both PostgreSQL driver backends support one-dimensional arrays only.
+All PostgreSQL driver backends support one-dimensional arrays only.
 
-Dynamic (`-- :if`) queries do not expose `prepare_*` or `*_with` variants. On both
-tokio-postgres and deadpool-postgres, `:execrows` and `:execresult` return `u64`.
+For `postgres`, generated functions are synchronous and take `&mut impl postgres::GenericClient`.
+Static queries expose `prepare_<fn>` and `<fn>_with`; `:many` also exposes `<fn>_iter`, returning
+`Result<postgres::RowIter<'_>, postgres::Error>`.
+
+Dynamic (`-- :if`) queries do not expose `prepare_*` or `*_with` variants. On postgres,
+tokio-postgres, and deadpool-postgres, `:execrows` and `:execresult` return `u64`.
 
 PostgreSQL infers untyped `LIMIT` and `OFFSET` parameters as `bigint`. Cast them explicitly
 (`::int` or `::bigint`) or add an override so the generated Rust parameter type matches. A bare
@@ -179,6 +180,7 @@ LIMIT sqlc.arg('limit')::int OFFSET sqlc.arg('offset')::int
 | sqlx-mysql     | ✅       | ✅             | ✅       | ✅      | ❌          |
 | sqlx-sqlite    | ✅       | ✅             | ✅       | ✅      | ❌          |
 | rusqlite       | ✅       | ✅             | ✅       | ✅      | ❌          |
+| postgres       | ✅       | ❌             | ✅       | ✅      | ❌          |
 | tokio-postgres / deadpool-postgres | ✅       | ❌             | ✅       | ✅      | ❌          |
 
 ### Macros
@@ -202,8 +204,9 @@ the generated dynamic bind plan.
 
 ## Options
 
-The plugin always generates SQL constants, free functions, and public params/row structs. SQLx and
-tokio-postgres functions are async; rusqlite functions are synchronous.
+The plugin always generates SQL constants, free functions, and public params/row structs. SQLx,
+tokio-postgres, and deadpool-postgres functions are async; postgres and rusqlite functions are
+synchronous.
 The `api` key is no longer needed; existing `api: params_struct` configurations continue to work.
 `:copyfrom` and `:batch*` queries are not supported. Rusqlite does not support `:execresult`.
 
@@ -215,6 +218,7 @@ The crate used in the generated code. Default is `sqlx-postgres`.
 - `sqlx-mysql`
 - `sqlx-sqlite`
 - `rusqlite`
+- `postgres`
 - `tokio-postgres`
 - `deadpool-postgres`
 

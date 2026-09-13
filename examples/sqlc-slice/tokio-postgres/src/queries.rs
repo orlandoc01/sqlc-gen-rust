@@ -31,10 +31,15 @@ pub async fn list_authors_by_ids(
 }
 pub async fn list_authors_by_ids_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
     ids: &[i64],
 ) -> Result<Vec<ListAuthorsByIDsRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&ids];
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[&ids];
     let rows = client.query(statement, values).await?;
     rows.iter().map(ListAuthorsByIDsRow::from_row).collect()
 }
@@ -46,10 +51,15 @@ pub async fn list_authors_by_ids_stream(
 }
 pub async fn list_authors_by_ids_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
     ids: &[i64],
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&ids];
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[&ids];
     client.query_raw(statement, values.iter().copied()).await
 }
 pub const LIST_AUTHORS_BY_TWO_ID_LISTS: &str = r"SELECT id, name
@@ -87,10 +97,16 @@ pub async fn list_authors_by_two_id_lists(
 }
 pub async fn list_authors_by_two_id_lists_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
     params: ListAuthorsByTwoIdListsParams<'_>,
 ) -> Result<Vec<ListAuthorsByTwoIdListsRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.ids, &params.backup_ids];
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.ids, &params.backup_ids];
     let rows = client.query(statement, values).await?;
     rows.iter()
         .map(ListAuthorsByTwoIdListsRow::from_row)
@@ -105,10 +121,16 @@ pub async fn list_authors_by_two_id_lists_stream(
 }
 pub async fn list_authors_by_two_id_lists_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
     params: ListAuthorsByTwoIdListsParams<'_>,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.ids, &params.backup_ids];
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.ids, &params.backup_ids];
     client.query_raw(statement, values.iter().copied()).await
 }
 pub const LIST_AUTHORS_BY_IDS_MIXED: &str = r"SELECT id, name
@@ -150,10 +172,15 @@ pub async fn list_authors_by_ids_mixed(
 }
 pub async fn list_authors_by_ids_mixed_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
     params: ListAuthorsByIDsMixedParams<'_>,
 ) -> Result<Vec<ListAuthorsByIDsMixedRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.ids,
         &params.min_id,
         &params.skip_ids,
@@ -172,10 +199,15 @@ pub async fn list_authors_by_ids_mixed_stream(
 }
 pub async fn list_authors_by_ids_mixed_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
     params: ListAuthorsByIDsMixedParams<'_>,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.ids,
         &params.min_id,
         &params.skip_ids,
@@ -198,10 +230,15 @@ pub async fn delete_authors_by_ids(
 }
 pub async fn delete_authors_by_ids_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
     ids: &[i64],
 ) -> Result<(), tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&ids];
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[&ids];
     client.execute(statement, values).await.map(|_| ())
 }
 pub const QUERIES: &[(&str, &str)] = &[

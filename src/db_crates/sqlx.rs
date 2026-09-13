@@ -1,4 +1,4 @@
-use crate::query::{DbEnum, Query, ReturningRows, RsType, TypeMapper};
+use crate::query::{DbEnum, Query, RsType, TypeMapper};
 
 use super::{make_enum, postgres_types};
 
@@ -216,23 +216,6 @@ impl Sqlx {
         )
     }
 
-    pub(crate) fn returning_ordinal_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        let struct_tokens = super::make_return_row(row);
-        let ident = row.struct_ident();
-        let row_type = self.row_type();
-        let fields = super::row_field_initializers(row, |index| {
-            quote::quote! { sqlx::Row::try_get(row, #index)? }
-        });
-        quote::quote! {
-            #struct_tokens
-            impl<'r> sqlx::FromRow<'r, #row_type> for #ident {
-                fn from_row(row: &'r #row_type) -> Result<Self, sqlx::Error> {
-                    Ok(Self { #(#fields,)* })
-                }
-            }
-        }
-    }
-
     pub(crate) fn database_ident(&self) -> syn::Type {
         match self {
             Self::Postgres => syn::parse_quote! {sqlx::Postgres},
@@ -241,7 +224,7 @@ impl Sqlx {
         }
     }
 
-    fn row_type(&self) -> syn::Type {
+    pub(crate) fn row_type(&self) -> syn::Type {
         match self {
             Self::Postgres => syn::parse_quote! {sqlx::postgres::PgRow},
             Self::MySql => syn::parse_quote! {sqlx::mysql::MySqlRow},

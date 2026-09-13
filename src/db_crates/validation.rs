@@ -8,7 +8,7 @@ impl DbCrate {
         rows: &[ReturningRows],
         queries: &[query::Query],
     ) -> Result<(), query::QueryError> {
-        if !matches!(self, Self::TokioPostgres(_)) {
+        if !matches!(self, Self::Postgres(_)) {
             return Ok(());
         }
 

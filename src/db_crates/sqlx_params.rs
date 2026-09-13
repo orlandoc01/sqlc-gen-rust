@@ -1,5 +1,6 @@
 use super::{
-    params_common::{self, GeneratedFunction, ParameterAccess, ParamsGenerator, QueryParts},
+    DbCrate,
+    params_common::{self, GeneratedFunction, ParamsGenerator, QueryParts},
     sqlx::Sqlx,
 };
 use crate::query::{Annotation, Query, ReturningRows};
@@ -14,29 +15,26 @@ impl ParamsGenerator for Sqlx {
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        self.returning_ordinal_row(row)
+        let struct_tokens = super::make_return_row(row);
+        let ident = row.struct_ident();
+        let row_type = self.row_type();
+        let fields = super::row_field_initializers(row, |index| {
+            quote::quote! { sqlx::Row::try_get(row, #index)? }
+        });
+        quote::quote! {
+            #struct_tokens
+            impl<'r> sqlx::FromRow<'r, #row_type> for #ident {
+                fn from_row(row: &'r #row_type) -> Result<Self, sqlx::Error> {
+                    Ok(Self { #(#fields,)* })
+                }
+            }
+        }
     }
 
     fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
-        let name = params_common::query_function_ident(query);
-        let function = |ident, helper| GeneratedFunction { ident, helper };
-        match query.annotation {
-            Annotation::One => vec![
-                function(name.clone(), "query function"),
-                function(quote::format_ident!("{name}_opt"), "optional query helper"),
-            ],
-            Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult => {
-                vec![function(name, "query function")]
-            }
-            Annotation::ExecLastId if matches!(self, Self::MySql | Self::Sqlite) => {
-                vec![function(name, "query function")]
-            }
-            Annotation::ExecLastId
-            | Annotation::BatchExec
-            | Annotation::BatchMany
-            | Annotation::BatchOne
-            | Annotation::CopyFrom => Vec::new(),
-        }
+        params_common::simple_generated_functions(query, |annotation| {
+            DbCrate::Sqlx(*self).supports(annotation)
+        })
     }
 
     fn query_functions(
@@ -175,16 +173,10 @@ impl<'a> Function<'a> {
         }
         let q = &self.q;
         let constant = &self.parts.constant;
-        let bind = match self.parts.access {
-            ParameterAccess::Direct => {
-                self.sqlx
-                    .query_bind(self.query, q.clone(), |name| quote::quote! {#name})
-            }
-            ParameterAccess::Struct => {
-                self.sqlx
-                    .query_bind(self.query, q.clone(), |name| quote::quote! {params.#name})
-            }
-        };
+        let access = self.parts.access;
+        let bind = self
+            .sqlx
+            .query_bind(self.query, q.clone(), |name| access.field(name));
         let query = match row {
             Some(row) => quote::quote! {sqlx::query_as::<_, #row>(#constant)},
             None => quote::quote! {sqlx::query(#constant)},

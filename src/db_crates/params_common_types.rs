@@ -8,6 +8,15 @@ pub(crate) enum ParameterAccess {
     Struct,
 }
 
+impl ParameterAccess {
+    pub(crate) fn field(self, name: &syn::Ident) -> proc_macro2::TokenStream {
+        match self {
+            Self::Direct => quote::quote! {#name},
+            Self::Struct => quote::quote! {params.#name},
+        }
+    }
+}
+
 pub(crate) struct QueryParts {
     pub(crate) constant: syn::Ident,
     pub(crate) params: proc_macro2::TokenStream,

@@ -67,13 +67,37 @@ pub(crate) struct GeneratedFunction {
     pub(crate) helper: &'static str,
 }
 
+pub(crate) fn simple_generated_functions(
+    query: &Query,
+    supported: impl FnOnce(Annotation) -> bool,
+) -> Vec<GeneratedFunction> {
+    let name = query_function_ident(query);
+    match query.annotation {
+        Annotation::One => vec![
+            GeneratedFunction {
+                ident: name.clone(),
+                helper: "query function",
+            },
+            GeneratedFunction {
+                ident: quote::format_ident!("{name}_opt"),
+                helper: "optional query helper",
+            },
+        ],
+        annotation if supported(annotation) => vec![GeneratedFunction {
+            ident: name,
+            helper: "query function",
+        }],
+        _ => Vec::new(),
+    }
+}
+
 pub(crate) fn generate_queries<G: ParamsGenerator>(
     generator: &G,
     rows: &[ReturningRows],
     queries: &[Query],
     query_parameter_limit: usize,
 ) -> Result<proc_macro2::TokenStream, QueryError> {
-    validate_generated_functions(generator, queries)?;
+    validate_generated_items(generator, queries)?;
     let query_tokens = rows
         .iter()
         .zip(queries)
@@ -98,26 +122,66 @@ pub(crate) fn generate_queries<G: ParamsGenerator>(
     })
 }
 
-fn validate_generated_functions<G: ParamsGenerator>(
+fn validate_generated_items<G: ParamsGenerator>(
     generator: &G,
     queries: &[Query],
 ) -> Result<(), QueryError> {
-    let mut functions = std::collections::BTreeMap::new();
+    let mut items = std::collections::BTreeMap::new();
+    register_generated_item(
+        &mut items,
+        "QUERIES",
+        GeneratedFunction {
+            ident: quote::format_ident!("QUERIES"),
+            helper: "query index",
+        },
+    )?;
     for query in queries {
-        for function in generator.generated_functions(query) {
-            let ident = function.ident.to_string();
-            if let Some((first_query_name, first_helper)) =
-                functions.insert(ident.clone(), (query.query_name.clone(), function.helper))
-            {
-                return Err(QueryError::conflicting_generated_function(
-                    first_query_name,
-                    first_helper,
-                    query.query_name.clone(),
-                    function.helper,
-                    ident,
-                ));
-            }
+        for GeneratedFunction { ident, helper } in generator.generated_functions(query) {
+            register_generated_item(
+                &mut items,
+                &query.query_name,
+                GeneratedFunction { ident, helper },
+            )?;
         }
+        register_generated_item(
+            &mut items,
+            &query.query_name,
+            GeneratedFunction {
+                ident: query_const_ident(query),
+                helper: "SQL constant",
+            },
+        )?;
+        if query.dynfilter().is_some() {
+            let constant = query_const_ident(query);
+            register_generated_item(
+                &mut items,
+                &query.query_name,
+                GeneratedFunction {
+                    ident: quote::format_ident!("{constant}_DYN"),
+                    helper: "dynamic plan",
+                },
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn register_generated_item(
+    items: &mut std::collections::BTreeMap<String, (String, &'static str)>,
+    query_name: &str,
+    GeneratedFunction { ident, helper }: GeneratedFunction,
+) -> Result<(), QueryError> {
+    let ident = ident.to_string();
+    if let Some((first_query_name, first_helper)) =
+        items.insert(ident.clone(), (query_name.to_string(), helper))
+    {
+        return Err(QueryError::conflicting_generated_function(
+            first_query_name,
+            first_helper,
+            query_name.to_string(),
+            helper,
+            ident,
+        ));
     }
     Ok(())
 }

@@ -30,6 +30,16 @@ sql:
               rs_type: chrono::DateTime<chrono::Utc>
             - column: .users.created_at
               rs_type: chrono::DateTime<chrono::Local>
+      - plugin: sqlc-gen-rust
+        out: examples/e-commerce/src
+        options:
+          output: postgres_query.rs
+          db_crate: postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - column: .users.created_at
+              rs_type: chrono::DateTime<chrono::Local>
 
   - schema: examples/authors/sqlx-postgres/schema.sql
     queries: examples/authors/sqlx-postgres/queries.sql
@@ -58,6 +68,25 @@ sql:
         options:
           output: queries.rs
           db_crate: tokio-postgres
+  - schema: examples/authors/postgres/schema.sql
+    queries: examples/authors/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
+  - schema: examples/authors/postgres/schema.sql
+    queries: examples/authors/postgres/locals.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/postgres/src
+        options:
+          output: locals.rs
+          db_crate: postgres
+          query_parameter_limit: 3
   - schema: examples/authors/deadpool-postgres/schema.sql
     queries: examples/authors/deadpool-postgres/queries.sql
     engine: postgresql
@@ -162,6 +191,27 @@ sql:
             - db_type: complex
               rs_type: crate::Complex
               copy_cheap: true
+  - schema: examples/type-mapping/postgres/schema.sql
+    queries: examples/type-mapping/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - db_type: pg_catalog.timestamp
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: pg_catalog.time
+              rs_type: chrono::NaiveTime
+            - db_type: complex
+              rs_type: crate::Complex
+              copy_cheap: true
   - schema: examples/type-mapping/deadpool-postgres/schema.sql
     queries: examples/type-mapping/deadpool-postgres/queries.sql
     engine: postgresql
@@ -240,6 +290,15 @@ sql:
         options:
           output: queries.rs
           db_crate: tokio-postgres
+  - schema: examples/sqlc-slice/postgres/schema.sql
+    queries: examples/sqlc-slice/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
   - schema: examples/sqlc-slice/sqlx-sqlite/schema.sql
     queries: examples/sqlc-slice/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -298,6 +357,15 @@ sql:
         options:
           output: queries.rs
           db_crate: tokio-postgres
+  - schema: examples/dynamic-filter/postgres/schema.sql
+    queries: examples/dynamic-filter/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
   - schema: examples/dynamic-filter/deadpool-postgres/schema.sql
     queries: examples/dynamic-filter/deadpool-postgres/queries.sql
     engine: postgresql
