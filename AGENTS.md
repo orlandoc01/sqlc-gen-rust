@@ -29,7 +29,7 @@ This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that gen
 
 ## Tools
 
-`mise` globally installs `protoc` 36.1, `just` 1.58.0, and `sqlc` 1.31.1. If one is not on `PATH`, invoke it with `mise exec -- <cmd>`. CI and the devcontainer pin the same sqlc version; keep the three in sync when bumping.
+Building needs `protoc`, `just`, and `sqlc` 1.31.1 on `PATH`, plus the toolchain from `rust-toolchain.toml`. CI and the devcontainer pin the same sqlc version; keep the three in sync when bumping.
 
 ## Gates
 
@@ -53,21 +53,20 @@ cargo test --workspace
 
 ## CI
 
-`.github/workflows/pull_request.yaml` runs on PRs and pushes to `main`: format, clippy, then a test job with Postgres and MySQL service containers that runs `just generate-release`, fails on any diff in generated output, and runs `just test` (the whole workspace). `dependabot_automerge.yaml` auto-merges grouped minor/patch updates.
+`.github/workflows/pull_request.yaml` runs on PRs and pushes to `main`: format, clippy, then a test job with Postgres and MySQL service containers that runs `just generate-release`, fails on any diff in generated output, and runs `just test` (the whole workspace). `security.yaml` runs `cargo audit` (exceptions in `.cargo/audit.toml`) and a full-history gitleaks scan on PRs, pushes to `main`, and weekly. `dependabot_automerge.yaml` auto-merges grouped minor/patch GitHub Actions updates.
 
 ## Releases
 
-`.github/workflows/release.yaml` runs on a `v*` tag push. It builds the wasm with `--locked`, attaches `sqlc-gen-rust.wasm` and its `.sha256` to a GitHub release, and generates notes.
+`.github/workflows/release.yaml` runs on a `v*` tag push. A verify job checks that the tag matches `Cargo.toml`'s version and that a successful `Rust CI` run exists for the tagged commit; the release job then builds the wasm with `--locked`, attaches `sqlc-gen-rust.wasm` and its `.sha256` to a GitHub release, and generates notes.
 
 The wasm is not byte-reproducible across machines: a local `just build-release` hashes differently from CI's build of the same commit. The README sha256 must therefore come from the CI-built asset, never from a local build. To cut a release:
 
 1. Bump `version` in `Cargo.toml`, run `just generate` (generated file headers embed the version), commit.
-2. `git tag vX.Y.Z && git push github main vX.Y.Z` and wait for the release workflow.
+2. `git tag vX.Y.Z && git push origin main vX.Y.Z` and wait for the release workflow.
 3. Copy the sha256 from the release's `sqlc-gen-rust.wasm.sha256` asset into the README install snippet along with the new tag, commit, push. That commit is docs-only and needs no new tag.
 
 ## Machine Traps
 
-- Shell output may be rewritten by an `rtk` hook. When parsing command output, use `rtk proxy <cmd>` or absolute binary paths.
 - Do not write scratch files outside the repository except under `/tmp`.
 - Do not hand-edit generated output, including `examples/*/src/queries.rs`.
 - Bumping `version` in `Cargo.toml` changes every generated `queries.rs` header; regenerate in the same commit or the CI drift check fails.
