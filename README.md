@@ -1,6 +1,6 @@
 # sqlc-gen-rust
 
-sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
+sqlc plugin for Rust database crates. This is a fork of [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust); the `-- :if` dynamic filter idea comes from [sqlc-dev/sqlc-gen-go](https://github.com/sqlc-dev/sqlc-gen-go).
 
 It generates SQLx, rusqlite, postgres, tokio-postgres, and deadpool-postgres params structs and supports [`-- :if` dynamic filters](#dynamic-filters-with---if).
 
@@ -491,6 +491,9 @@ backend crate versions above; the example crates use edition 2024.
 
 The core plugin and type mapping come from
 [tunamaguro/sqlc-gen-rust](https://github.com/tunamaguro/sqlc-gen-rust).
+
+The `-- :if` dynamic filter annotation is modeled on the same feature in
+[sqlc-dev/sqlc-gen-go](https://github.com/sqlc-dev/sqlc-gen-go).
 
 ## License
 
