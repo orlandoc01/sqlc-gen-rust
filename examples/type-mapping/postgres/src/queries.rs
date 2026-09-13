@@ -1088,7 +1088,12 @@ pub fn prepare_get_mapping(
 pub fn get_mapping(
     client: &mut impl postgres::GenericClient,
 ) -> Result<GetMappingRow, postgres::Error> {
-    self::get_mapping_with(client, GET_MAPPING)
+    let values: &[(
+        &(dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )] = &[];
+    let row = client.query_typed_one(GET_MAPPING, values)?;
+    GetMappingRow::from_row(&row)
 }
 pub fn get_mapping_with(
     client: &mut impl postgres::GenericClient,
@@ -1103,7 +1108,14 @@ pub fn get_mapping_with(
 pub fn get_mapping_opt(
     client: &mut impl postgres::GenericClient,
 ) -> Result<Option<GetMappingRow>, postgres::Error> {
-    self::get_mapping_opt_with(client, GET_MAPPING)
+    let values: &[(
+        &(dyn postgres::types::ToSql + ::std::marker::Sync),
+        postgres::types::Type,
+    )] = &[];
+    client
+        .query_typed_opt(GET_MAPPING, values)?
+        .map(|row| GetMappingRow::from_row(&row))
+        .transpose()
 }
 pub fn get_mapping_opt_with(
     client: &mut impl postgres::GenericClient,

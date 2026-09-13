@@ -6,9 +6,9 @@ edition = "2024"
 [dependencies]
 serde_json = { workspace = true }
 tokio-postgres = { workspace = true }
+futures-util = { workspace = true }
 
 [dev-dependencies]
-futures-util = { workspace = true }
 tokio = { workspace = true }
 test-context = { workspace = true }
 test-utils = { workspace = true }

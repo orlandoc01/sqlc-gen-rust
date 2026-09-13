@@ -3,6 +3,9 @@ use crate::query::Annotation;
 use super::{Function, params_common};
 
 pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
+    if function.uses_query_typed() {
+        return super::typed_dynamic::functions(function);
+    }
     let paths = &function.paths;
     let name = &function.name;
     let helper = quote::format_ident!("{name}_query");

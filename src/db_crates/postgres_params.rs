@@ -8,6 +8,13 @@ use super::{
 mod dynamic;
 mod functions;
 mod names;
+mod typed;
+mod typed_dynamic;
+
+pub(crate) struct PostgresParams {
+    pub(crate) backend: Postgres,
+    pub(crate) query_typed: bool,
+}
 
 impl ParamsGenerator for Postgres {
     fn placeholders(&self) -> proc_macro2::TokenStream {
@@ -36,7 +43,30 @@ impl ParamsGenerator for Postgres {
         row: &ReturningRows,
         parts: &QueryParts,
     ) -> proc_macro2::TokenStream {
-        Function::new(*self, query, row, parts).generate()
+        Function::new(*self, false, query, row, parts).generate()
+    }
+}
+
+impl ParamsGenerator for PostgresParams {
+    fn placeholders(&self) -> proc_macro2::TokenStream {
+        self.backend.placeholders()
+    }
+
+    fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
+        self.backend.returning_row(row)
+    }
+
+    fn generated_functions(&self, query: &Query) -> Vec<params_common::GeneratedFunction> {
+        names::generated_functions(self.backend, query)
+    }
+
+    fn query_functions(
+        &self,
+        query: &Query,
+        row: &ReturningRows,
+        parts: &QueryParts,
+    ) -> proc_macro2::TokenStream {
+        Function::new(self.backend, self.query_typed, query, row, parts).generate()
     }
 }
 
@@ -48,6 +78,7 @@ struct Function<'a> {
     paths: PostgresPaths,
     name: syn::Ident,
     client: syn::Ident,
+    query_typed: bool,
 }
 
 struct StaticParts {
@@ -60,6 +91,7 @@ struct StaticParts {
 impl<'a> Function<'a> {
     fn new(
         backend: Postgres,
+        query_typed: bool,
         query: &'a Query,
         row: &'a ReturningRows,
         parts: &'a QueryParts,
@@ -76,6 +108,7 @@ impl<'a> Function<'a> {
             paths,
             name,
             client,
+            query_typed,
         }
     }
 
@@ -99,6 +132,17 @@ impl<'a> Function<'a> {
             | Annotation::BatchOne
             | Annotation::CopyFrom => proc_macro2::TokenStream::new(),
         }
+    }
+
+    fn uses_query_typed(&self) -> bool {
+        self.query_typed
+            && self.query.fields.iter().all(|field| {
+                super::postgres_types::type_ident(
+                    field.scalar_type().db_type(),
+                    field.scalar_type().array_dimensions(),
+                )
+                .is_some()
+            })
     }
 
     fn static_parts(&self) -> StaticParts {

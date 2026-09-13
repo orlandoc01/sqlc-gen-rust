@@ -30,7 +30,7 @@ fn generate(
             (row, query)
         })
         .unzip();
-    backend.generate_queries(&rows, &queries, 1)
+    backend.generate_queries(&rows, &queries, 1, false)
 }
 
 fn generated_functions(

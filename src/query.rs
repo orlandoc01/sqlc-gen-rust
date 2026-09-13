@@ -310,6 +310,7 @@ impl RsType {
 #[derive(Clone)]
 pub(crate) struct RsColType {
     rs_type: RsType,
+    db_type: String,
     /// maybe dim
     dim: usize,
     /// col is optional
@@ -338,6 +339,10 @@ impl RsColType {
 
     pub(crate) fn array_dimensions(&self) -> usize {
         self.dim
+    }
+
+    pub(crate) fn db_type(&self) -> &str {
+        &self.db_type
     }
 
     pub(crate) fn make_optional(&mut self) {
@@ -377,6 +382,11 @@ impl RsColType {
         column: &plugin::Column,
     ) -> Result<Self, QueryError> {
         let rs_type = db_type.get_column_type(column).stacked()?;
+        let db_type = column
+            .r#type
+            .as_ref()
+            .map(make_column_type)
+            .ok_or_else(|| QueryError::missing_column_type(make_column_name(column)))?;
         let dim = if column.is_sqlc_slice {
             1
         } else {
@@ -389,6 +399,7 @@ impl RsColType {
 
         Ok(Self {
             rs_type,
+            db_type,
             dim,
             optional,
         })
@@ -1419,6 +1430,7 @@ mod tests {
         let column = |can_default| RsColType {
             rs_type: RsType::new(syn::parse_str("crate::Cents").unwrap(), None, true)
                 .with_can_default(can_default),
+            db_type: "numeric".to_string(),
             dim: 0,
             optional: false,
         };
@@ -1436,11 +1448,13 @@ mod tests {
                 Some(syn::parse_str("str").unwrap()),
                 false,
             ),
+            db_type: "text".to_string(),
             dim: 0,
             optional: false,
         };
         let integer = RsColType {
             rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            db_type: "integer".to_string(),
             dim: 0,
             optional: false,
         };
@@ -1450,16 +1464,19 @@ mod tests {
                 None,
                 false,
             ),
+            db_type: "timestamp".to_string(),
             dim: 0,
             optional: false,
         };
         let slice = RsColType {
             rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            db_type: "integer".to_string(),
             dim: 1,
             optional: false,
         };
         let nullable = RsColType {
             rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            db_type: "integer".to_string(),
             dim: 0,
             optional: true,
         };

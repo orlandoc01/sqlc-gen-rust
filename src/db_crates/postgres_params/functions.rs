@@ -4,6 +4,9 @@ use super::{Function, StaticParts};
 
 impl Function<'_> {
     pub(super) fn one_functions(&self) -> proc_macro2::TokenStream {
+        if self.uses_query_typed() {
+            return super::typed::one_functions(self);
+        }
         let parts = self.static_parts();
         let name = &self.name;
         let opt = quote::format_ident!("{name}_opt");
@@ -54,6 +57,9 @@ impl Function<'_> {
     }
 
     pub(super) fn many_functions(&self) -> proc_macro2::TokenStream {
+        if self.uses_query_typed() {
+            return super::typed::many_functions(self);
+        }
         let parts = self.static_parts();
         let name = &self.name;
         let with = quote::format_ident!("{name}_with");
@@ -109,6 +115,9 @@ impl Function<'_> {
         result: proc_macro2::TokenStream,
         map: proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
+        if self.uses_query_typed() {
+            return super::typed::execute_functions(self, result);
+        }
         let parts = self.static_parts();
         let name = &self.name;
         let with = quote::format_ident!("{name}_with");
@@ -156,7 +165,7 @@ impl Function<'_> {
         }
     }
 
-    fn with_fn(
+    pub(super) fn with_fn(
         &self,
         signature: &ClientSignature,
         name: &syn::Ident,
@@ -182,7 +191,7 @@ impl Function<'_> {
         }
     }
 
-    fn prepare_function(&self) -> proc_macro2::TokenStream {
+    pub(super) fn prepare_function(&self) -> proc_macro2::TokenStream {
         let prepare = quote::format_ident!("prepare_{}", self.name);
         let prepare_statement = self
             .backend

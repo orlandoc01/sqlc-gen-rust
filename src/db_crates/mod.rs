@@ -137,6 +137,7 @@ impl DbCrate {
         rows: &[ReturningRows],
         queries: &[query::Query],
         query_parameter_limit: usize,
+        query_typed: bool,
     ) -> Result<proc_macro2::TokenStream, query::QueryError> {
         self.validate_array_dimensions(rows, queries)?;
         match self {
@@ -150,7 +151,11 @@ impl DbCrate {
                 query_parameter_limit,
             ),
             Self::Postgres(backend) => {
-                params_common::generate_queries(&backend, rows, queries, query_parameter_limit)
+                let generator = postgres_params::PostgresParams {
+                    backend,
+                    query_typed,
+                };
+                params_common::generate_queries(&generator, rows, queries, query_parameter_limit)
             }
         }
     }

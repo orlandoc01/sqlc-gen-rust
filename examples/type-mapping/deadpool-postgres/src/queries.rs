@@ -1089,9 +1089,14 @@ pub async fn prepare_get_mapping(
     client.prepare_cached(GET_MAPPING).await
 }
 pub async fn get_mapping(
-    client: &impl deadpool_postgres::GenericClient,
+    client: &deadpool_postgres::Client,
 ) -> Result<GetMappingRow, deadpool_postgres::tokio_postgres::Error> {
-    self::get_mapping_with(client, GET_MAPPING).await
+    let values: &[(
+        &(dyn deadpool_postgres::tokio_postgres::types::ToSql + ::std::marker::Sync),
+        deadpool_postgres::tokio_postgres::types::Type,
+    )] = &[];
+    let row = client.query_typed_one(GET_MAPPING, values).await?;
+    GetMappingRow::from_row(&row)
 }
 pub async fn get_mapping_with(
     client: &impl deadpool_postgres::GenericClient,
@@ -1108,9 +1113,17 @@ pub async fn get_mapping_with(
     GetMappingRow::from_row(&row)
 }
 pub async fn get_mapping_opt(
-    client: &impl deadpool_postgres::GenericClient,
+    client: &deadpool_postgres::Client,
 ) -> Result<Option<GetMappingRow>, deadpool_postgres::tokio_postgres::Error> {
-    self::get_mapping_opt_with(client, GET_MAPPING).await
+    let values: &[(
+        &(dyn deadpool_postgres::tokio_postgres::types::ToSql + ::std::marker::Sync),
+        deadpool_postgres::tokio_postgres::types::Type,
+    )] = &[];
+    client
+        .query_typed_opt(GET_MAPPING, values)
+        .await?
+        .map(|row| GetMappingRow::from_row(&row))
+        .transpose()
 }
 pub async fn get_mapping_opt_with(
     client: &impl deadpool_postgres::GenericClient,
