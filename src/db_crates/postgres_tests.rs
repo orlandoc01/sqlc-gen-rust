@@ -1,6 +1,6 @@
 use crate::{
     db_crates::{
-        TokioPostgres, params_common,
+        Postgres, params_common,
         test_support::{column, identifier, query},
     },
     plugin,
@@ -8,7 +8,7 @@ use crate::{
 };
 
 fn generated_tokens(
-    backend: TokioPostgres,
+    backend: Postgres,
     query: plugin::Query,
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
@@ -20,7 +20,7 @@ fn generated_tokens(
     params_common::generate_queries(&backend, &[row], &[query], query_parameter_limit).unwrap()
 }
 
-fn generated(backend: TokioPostgres, query: plugin::Query, query_parameter_limit: usize) -> String {
+fn generated(backend: Postgres, query: plugin::Query, query_parameter_limit: usize) -> String {
     generated_tokens(backend, query, query_parameter_limit).to_string()
 }
 
@@ -36,13 +36,13 @@ fn static_query() -> plugin::Query {
 
 #[test]
 fn generates_static_statement_functions_and_parameter_array() {
-    for backend in [TokioPostgres::Tokio, TokioPostgres::Deadpool] {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
         let tokens = generated(backend, static_query(), 1);
         assert!(tokens.contains("prepare_get_author"));
         assert!(tokens.contains("& [& id ,]"));
     }
 
-    let tokens = generated(TokioPostgres::Tokio, static_query(), 1);
+    let tokens = generated(Postgres::Tokio, static_query(), 1);
     assert!(
         tokens.contains(
             "get_author_with (client : & impl tokio_postgres :: GenericClient , statement : & (impl tokio_postgres :: ToStatement + ? Sized + Sync + Send)"
@@ -52,7 +52,7 @@ fn generates_static_statement_functions_and_parameter_array() {
 
 #[test]
 fn generates_dynamic_functions_without_statements() {
-    for backend in [TokioPostgres::Tokio, TokioPostgres::Deadpool] {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
         let tokens = generated(
             backend,
             query(
@@ -68,7 +68,6 @@ fn generates_dynamic_functions_without_statements() {
         assert!(tokens.contains("fn search_authors_query < 'p >"));
         assert!(tokens.contains("dynfilter :: Bind :: Arg (0usize) => & params . id as _"));
         assert!(!tokens.contains("prepare_search_authors"));
-        assert!(tokens.contains("fn search_authors_stream"));
         assert!(tokens.contains("Result < Vec < SearchAuthorsRow >"));
         assert!(tokens.contains("params : & 'p SearchAuthorsParams"));
         assert_eq!(tokens.matches("search_authors_query (& params)").count(), 2);
@@ -76,9 +75,77 @@ fn generates_dynamic_functions_without_statements() {
 }
 
 #[test]
+fn sync_uses_mutable_clients_and_row_iterators() {
+    let query = query(
+        "ListAuthors",
+        ":many",
+        "SELECT id FROM authors WHERE id = $1",
+        vec![column("id", false)],
+        vec![(1, column("id", false))],
+    );
+    let tokens = generated_tokens(Postgres::Sync, query, 1);
+    assert!(syn::parse2::<syn::File>(tokens.clone()).is_ok());
+    let tokens = tokens.to_string();
+
+    assert!(tokens.contains("client : & mut impl postgres :: GenericClient"));
+    assert!(tokens.contains("prepare_list_authors"));
+    assert!(tokens.contains("list_authors_iter"));
+    assert!(tokens.contains("list_authors_iter_with"));
+    assert!(tokens.contains("self :: list_authors_iter_with (client , LIST_AUTHORS , id)"));
+    assert!(!tokens.contains("list_authors_stream"));
+    assert!(tokens.contains("Result < postgres :: RowIter < 'c > , postgres :: Error >"));
+    assert!(tokens.contains("query_raw (statement , values . iter () . copied ())"));
+    assert!(!tokens.contains("async fn"));
+    assert!(!tokens.contains(". await"));
+}
+
+#[test]
+fn sync_dynamic_many_uses_iter_and_the_dynamic_helper() {
+    let tokens = generated_tokens(
+        Postgres::Sync,
+        query(
+            "SearchAuthors",
+            ":many",
+            "SELECT id FROM authors WHERE TRUE\nAND id = $1 -- :if @id",
+            vec![column("id", false)],
+            vec![(1, column("id", false))],
+        ),
+        1,
+    );
+    assert!(syn::parse2::<syn::File>(tokens.clone()).is_ok());
+    let tokens = tokens.to_string();
+
+    assert!(tokens.contains("fn search_authors_query < 'p >"));
+    assert!(tokens.contains("fn search_authors_iter"));
+    assert!(!tokens.contains("search_authors_stream"));
+    assert!(tokens.contains("Result < postgres :: RowIter < 'c > , postgres :: Error >"));
+    assert!(!tokens.contains("async fn"));
+    assert!(!tokens.contains(". await"));
+}
+
+#[test]
+fn tokio_uses_async_stream_functions() {
+    let tokens = generated(
+        Postgres::Tokio,
+        query(
+            "ListAuthors",
+            ":many",
+            "SELECT id FROM authors",
+            vec![column("id", false)],
+            Vec::new(),
+        ),
+        1,
+    );
+
+    assert!(tokens.contains("pub async fn"));
+    assert!(tokens.contains("list_authors_stream"));
+    assert!(!tokens.contains("list_authors_iter"));
+}
+
+#[test]
 fn direct_parameters_do_not_collide_with_generated_locals() {
     let tokens = generated(
-        TokioPostgres::Tokio,
+        Postgres::Tokio,
         query(
             "ByStatement",
             ":many",
@@ -107,7 +174,7 @@ fn direct_parameters_do_not_collide_with_generated_locals() {
 #[test]
 fn direct_parameters_do_not_shadow_forwarding_functions() {
     let tokens = generated_tokens(
-        TokioPostgres::Tokio,
+        Postgres::Tokio,
         query(
             "GetAuthor",
             ":one",
@@ -123,7 +190,7 @@ fn direct_parameters_do_not_shadow_forwarding_functions() {
     assert!(tokens.contains("self :: get_author_with (client , GET_AUTHOR , get_author_with)"));
 
     let opt_tokens = generated(
-        TokioPostgres::Tokio,
+        Postgres::Tokio,
         query(
             "GetAuthor",
             ":one",
@@ -139,7 +206,7 @@ fn direct_parameters_do_not_shadow_forwarding_functions() {
     );
 
     let stream_tokens = generated(
-        TokioPostgres::Tokio,
+        Postgres::Tokio,
         query(
             "ListAuthors",
             ":many",
@@ -159,7 +226,7 @@ fn required_system_time_params_do_not_derive_default() {
     let mut timestamp = column("timestamp", false);
     timestamp.r#type = Some(identifier("timestamp"));
     let tokens = generated(
-        TokioPostgres::Tokio,
+        Postgres::Tokio,
         query(
             "EchoTimestamp",
             ":one",
@@ -177,26 +244,26 @@ fn required_system_time_params_do_not_derive_default() {
 
 #[test]
 fn uses_deadpool_paths_and_cached_statements() {
-    let deadpool = generated(TokioPostgres::Deadpool, static_query(), 1);
+    let deadpool = generated(Postgres::Deadpool, static_query(), 1);
     assert!(deadpool.contains("prepare_cached"));
     assert!(deadpool.contains("deadpool_postgres :: GenericClient"));
     assert!(deadpool.contains("deadpool_postgres :: tokio_postgres :: types :: ToSql"));
 
-    let tokio = generated(TokioPostgres::Tokio, static_query(), 1);
+    let tokio = generated(Postgres::Tokio, static_query(), 1);
     assert!(!tokio.contains("prepare_cached"));
 }
 
 #[test]
 fn deadpool_to_sql_path() {
     assert_eq!(
-        TokioPostgres::Deadpool.paths().to_sql.to_string(),
+        Postgres::Deadpool.paths().to_sql.to_string(),
         "deadpool_postgres :: tokio_postgres :: types :: ToSql"
     );
 }
 
 #[test]
 fn embedded_rows_decode_by_select_ordinal() {
-    let type_map = TokioPostgres::Tokio.db_type_map();
+    let type_map = Postgres::Tokio.db_type_map();
     let scalar = |name| query::ColumnField {
         name: crate::field_ident(name),
         name_original: syn::LitStr::new(name, proc_macro2::Span::call_site()),
@@ -224,8 +291,8 @@ fn embedded_rows_decode_by_select_ordinal() {
         attributes: None,
     };
 
-    for backend in [TokioPostgres::Tokio, TokioPostgres::Deadpool] {
-        let tokens = backend.returning_ordinal_row(&row).to_string();
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = params_common::ParamsGenerator::returning_row(&backend, &row).to_string();
         assert!(tokens.contains("before : row . try_get (0) ?"));
         assert!(tokens.contains("id : row . try_get (1) ?"));
         assert!(tokens.contains("name : row . try_get (2) ?"));

@@ -1,11 +1,20 @@
 use crate::{
-    db_crates::params_common::{self, GeneratedFunction},
+    db_crates::{
+        Postgres,
+        params_common::{self, GeneratedFunction},
+    },
     query::{Annotation, Query},
 };
 
-pub(super) fn generated_functions(query: &Query) -> Vec<GeneratedFunction> {
+pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<GeneratedFunction> {
+    fn function(ident: syn::Ident, helper: impl Into<String>) -> GeneratedFunction {
+        GeneratedFunction {
+            ident,
+            helper: helper.into(),
+        }
+    }
+
     let name = params_common::query_function_ident(query);
-    let function = |ident, helper| GeneratedFunction { ident, helper };
     if query.dynfilter().is_some() {
         let helper = function(quote::format_ident!("{name}_query"), "dynamic query helper");
         return match query.annotation {
@@ -14,11 +23,17 @@ pub(super) fn generated_functions(query: &Query) -> Vec<GeneratedFunction> {
                 function(name.clone(), "query function"),
                 function(quote::format_ident!("{name}_opt"), "optional query helper"),
             ],
-            Annotation::Many => vec![
-                helper,
-                function(name.clone(), "query function"),
-                function(quote::format_ident!("{name}_stream"), "stream helper"),
-            ],
+            Annotation::Many => {
+                let suffix = backend.many_iterator_suffix();
+                vec![
+                    helper,
+                    function(name.clone(), "query function"),
+                    function(
+                        quote::format_ident!("{name}_{suffix}"),
+                        format!("{suffix} helper"),
+                    ),
+                ]
+            }
             Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult => {
                 vec![helper, function(name, "query function")]
             }
@@ -42,16 +57,22 @@ pub(super) fn generated_functions(query: &Query) -> Vec<GeneratedFunction> {
                 "optional with helper",
             ),
         ],
-        Annotation::Many => vec![
-            prepare,
-            function(name.clone(), "query function"),
-            function(quote::format_ident!("{name}_with"), "with helper"),
-            function(quote::format_ident!("{name}_stream"), "stream helper"),
-            function(
-                quote::format_ident!("{name}_stream_with"),
-                "stream with helper",
-            ),
-        ],
+        Annotation::Many => {
+            let suffix = backend.many_iterator_suffix();
+            vec![
+                prepare,
+                function(name.clone(), "query function"),
+                function(quote::format_ident!("{name}_with"), "with helper"),
+                function(
+                    quote::format_ident!("{name}_{suffix}"),
+                    format!("{suffix} helper"),
+                ),
+                function(
+                    quote::format_ident!("{name}_{suffix}_with"),
+                    format!("{suffix} with helper"),
+                ),
+            ]
+        }
         Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult => vec![
             prepare,
             function(name.clone(), "query function"),

@@ -64,7 +64,29 @@ pub(crate) trait ParamsGenerator {
 
 pub(crate) struct GeneratedFunction {
     pub(crate) ident: syn::Ident,
-    pub(crate) helper: &'static str,
+    pub(crate) helper: String,
+}
+
+pub(crate) fn simple_generated_functions(
+    query: &Query,
+    supported: impl FnOnce(Annotation) -> bool,
+) -> Vec<GeneratedFunction> {
+    fn function(ident: syn::Ident, helper: impl Into<String>) -> GeneratedFunction {
+        GeneratedFunction {
+            ident,
+            helper: helper.into(),
+        }
+    }
+
+    let name = query_function_ident(query);
+    match query.annotation {
+        Annotation::One => vec![
+            function(name.clone(), "query function"),
+            function(quote::format_ident!("{name}_opt"), "optional query helper"),
+        ],
+        annotation if supported(annotation) => vec![function(name, "query function")],
+        _ => Vec::new(),
+    }
 }
 
 pub(crate) fn generate_queries<G: ParamsGenerator>(
@@ -104,16 +126,16 @@ fn validate_generated_functions<G: ParamsGenerator>(
 ) -> Result<(), QueryError> {
     let mut functions = std::collections::BTreeMap::new();
     for query in queries {
-        for function in generator.generated_functions(query) {
-            let ident = function.ident.to_string();
+        for GeneratedFunction { ident, helper } in generator.generated_functions(query) {
+            let ident = ident.to_string();
             if let Some((first_query_name, first_helper)) =
-                functions.insert(ident.clone(), (query.query_name.clone(), function.helper))
+                functions.insert(ident.clone(), (query.query_name.clone(), helper.clone()))
             {
                 return Err(QueryError::conflicting_generated_function(
                     first_query_name,
                     first_helper,
                     query.query_name.clone(),
-                    function.helper,
+                    helper,
                     ident,
                 ));
             }

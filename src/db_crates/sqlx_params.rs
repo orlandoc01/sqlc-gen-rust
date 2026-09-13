@@ -14,29 +14,30 @@ impl ParamsGenerator for Sqlx {
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        self.returning_ordinal_row(row)
+        let struct_tokens = super::make_return_row(row);
+        let ident = row.struct_ident();
+        let row_type = self.row_type();
+        let fields = super::row_field_initializers(row, |index| {
+            quote::quote! { sqlx::Row::try_get(row, #index)? }
+        });
+        quote::quote! {
+            #struct_tokens
+            impl<'r> sqlx::FromRow<'r, #row_type> for #ident {
+                fn from_row(row: &'r #row_type) -> Result<Self, sqlx::Error> {
+                    Ok(Self { #(#fields,)* })
+                }
+            }
+        }
     }
 
     fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
-        let name = params_common::query_function_ident(query);
-        let function = |ident, helper| GeneratedFunction { ident, helper };
-        match query.annotation {
-            Annotation::One => vec![
-                function(name.clone(), "query function"),
-                function(quote::format_ident!("{name}_opt"), "optional query helper"),
-            ],
-            Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult => {
-                vec![function(name, "query function")]
-            }
-            Annotation::ExecLastId if matches!(self, Self::MySql | Self::Sqlite) => {
-                vec![function(name, "query function")]
-            }
-            Annotation::ExecLastId
-            | Annotation::BatchExec
-            | Annotation::BatchMany
-            | Annotation::BatchOne
-            | Annotation::CopyFrom => Vec::new(),
-        }
+        params_common::simple_generated_functions(query, |annotation| {
+            matches!(
+                annotation,
+                Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult
+            ) || (matches!(self, Self::MySql | Self::Sqlite)
+                && annotation == Annotation::ExecLastId)
+        })
     }
 
     fn query_functions(

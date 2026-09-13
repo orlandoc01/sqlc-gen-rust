@@ -11,26 +11,26 @@ impl ParamsGenerator for Rusqlite {
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        self.returning_ordinal_row(row)
+        let struct_tokens = super::make_return_row(row);
+        let ident = row.struct_ident();
+        let fields = super::row_field_initializers(row, |index| quote::quote! { row.get(#index)? });
+        quote::quote! {
+            #struct_tokens
+            impl #ident {
+                pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+                    Ok(Self { #(#fields,)* })
+                }
+            }
+        }
     }
 
     fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
-        let name = params_common::query_function_ident(query);
-        let function = |ident, helper| GeneratedFunction { ident, helper };
-        match query.annotation {
-            Annotation::One => vec![
-                function(name.clone(), "query function"),
-                function(quote::format_ident!("{name}_opt"), "optional query helper"),
-            ],
-            Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecLastId => {
-                vec![function(name, "query function")]
-            }
-            Annotation::ExecResult
-            | Annotation::BatchExec
-            | Annotation::BatchMany
-            | Annotation::BatchOne
-            | Annotation::CopyFrom => Vec::new(),
-        }
+        params_common::simple_generated_functions(query, |annotation| {
+            matches!(
+                annotation,
+                Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecLastId
+            )
+        })
     }
 
     fn query_functions(

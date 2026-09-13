@@ -26,14 +26,7 @@ pub enum QueryError {
         struct_ident: String,
         location: &'static std::panic::Location<'static>,
     },
-    ConflictingGeneratedFunction {
-        first_query_name: String,
-        first_helper: &'static str,
-        second_query_name: String,
-        second_helper: &'static str,
-        function_ident: String,
-        location: &'static std::panic::Location<'static>,
-    },
+    ConflictingGeneratedFunction(Box<GeneratedFunctionConflict>),
     UnsupportedArrayDimensions {
         query_name: String,
         column_name: String,
@@ -47,6 +40,16 @@ pub enum QueryError {
         source: Box<Self>,
         location: &'static std::panic::Location<'static>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct GeneratedFunctionConflict {
+    first_query_name: String,
+    first_helper: String,
+    second_query_name: String,
+    second_helper: String,
+    function_ident: String,
+    location: &'static std::panic::Location<'static>,
 }
 
 impl QueryError {
@@ -107,19 +110,19 @@ impl QueryError {
     #[track_caller]
     pub(crate) fn conflicting_generated_function(
         first_query_name: String,
-        first_helper: &'static str,
+        first_helper: String,
         second_query_name: String,
-        second_helper: &'static str,
+        second_helper: String,
         function_ident: String,
     ) -> Self {
-        Self::ConflictingGeneratedFunction {
+        Self::ConflictingGeneratedFunction(Box::new(GeneratedFunctionConflict {
             first_query_name,
             first_helper,
             second_query_name,
             second_helper,
             function_ident,
             location: std::panic::Location::caller(),
-        }
+        }))
     }
 
     #[track_caller]
@@ -146,7 +149,7 @@ impl QueryError {
             QueryError::CannotMapType { location, .. } => location,
             QueryError::MissingEmbeddedTable { location, .. } => location,
             QueryError::ConflictingEmbeddedTable { location, .. } => location,
-            QueryError::ConflictingGeneratedFunction { location, .. } => location,
+            QueryError::ConflictingGeneratedFunction(conflict) => conflict.location,
             QueryError::UnsupportedArrayDimensions { location, .. } => location,
             QueryError::UnknownAnnotation { location, .. } => location,
             QueryError::Stacked { location, .. } => location,
@@ -182,16 +185,14 @@ impl std::fmt::Display for QueryError {
                 f,
                 "Embedded tables `{first_table_name}` and `{second_table_name}` both generate Rust struct `{struct_ident}`"
             ),
-            QueryError::ConflictingGeneratedFunction {
-                first_query_name,
-                first_helper,
-                second_query_name,
-                second_helper,
-                function_ident,
-                ..
-            } => write!(
+            QueryError::ConflictingGeneratedFunction(conflict) => write!(
                 f,
-                "Queries `{first_query_name}` ({first_helper}) and `{second_query_name}` ({second_helper}) both generate Rust function `{function_ident}`"
+                "Queries `{}` ({}) and `{}` ({}) both generate Rust function `{}`",
+                conflict.first_query_name,
+                conflict.first_helper,
+                conflict.second_query_name,
+                conflict.second_helper,
+                conflict.function_ident,
             ),
             QueryError::UnsupportedArrayDimensions {
                 query_name,

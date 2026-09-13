@@ -1,6 +1,6 @@
-use crate::query::{DbEnum, ReturningRows};
+use crate::query::DbEnum;
 
-use super::{make_return_row, sqlx::Sqlx};
+use super::sqlx::Sqlx;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Rusqlite;
@@ -38,19 +38,5 @@ impl Rusqlite {
 
     pub(crate) fn defined_enum(self, _enum_type: &DbEnum) -> proc_macro2::TokenStream {
         proc_macro2::TokenStream::new()
-    }
-
-    pub(crate) fn returning_ordinal_row(self, row: &ReturningRows) -> proc_macro2::TokenStream {
-        let struct_tokens = make_return_row(row);
-        let ident = row.struct_ident();
-        let fields = super::row_field_initializers(row, |index| quote::quote! { row.get(#index)? });
-        quote::quote! {
-            #struct_tokens
-            impl #ident {
-                pub fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
-                    Ok(Self { #(#fields,)* })
-                }
-            }
-        }
     }
 }

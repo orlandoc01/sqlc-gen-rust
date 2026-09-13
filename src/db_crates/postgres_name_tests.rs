@@ -1,6 +1,6 @@
 use crate::{
     db_crates::{
-        TokioPostgres, params_common,
+        Postgres, params_common,
         sqlx::Sqlx,
         test_support::{column, query},
     },
@@ -25,10 +25,10 @@ fn parsed_queries(
         .unzip()
 }
 
-fn collision_error(first: plugin::Query, second: plugin::Query) -> String {
-    let type_map = TokioPostgres::Tokio.db_type_map();
+fn collision_error(backend: Postgres, first: plugin::Query, second: plugin::Query) -> String {
+    let type_map = backend.db_type_map();
     let (rows, queries) = parsed_queries(&type_map, vec![first, second]);
-    params_common::generate_queries(&TokioPostgres::Tokio, &rows, &queries, 1)
+    params_common::generate_queries(&backend, &rows, &queries, 1)
         .unwrap_err()
         .to_string()
 }
@@ -36,6 +36,7 @@ fn collision_error(first: plugin::Query, second: plugin::Query) -> String {
 #[test]
 fn rejects_prepare_function_name_collisions() {
     let error = collision_error(
+        Postgres::Tokio,
         query(
             "GetAuthor",
             ":one",
@@ -61,6 +62,7 @@ fn rejects_prepare_function_name_collisions() {
 #[test]
 fn rejects_with_function_name_collisions() {
     let error = collision_error(
+        Postgres::Tokio,
         query(
             "GetAuthor",
             ":one",
@@ -86,6 +88,7 @@ fn rejects_with_function_name_collisions() {
 #[test]
 fn rejects_stream_function_name_collisions() {
     let error = collision_error(
+        Postgres::Tokio,
         query(
             "ListAuthors",
             ":many",
@@ -111,6 +114,7 @@ fn rejects_stream_function_name_collisions() {
 #[test]
 fn rejects_dynamic_helper_name_collisions() {
     let error = collision_error(
+        Postgres::Tokio,
         query(
             "SearchAuthors",
             ":many",
@@ -130,6 +134,32 @@ fn rejects_dynamic_helper_name_collisions() {
     assert_eq!(
         error,
         "Queries `SearchAuthors` (dynamic query helper) and `SearchAuthorsQuery` (query function) both generate Rust function `search_authors_query`"
+    );
+}
+
+#[test]
+fn rejects_iter_function_name_collisions_for_sync_postgres() {
+    let error = collision_error(
+        Postgres::Sync,
+        query(
+            "ListAuthors",
+            ":many",
+            "SELECT id FROM authors",
+            vec![column("id", false)],
+            vec![],
+        ),
+        query(
+            "ListAuthorsIter",
+            ":exec",
+            "DELETE FROM authors",
+            Vec::new(),
+            vec![],
+        ),
+    );
+
+    assert_eq!(
+        error,
+        "Queries `ListAuthors` (iter helper) and `ListAuthorsIter` (query function) both generate Rust function `list_authors_iter`"
     );
 }
 

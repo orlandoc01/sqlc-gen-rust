@@ -10,6 +10,12 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
     let arguments = &function.parts.arguments;
     let error = &paths.error;
     let generic_client = &paths.client;
+    let async_token = &paths.async_token;
+    let await_token = &paths.await_token;
+    let plain_lifetime = &paths.plain.lifetime;
+    let plain_client_ref = &paths.plain.client_ref;
+    let iterator_lifetime = &paths.iterator.lifetime;
+    let iterator_client_ref = &paths.iterator.client_ref;
     let helper_function = make_helper(function, &helper, &paths.to_sql);
     let setup = quote::quote! { let (sql, values) = #helper(&params); };
     let functions = match function.query.annotation {
@@ -17,43 +23,44 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
             let row = function.row.struct_ident();
             let opt = quote::format_ident!("{name}_opt");
             quote::quote! {
-                pub async fn #name(#client: &impl #generic_client #arguments) -> Result<#row, #error> {
+                pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<#row, #error> {
                     #setup
-                    let row = #client.query_one(sql.as_str(), &values).await?;
+                    let row = #client.query_one(sql.as_str(), &values) #await_token?;
                     #row::from_row(&row)
                 }
-                pub async fn #opt(#client: &impl #generic_client #arguments) -> Result<Option<#row>, #error> {
+                pub #async_token fn #opt #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<Option<#row>, #error> {
                     #setup
-                    #client.query_opt(sql.as_str(), &values).await?.map(|row| #row::from_row(&row)).transpose()
+                    #client.query_opt(sql.as_str(), &values) #await_token?.map(|row| #row::from_row(&row)).transpose()
                 }
             }
         }
         Annotation::Many => {
             let row = function.row.struct_ident();
-            let stream = quote::format_ident!("{name}_stream");
-            let row_stream = &paths.row_stream;
+            let suffix = function.backend.many_iterator_suffix();
+            let iterator = quote::format_ident!("{name}_{suffix}");
+            let row_iter = &paths.row_iter;
             quote::quote! {
-                pub async fn #name(#client: &impl #generic_client #arguments) -> Result<Vec<#row>, #error> {
+                pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<Vec<#row>, #error> {
                     #setup
-                    let rows = #client.query(sql.as_str(), &values).await?;
+                    let rows = #client.query(sql.as_str(), &values) #await_token?;
                     rows.iter().map(#row::from_row).collect()
                 }
-                pub async fn #stream(#client: &impl #generic_client #arguments) -> Result<#row_stream, #error> {
+                pub #async_token fn #iterator #iterator_lifetime(#client: #iterator_client_ref impl #generic_client #arguments) -> Result<#row_iter, #error> {
                     #setup
-                    #client.query_raw(sql.as_str(), values).await
+                    #client.query_raw(sql.as_str(), values) #await_token
                 }
             }
         }
         Annotation::Exec => quote::quote! {
-            pub async fn #name(#client: &impl #generic_client #arguments) -> Result<(), #error> {
+            pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<(), #error> {
                 #setup
-                #client.execute(sql.as_str(), &values).await.map(|_| ())
+                #client.execute(sql.as_str(), &values) #await_token.map(|_| ())
             }
         },
         Annotation::ExecRows | Annotation::ExecResult => quote::quote! {
-            pub async fn #name(#client: &impl #generic_client #arguments) -> Result<u64, #error> {
+            pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<u64, #error> {
                 #setup
-                #client.execute(sql.as_str(), &values).await
+                #client.execute(sql.as_str(), &values) #await_token
             }
         },
         Annotation::ExecLastId
@@ -82,7 +89,7 @@ fn make_helper(
             let pattern = bind.pattern;
             if bind.slice_element.is_some() {
                 return quote::quote! {
-                    #pattern => unreachable!("tokio-postgres binds sqlc slices as arrays"),
+                    #pattern => unreachable!("PostgreSQL binds sqlc slices as arrays"),
                 };
             }
             let name = &bind.field.name;

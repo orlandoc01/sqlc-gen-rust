@@ -26,15 +26,13 @@ struct PgDatabase {
 }
 
 impl PgDatabase {
-    async fn setup() -> Self {
+    fn setup() -> Self {
         let database_url = postgres_url();
-        let admin_pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+        let mut admin = postgres::Client::connect(&database_url, postgres::NoTls).unwrap();
         let db_name = generate_tmp_db();
-        sqlx::query(&format!("CREATE DATABASE {db_name}"))
-            .execute(&admin_pool)
-            .await
+        admin
+            .batch_execute(&format!("CREATE DATABASE {db_name}"))
             .unwrap();
-        admin_pool.close().await;
         Self {
             admin_url: url::Url::parse(&database_url).unwrap(),
             db_name,
@@ -47,22 +45,21 @@ impl PgDatabase {
         test_url
     }
 
-    async fn teardown(self) {
-        let admin_pool = sqlx::PgPool::connect(self.admin_url.as_str())
-            .await
-            .unwrap();
+    fn teardown(self) {
+        let mut admin =
+            postgres::Client::connect(self.admin_url.as_str(), postgres::NoTls).unwrap();
         // FORCE: a closed pool's connections may still be winding down server-side.
-        sqlx::query(&format!("DROP DATABASE {} WITH (FORCE)", self.db_name))
-            .execute(&admin_pool)
-            .await
+        admin
+            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.db_name))
             .unwrap();
-        admin_pool.close().await;
     }
 }
 
 impl AsyncTestContext for SqlxPgContext {
     async fn setup() -> Self {
-        let database = PgDatabase::setup().await;
+        let database = tokio::task::spawn_blocking(PgDatabase::setup)
+            .await
+            .unwrap();
         let pool = sqlx::PgPool::connect(database.test_url().as_str())
             .await
             .unwrap();
@@ -70,8 +67,11 @@ impl AsyncTestContext for SqlxPgContext {
     }
 
     async fn teardown(self) {
-        self.pool.close().await;
-        self.database.teardown().await;
+        let Self { database, pool } = self;
+        pool.close().await;
+        tokio::task::spawn_blocking(move || database.teardown())
+            .await
+            .unwrap();
     }
 }
 
@@ -83,7 +83,9 @@ pub struct PgTokioContext {
 
 impl AsyncTestContext for PgTokioContext {
     async fn setup() -> Self {
-        let database = PgDatabase::setup().await;
+        let database = tokio::task::spawn_blocking(PgDatabase::setup)
+            .await
+            .unwrap();
         let (client, connection) =
             tokio_postgres::connect(database.test_url().as_str(), tokio_postgres::NoTls)
                 .await
@@ -103,7 +105,9 @@ impl AsyncTestContext for PgTokioContext {
         } = self;
         drop(client);
         connection_task.await.unwrap().unwrap();
-        database.teardown().await;
+        tokio::task::spawn_blocking(move || database.teardown())
+            .await
+            .unwrap();
     }
 }
 
@@ -114,7 +118,9 @@ pub struct PgDeadpoolContext {
 
 impl AsyncTestContext for PgDeadpoolContext {
     async fn setup() -> Self {
-        let database = PgDatabase::setup().await;
+        let database = tokio::task::spawn_blocking(PgDatabase::setup)
+            .await
+            .unwrap();
         let config = tokio_postgres::Config::from_str(database.test_url().as_str()).unwrap();
         let manager = deadpool_postgres::Manager::from_config(
             config,
@@ -131,8 +137,31 @@ impl AsyncTestContext for PgDeadpoolContext {
     }
 
     async fn teardown(self) {
-        self.pool.close();
-        self.database.teardown().await;
+        let Self { database, pool } = self;
+        pool.close();
+        tokio::task::spawn_blocking(move || database.teardown())
+            .await
+            .unwrap();
+    }
+}
+
+pub struct PgSyncContext {
+    database: PgDatabase,
+    pub client: postgres::Client,
+}
+
+impl TestContext for PgSyncContext {
+    fn setup() -> Self {
+        let database = PgDatabase::setup();
+        let client =
+            postgres::Client::connect(database.test_url().as_str(), postgres::NoTls).unwrap();
+        Self { database, client }
+    }
+
+    fn teardown(self) {
+        let Self { database, client } = self;
+        drop(client);
+        database.teardown();
     }
 }
 

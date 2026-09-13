@@ -1,6 +1,6 @@
 use crate::{
     db_crates::{
-        DbCrate, Sqlx, TokioPostgres,
+        DbCrate, Postgres, Sqlx,
         test_support::{column, identifier, query},
     },
     plugin,
@@ -30,14 +30,15 @@ fn generate(
     backend.generate_queries(&rows, &queries, 1)
 }
 
-fn backends() -> [DbCrate; 6] {
+fn backends() -> [DbCrate; 7] {
     [
         DbCrate::Sqlx(Sqlx::Postgres),
         DbCrate::Sqlx(Sqlx::MySql),
         DbCrate::Sqlx(Sqlx::Sqlite),
         DbCrate::Rusqlite,
-        DbCrate::TokioPostgres(TokioPostgres::Tokio),
-        DbCrate::TokioPostgres(TokioPostgres::Deadpool),
+        DbCrate::Postgres(Postgres::Sync),
+        DbCrate::Postgres(Postgres::Tokio),
+        DbCrate::Postgres(Postgres::Deadpool),
     ]
 }
 
@@ -140,8 +141,9 @@ fn reserves_prepare_helpers_only_for_postgres_drivers() {
         assert!(generate(backend, queries(), None).is_ok());
     }
     for backend in [
-        DbCrate::TokioPostgres(TokioPostgres::Tokio),
-        DbCrate::TokioPostgres(TokioPostgres::Deadpool),
+        DbCrate::Postgres(Postgres::Sync),
+        DbCrate::Postgres(Postgres::Tokio),
+        DbCrate::Postgres(Postgres::Deadpool),
     ] {
         assert_collision(
             backend,
@@ -198,8 +200,9 @@ fn assert_array_dimensions_rejected(
 fn postgres_drivers_reject_multidimensional_array_parameters_and_rows() {
     let catalog = matrix_catalog();
     for backend in [
-        DbCrate::TokioPostgres(TokioPostgres::Tokio),
-        DbCrate::TokioPostgres(TokioPostgres::Deadpool),
+        DbCrate::Postgres(Postgres::Sync),
+        DbCrate::Postgres(Postgres::Tokio),
+        DbCrate::Postgres(Postgres::Deadpool),
     ] {
         assert_array_dimensions_rejected(
             backend,
