@@ -32,11 +32,9 @@ pub async fn get_author(
 ) -> Result<GetAuthorRow, deadpool_postgres::tokio_postgres::Error> {
     self::get_author_with(client, GET_AUTHOR, id).await
 }
-pub async fn get_author_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_author_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<GetAuthorRow, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -49,11 +47,9 @@ pub async fn get_author_opt(
 ) -> Result<Option<GetAuthorRow>, deadpool_postgres::tokio_postgres::Error> {
     self::get_author_opt_with(client, GET_AUTHOR, id).await
 }
-pub async fn get_author_opt_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_author_opt_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<Option<GetAuthorRow>, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -92,11 +88,9 @@ pub async fn list_authors(
 ) -> Result<Vec<ListAuthorsRow>, deadpool_postgres::tokio_postgres::Error> {
     self::list_authors_with(client, LIST_AUTHORS).await
 }
-pub async fn list_authors_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn list_authors_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Vec<ListAuthorsRow>, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
     let rows = client.query(statement, values).await?;
@@ -108,11 +102,9 @@ pub async fn list_authors_stream(
 {
     self::list_authors_stream_with(client, LIST_AUTHORS).await
 }
-pub async fn list_authors_stream_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn list_authors_stream_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<deadpool_postgres::tokio_postgres::RowStream, deadpool_postgres::tokio_postgres::Error>
 {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
@@ -142,11 +134,9 @@ pub async fn count_authors(
 ) -> Result<CountAuthorsRow, deadpool_postgres::tokio_postgres::Error> {
     self::count_authors_with(client, COUNT_AUTHORS).await
 }
-pub async fn count_authors_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn count_authors_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<CountAuthorsRow, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
     let row = client.query_one(statement, values).await?;
@@ -157,11 +147,9 @@ pub async fn count_authors_opt(
 ) -> Result<Option<CountAuthorsRow>, deadpool_postgres::tokio_postgres::Error> {
     self::count_authors_opt_with(client, COUNT_AUTHORS).await
 }
-pub async fn count_authors_opt_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn count_authors_opt_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Option<CountAuthorsRow>, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
     client
@@ -209,11 +197,9 @@ pub async fn create_author(
 ) -> Result<CreateAuthorRow, deadpool_postgres::tokio_postgres::Error> {
     self::create_author_with(client, CREATE_AUTHOR, params).await
 }
-pub async fn create_author_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn create_author_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateAuthorParams<'_>,
 ) -> Result<CreateAuthorRow, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] =
@@ -227,11 +213,9 @@ pub async fn create_author_opt(
 ) -> Result<Option<CreateAuthorRow>, deadpool_postgres::tokio_postgres::Error> {
     self::create_author_opt_with(client, CREATE_AUTHOR, params).await
 }
-pub async fn create_author_opt_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn create_author_opt_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateAuthorParams<'_>,
 ) -> Result<Option<CreateAuthorRow>, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] =
@@ -256,11 +240,9 @@ pub async fn delete_author(
 ) -> Result<(), deadpool_postgres::tokio_postgres::Error> {
     self::delete_author_with(client, DELETE_AUTHOR, id).await
 }
-pub async fn delete_author_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn delete_author_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<(), deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -294,11 +276,9 @@ pub async fn get_keyword_ident(
 ) -> Result<GetKeywordIdentRow, deadpool_postgres::tokio_postgres::Error> {
     self::get_keyword_ident_with(client, GET_KEYWORD_IDENT, r#type).await
 }
-pub async fn get_keyword_ident_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_keyword_ident_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     r#type: &str,
 ) -> Result<GetKeywordIdentRow, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&r#type];
@@ -311,11 +291,9 @@ pub async fn get_keyword_ident_opt(
 ) -> Result<Option<GetKeywordIdentRow>, deadpool_postgres::tokio_postgres::Error> {
     self::get_keyword_ident_opt_with(client, GET_KEYWORD_IDENT, r#type).await
 }
-pub async fn get_keyword_ident_opt_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_keyword_ident_opt_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     r#type: &str,
 ) -> Result<Option<GetKeywordIdentRow>, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&r#type];

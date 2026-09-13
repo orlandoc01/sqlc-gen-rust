@@ -34,6 +34,11 @@ pub enum QueryError {
         function_ident: String,
         location: &'static std::panic::Location<'static>,
     },
+    UnsupportedArrayDimensions {
+        query_name: String,
+        column_name: String,
+        location: &'static std::panic::Location<'static>,
+    },
     UnknownAnnotation {
         annotation: String,
         location: &'static std::panic::Location<'static>,
@@ -118,6 +123,15 @@ impl QueryError {
     }
 
     #[track_caller]
+    pub(crate) fn unsupported_array_dimensions(query_name: String, column_name: String) -> Self {
+        Self::UnsupportedArrayDimensions {
+            query_name,
+            column_name,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
     pub(crate) fn unknown_annotation(annotation: String) -> Self {
         Self::UnknownAnnotation {
             annotation,
@@ -133,6 +147,7 @@ impl QueryError {
             QueryError::MissingEmbeddedTable { location, .. } => location,
             QueryError::ConflictingEmbeddedTable { location, .. } => location,
             QueryError::ConflictingGeneratedFunction { location, .. } => location,
+            QueryError::UnsupportedArrayDimensions { location, .. } => location,
             QueryError::UnknownAnnotation { location, .. } => location,
             QueryError::Stacked { location, .. } => location,
         }
@@ -177,6 +192,14 @@ impl std::fmt::Display for QueryError {
             } => write!(
                 f,
                 "Queries `{first_query_name}` ({first_helper}) and `{second_query_name}` ({second_helper}) both generate Rust function `{function_ident}`"
+            ),
+            QueryError::UnsupportedArrayDimensions {
+                query_name,
+                column_name,
+                ..
+            } => write!(
+                f,
+                "PostgreSQL backend supports one-dimensional arrays only: query `{query_name}`, column `{column_name}`"
             ),
             QueryError::Stacked { source, .. } => source.fmt(f),
         }
@@ -295,6 +318,10 @@ pub(crate) fn make_column_name(column: &plugin::Column) -> String {
 impl RsColType {
     pub(crate) fn is_array(&self) -> bool {
         self.dim != 0
+    }
+
+    pub(crate) fn array_dimensions(&self) -> usize {
+        self.dim
     }
 
     pub(crate) fn make_optional(&mut self) {

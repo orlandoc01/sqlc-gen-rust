@@ -56,3 +56,19 @@ INSERT INTO mapping (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
     $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
 );
+
+-- name: GetByState :many
+SELECT id, state FROM state_mappings
+WHERE state = sqlc.arg(state)
+ORDER BY id;
+
+-- name: GetOneByState :one
+SELECT id, state FROM state_mappings
+WHERE state = sqlc.arg(state)
+LIMIT 1;
+
+-- name: GetByStateWithMinimumID :many
+SELECT id, state FROM state_mappings
+WHERE state = sqlc.arg(state)
+  AND id >= sqlc.arg('minimum_id')
+ORDER BY id;

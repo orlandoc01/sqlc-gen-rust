@@ -155,9 +155,10 @@ let stream = queries::list_authors_stream(&client).await?;
 ```
 
 `deadpool-postgres` generates the same API with `&impl deadpool_postgres::GenericClient`, implemented for pooled `Client` and `Transaction`, and prepares static SQL with `prepare_cached`.
+Both PostgreSQL driver backends support one-dimensional arrays only.
 
-Dynamic (`-- :if`) queries do not expose `prepare_*` or `*_with` variants. On tokio-postgres, both
-and deadpool-postgres, both `:execrows` and `:execresult` return `u64`.
+Dynamic (`-- :if`) queries do not expose `prepare_*` or `*_with` variants. On both
+tokio-postgres and deadpool-postgres, `:execrows` and `:execresult` return `u64`.
 
 PostgreSQL infers untyped `LIMIT` and `OFFSET` parameters as `bigint`. Cast them explicitly
 (`::int` or `::bigint`) or add an override so the generated Rust parameter type matches. A bare

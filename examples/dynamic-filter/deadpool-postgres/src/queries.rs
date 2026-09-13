@@ -1215,11 +1215,9 @@ pub async fn list_all_users(
 ) -> Result<Vec<ListAllUsersRow>, deadpool_postgres::tokio_postgres::Error> {
     self::list_all_users_with(client, LIST_ALL_USERS).await
 }
-pub async fn list_all_users_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn list_all_users_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Vec<ListAllUsersRow>, deadpool_postgres::tokio_postgres::Error> {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
     let rows = client.query(statement, values).await?;
@@ -1231,19 +1229,90 @@ pub async fn list_all_users_stream(
 {
     self::list_all_users_stream_with(client, LIST_ALL_USERS).await
 }
-pub async fn list_all_users_stream_with<
-    S: ?Sized + deadpool_postgres::tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn list_all_users_stream_with(
     client: &impl deadpool_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<deadpool_postgres::tokio_postgres::RowStream, deadpool_postgres::tokio_postgres::Error>
 {
     let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
     client.query_raw(statement, values.iter().copied()).await
+}
+pub const SEARCH_USERS_BY_PROFILE: &str = r"SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email = $1 -- :if $1
+  AND (profile @> $2::jsonb OR profile @> $2::jsonb) -- :if $2
+ORDER BY id";
+static SEARCH_USERS_BY_PROFILE_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            SEARCH_USERS_BY_PROFILE,
+            dynfilter::Placeholders::Numbered,
+            &[1usize, 2usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct SearchUsersByProfileParams<'a> {
+    pub email: Option<&'a str>,
+    pub profile: Option<serde_json::Value>,
+}
+pub struct SearchUsersByProfileRow {
+    pub id: i64,
+    pub email: String,
+    pub phone: String,
+}
+impl SearchUsersByProfileRow {
+    pub fn from_row(
+        row: &deadpool_postgres::tokio_postgres::Row,
+    ) -> Result<Self, deadpool_postgres::tokio_postgres::Error> {
+        Ok(Self {
+            id: row.try_get(0)?,
+            email: row.try_get(1)?,
+            phone: row.try_get(2)?,
+        })
+    }
+}
+fn search_users_by_profile_query<'p>(
+    params: &'p SearchUsersByProfileParams<'_>,
+) -> (
+    String,
+    Vec<&'p (dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)>,
+) {
+    let args = [
+        dynfilter::Arg::from_option(&params.email),
+        dynfilter::Arg::from_option(&params.profile),
+    ];
+    let (sql, binds) = SEARCH_USERS_BY_PROFILE_DYN.build(&args);
+    let values: Vec<&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)> = binds
+        .iter()
+        .map(|bind| match bind {
+            dynfilter::Bind::Arg(0usize) => &params.email as _,
+            dynfilter::Bind::Arg(1usize) => &params.profile as _,
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        })
+        .collect();
+    (sql, values)
+}
+pub async fn search_users_by_profile(
+    client: &impl deadpool_postgres::GenericClient,
+    params: SearchUsersByProfileParams<'_>,
+) -> Result<Vec<SearchUsersByProfileRow>, deadpool_postgres::tokio_postgres::Error> {
+    let (sql, values) = search_users_by_profile_query(&params);
+    let rows = client.query(sql.as_str(), &values).await?;
+    rows.iter().map(SearchUsersByProfileRow::from_row).collect()
+}
+pub async fn search_users_by_profile_stream(
+    client: &impl deadpool_postgres::GenericClient,
+    params: SearchUsersByProfileParams<'_>,
+) -> Result<deadpool_postgres::tokio_postgres::RowStream, deadpool_postgres::tokio_postgres::Error>
+{
+    let (sql, values) = search_users_by_profile_query(&params);
+    client.query_raw(sql.as_str(), values).await
 }
 pub const QUERIES: &[(&str, &str)] = &[
     ("SearchUsers", SEARCH_USERS),
     ("CountUsers", COUNT_USERS),
     ("TouchUsers", TOUCH_USERS),
     ("ListAllUsers", LIST_ALL_USERS),
+    ("SearchUsersByProfile", SEARCH_USERS_BY_PROFILE),
 ];

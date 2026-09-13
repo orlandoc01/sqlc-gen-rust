@@ -1198,9 +1198,9 @@ pub async fn list_all_users(
 ) -> Result<Vec<ListAllUsersRow>, tokio_postgres::Error> {
     self::list_all_users_with(client, LIST_ALL_USERS).await
 }
-pub async fn list_all_users_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn list_all_users_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Vec<ListAllUsersRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     let rows = client.query(statement, values).await?;
@@ -1211,9 +1211,9 @@ pub async fn list_all_users_stream(
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     self::list_all_users_stream_with(client, LIST_ALL_USERS).await
 }
-pub async fn list_all_users_stream_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn list_all_users_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     client.query_raw(statement, values.iter().copied()).await

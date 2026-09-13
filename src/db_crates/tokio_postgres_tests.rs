@@ -45,7 +45,7 @@ fn generates_static_statement_functions_and_parameter_array() {
     let tokens = generated(TokioPostgres::Tokio, static_query(), 1);
     assert!(
         tokens.contains(
-            "get_author_with < S : ? Sized + tokio_postgres :: ToStatement + Sync + Send >"
+            "get_author_with (client : & impl tokio_postgres :: GenericClient , statement : & (impl tokio_postgres :: ToStatement + ? Sized + Sync + Send)"
         )
     );
 }
@@ -96,7 +96,11 @@ fn direct_parameters_do_not_collide_with_generated_locals() {
     assert!(tokens.contains(
         "pub async fn by_statement (client_ : & impl tokio_postgres :: GenericClient , statement : i32 , client : i32 , values : i32)"
     ));
-    assert!(tokens.contains("statement_ : & S"));
+    assert!(
+        tokens.contains(
+            "statement_ : & (impl tokio_postgres :: ToStatement + ? Sized + Sync + Send)"
+        )
+    );
     assert!(tokens.contains("let values_ : & [& (dyn tokio_postgres :: types :: ToSql + Sync)]"));
 }
 

@@ -17,6 +17,7 @@ mod tests {
     };
 
     use chrono::TimeZone;
+    use futures_util::TryStreamExt as _;
     use test_context::test_context;
     use test_utils::PgDeadpoolContext;
 
@@ -50,14 +51,14 @@ mod tests {
             queries::InsertMappingParams {
                 bool_val: true,
                 bool_array_val: &bool_array_val,
-                char_val: 1,
-                smallint_val: 2,
-                int_val: 3,
-                int_nullable_val: Some(4),
-                oid_val: 5,
-                bigint_val: 6,
-                real_val: 7.0,
-                double_val: 8.0,
+                char_val: -1,
+                smallint_val: i16::MIN,
+                int_val: i32::MIN,
+                int_nullable_val: Some(-42),
+                oid_val: u32::MAX,
+                bigint_val: i64::MIN,
+                real_val: -0.5,
+                double_val: 0.25,
                 text_val: "9",
                 text_nullable_val: Some("10"),
                 bytea_val: &bytea_val,
@@ -81,12 +82,17 @@ mod tests {
 
         assert!(mapping.bool_val);
         assert_eq!(mapping.bool_array_val, bool_array_val);
-        assert_eq!(mapping.int_val, 3);
-        assert_eq!(mapping.int_nullable_val, Some(4));
+        assert_eq!(mapping.char_val, -1);
+        assert_eq!(mapping.smallint_val, i16::MIN);
+        assert_eq!(mapping.int_val, i32::MIN);
+        assert_eq!(mapping.int_nullable_val, Some(-42));
+        assert_eq!(mapping.oid_val, u32::MAX);
+        assert_eq!(mapping.bigint_val, i64::MIN);
+        assert_eq!(mapping.real_val, -0.5);
+        assert_eq!(mapping.double_val, 0.25);
         assert_eq!(mapping.text_val, "9");
         assert_eq!(mapping.text_nullable_val, Some("10".to_string()));
         assert_eq!(mapping.bytea_val, bytea_val);
-        assert_eq!(mapping.oid_val, 5);
         assert_eq!(mapping.inet_val, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
         assert_eq!(mapping.json_val, serde_json::json!({"type": "json"}));
         assert_eq!(mapping.jsonb_val, serde_json::json!({"type": "jsonb"}));
@@ -119,5 +125,116 @@ mod tests {
         assert!(matches!(mapping.enum_val, queries::Mood::Sad));
         assert_eq!(mapping.composite_val.r, 12.3);
         assert_eq!(mapping.composite_val.i, 45.6);
+
+        client.execute("DELETE FROM mapping", &[]).await.unwrap();
+        let empty_bool_array = [];
+        queries::insert_mapping(
+            &client,
+            queries::InsertMappingParams {
+                bool_val: false,
+                bool_array_val: &empty_bool_array,
+                char_val: 0,
+                smallint_val: 0,
+                int_val: 0,
+                int_nullable_val: None,
+                oid_val: 0,
+                bigint_val: 0,
+                real_val: 0.5,
+                double_val: -0.25,
+                text_val: "nullable",
+                text_nullable_val: None,
+                bytea_val: &[],
+                hstore_val: HashMap::from([("missing".to_string(), None)]),
+                timestamp_val,
+                timestamptz_val,
+                date_val,
+                time_val,
+                inet_val: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                json_val: serde_json::json!({"type": "json"}),
+                jsonb_val: serde_json::json!({"type": "jsonb"}),
+                uuid_val: "366dacaf-6812-4f94-8d20-25f5e7f4981c".parse().unwrap(),
+                enum_val: queries::Mood::Happy,
+                composite_val: Complex { r: -0.5, i: 0.25 },
+            },
+        )
+        .await
+        .unwrap();
+        let mapping = queries::get_mapping(&client).await.unwrap();
+        assert!(!mapping.bool_val);
+        assert_eq!(mapping.bool_array_val, empty_bool_array);
+        assert_eq!(mapping.int_nullable_val, None);
+        assert_eq!(mapping.text_nullable_val, None);
+        assert_eq!(
+            mapping.hstore_val,
+            HashMap::from([("missing".to_string(), None)])
+        );
+    }
+
+    #[test_context(PgDeadpoolContext)]
+    #[tokio::test]
+    async fn enum_named_s_works_with_statement_helpers(ctx: &mut PgDeadpoolContext) {
+        let client = ctx.pool.get().await.unwrap();
+        migrate_db(&client).await;
+        client
+            .execute(
+                "INSERT INTO state_mappings (id, state) VALUES (1, $1), (2, $2)",
+                &[&queries::S::A, &queries::S::B],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            queries::get_by_state_with(&client, queries::GET_BY_STATE, queries::S::A)
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| row.id)
+                .collect::<Vec<_>>(),
+            [1]
+        );
+        let statement = queries::prepare_get_by_state(&client).await.unwrap();
+        assert_eq!(
+            queries::get_by_state_with(&client, &statement, queries::S::B)
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| row.id)
+                .collect::<Vec<_>>(),
+            [2]
+        );
+        let stream =
+            queries::get_by_state_stream_with(&client, queries::GET_BY_STATE, queries::S::A)
+                .await
+                .unwrap();
+        futures_util::pin_mut!(stream);
+        assert_eq!(
+            stream
+                .try_collect::<Vec<_>>()
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| row.get::<_, i64>(0))
+                .collect::<Vec<_>>(),
+            [1]
+        );
+        assert!(
+            queries::get_one_by_state_opt_with(&client, queries::GET_ONE_BY_STATE, queries::S::B,)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            queries::get_by_state_with_minimum_id(
+                &client,
+                queries::GetByStateWithMinimumIdParams {
+                    state: queries::S::A,
+                    minimum_id: 1,
+                },
+            )
+            .await
+            .unwrap()
+            .len(),
+            1
+        );
     }
 }

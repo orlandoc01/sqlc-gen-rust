@@ -11,6 +11,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+futures-util = { workspace = true }
 tokio = { workspace = true }
 test-context = { workspace = true }
 test-utils = { workspace = true }

@@ -3,14 +3,14 @@ use crate::query::Annotation;
 use super::{Function, params_common};
 
 pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
-    let paths = function.backend.paths();
+    let paths = &function.paths;
     let name = &function.name;
     let helper = quote::format_ident!("{name}_query");
     let client = &function.client;
     let arguments = &function.parts.arguments;
-    let error = paths.error;
-    let generic_client = paths.client;
-    let helper_function = make_helper(function, &helper, paths.to_sql);
+    let error = &paths.error;
+    let generic_client = &paths.client;
+    let helper_function = make_helper(function, &helper, &paths.to_sql);
     let setup = quote::quote! { let (sql, values) = #helper(&params); };
     let functions = match function.query.annotation {
         Annotation::One => {
@@ -31,7 +31,7 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
         Annotation::Many => {
             let row = function.row.struct_ident();
             let stream = quote::format_ident!("{name}_stream");
-            let row_stream = paths.row_stream;
+            let row_stream = &paths.row_stream;
             quote::quote! {
                 pub async fn #name(#client: &impl #generic_client #arguments) -> Result<Vec<#row>, #error> {
                     #setup
@@ -71,7 +71,7 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
 fn make_helper(
     function: &Function<'_>,
     helper: &syn::Ident,
-    to_sql: proc_macro2::TokenStream,
+    to_sql: &proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let params = params_common::params_type(function.query);
     let dynamic = quote::format_ident!("{}_DYN", function.parts.constant);

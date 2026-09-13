@@ -436,6 +436,7 @@ version = "0.1.0"
 dependencies = [
  "deadpool-postgres",
  "futures-util",
+ "serde_json",
  "test-context",
  "test-utils",
  "tokio",
@@ -2344,6 +2345,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "deadpool-postgres",
+ "futures-util",
  "postgres-types",
  "serde_json",
  "test-context",
@@ -2406,6 +2408,7 @@ name = "type-mapping-tokio-postgres"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "futures-util",
  "postgres-types",
  "serde_json",
  "test-context",

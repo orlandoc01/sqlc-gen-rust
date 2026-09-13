@@ -12,6 +12,14 @@ pub enum Mood {
     #[postgres(name = "happy")]
     Happy,
 }
+#[derive(Debug, Clone, Copy, postgres_types::ToSql, postgres_types::FromSql)]
+#[postgres(name = "s")]
+pub enum S {
+    #[postgres(name = "a")]
+    A,
+    #[postgres(name = "b")]
+    B,
+}
 pub const GET_MAPPING: &str = r"SELECT
     bool_val,
     bool_array_val,
@@ -104,9 +112,9 @@ pub async fn get_mapping(
 ) -> Result<GetMappingRow, tokio_postgres::Error> {
     self::get_mapping_with(client, GET_MAPPING).await
 }
-pub async fn get_mapping_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_mapping_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<GetMappingRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     let row = client.query_one(statement, values).await?;
@@ -117,9 +125,9 @@ pub async fn get_mapping_opt(
 ) -> Result<Option<GetMappingRow>, tokio_postgres::Error> {
     self::get_mapping_opt_with(client, GET_MAPPING).await
 }
-pub async fn get_mapping_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_mapping_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Option<GetMappingRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     client
@@ -195,9 +203,9 @@ pub async fn insert_mapping(
 ) -> Result<(), tokio_postgres::Error> {
     self::insert_mapping_with(client, INSERT_MAPPING, params).await
 }
-pub async fn insert_mapping_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn insert_mapping_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: InsertMappingParams<'_>,
 ) -> Result<(), tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -228,7 +236,172 @@ pub async fn insert_mapping_with<S: ?Sized + tokio_postgres::ToStatement + Sync 
     ];
     client.execute(statement, values).await.map(|_| ())
 }
+pub const GET_BY_STATE: &str = r"SELECT id, state FROM state_mappings
+WHERE state = $1
+ORDER BY id";
+pub struct GetByStateRow {
+    pub id: i64,
+    pub state: S,
+}
+impl GetByStateRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+        Ok(Self {
+            id: row.try_get(0)?,
+            state: row.try_get(1)?,
+        })
+    }
+}
+pub async fn prepare_get_by_state(
+    client: &impl tokio_postgres::GenericClient,
+) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
+    client.prepare(GET_BY_STATE).await
+}
+pub async fn get_by_state(
+    client: &impl tokio_postgres::GenericClient,
+    state: S,
+) -> Result<Vec<GetByStateRow>, tokio_postgres::Error> {
+    self::get_by_state_with(client, GET_BY_STATE, state).await
+}
+pub async fn get_by_state_with(
+    client: &impl tokio_postgres::GenericClient,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    state: S,
+) -> Result<Vec<GetByStateRow>, tokio_postgres::Error> {
+    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+    let rows = client.query(statement, values).await?;
+    rows.iter().map(GetByStateRow::from_row).collect()
+}
+pub async fn get_by_state_stream(
+    client: &impl tokio_postgres::GenericClient,
+    state: S,
+) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
+    self::get_by_state_stream_with(client, GET_BY_STATE, state).await
+}
+pub async fn get_by_state_stream_with(
+    client: &impl tokio_postgres::GenericClient,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    state: S,
+) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
+    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+    client.query_raw(statement, values.iter().copied()).await
+}
+pub const GET_ONE_BY_STATE: &str = r"SELECT id, state FROM state_mappings
+WHERE state = $1
+LIMIT 1";
+pub struct GetOneByStateRow {
+    pub id: i64,
+    pub state: S,
+}
+impl GetOneByStateRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+        Ok(Self {
+            id: row.try_get(0)?,
+            state: row.try_get(1)?,
+        })
+    }
+}
+pub async fn prepare_get_one_by_state(
+    client: &impl tokio_postgres::GenericClient,
+) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
+    client.prepare(GET_ONE_BY_STATE).await
+}
+pub async fn get_one_by_state(
+    client: &impl tokio_postgres::GenericClient,
+    state: S,
+) -> Result<GetOneByStateRow, tokio_postgres::Error> {
+    self::get_one_by_state_with(client, GET_ONE_BY_STATE, state).await
+}
+pub async fn get_one_by_state_with(
+    client: &impl tokio_postgres::GenericClient,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    state: S,
+) -> Result<GetOneByStateRow, tokio_postgres::Error> {
+    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+    let row = client.query_one(statement, values).await?;
+    GetOneByStateRow::from_row(&row)
+}
+pub async fn get_one_by_state_opt(
+    client: &impl tokio_postgres::GenericClient,
+    state: S,
+) -> Result<Option<GetOneByStateRow>, tokio_postgres::Error> {
+    self::get_one_by_state_opt_with(client, GET_ONE_BY_STATE, state).await
+}
+pub async fn get_one_by_state_opt_with(
+    client: &impl tokio_postgres::GenericClient,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    state: S,
+) -> Result<Option<GetOneByStateRow>, tokio_postgres::Error> {
+    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+    client
+        .query_opt(statement, values)
+        .await?
+        .map(|row| GetOneByStateRow::from_row(&row))
+        .transpose()
+}
+pub const GET_BY_STATE_WITH_MINIMUM_ID: &str = r"SELECT id, state FROM state_mappings
+WHERE state = $1
+  AND id >= $2
+ORDER BY id";
+#[derive(Debug, Clone)]
+pub struct GetByStateWithMinimumIdParams {
+    pub state: S,
+    pub minimum_id: i64,
+}
+pub struct GetByStateWithMinimumIdRow {
+    pub id: i64,
+    pub state: S,
+}
+impl GetByStateWithMinimumIdRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+        Ok(Self {
+            id: row.try_get(0)?,
+            state: row.try_get(1)?,
+        })
+    }
+}
+pub async fn prepare_get_by_state_with_minimum_id(
+    client: &impl tokio_postgres::GenericClient,
+) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
+    client.prepare(GET_BY_STATE_WITH_MINIMUM_ID).await
+}
+pub async fn get_by_state_with_minimum_id(
+    client: &impl tokio_postgres::GenericClient,
+    params: GetByStateWithMinimumIdParams,
+) -> Result<Vec<GetByStateWithMinimumIdRow>, tokio_postgres::Error> {
+    self::get_by_state_with_minimum_id_with(client, GET_BY_STATE_WITH_MINIMUM_ID, params).await
+}
+pub async fn get_by_state_with_minimum_id_with(
+    client: &impl tokio_postgres::GenericClient,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    params: GetByStateWithMinimumIdParams,
+) -> Result<Vec<GetByStateWithMinimumIdRow>, tokio_postgres::Error> {
+    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
+        &[&params.state, &params.minimum_id];
+    let rows = client.query(statement, values).await?;
+    rows.iter()
+        .map(GetByStateWithMinimumIdRow::from_row)
+        .collect()
+}
+pub async fn get_by_state_with_minimum_id_stream(
+    client: &impl tokio_postgres::GenericClient,
+    params: GetByStateWithMinimumIdParams,
+) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
+    self::get_by_state_with_minimum_id_stream_with(client, GET_BY_STATE_WITH_MINIMUM_ID, params)
+        .await
+}
+pub async fn get_by_state_with_minimum_id_stream_with(
+    client: &impl tokio_postgres::GenericClient,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    params: GetByStateWithMinimumIdParams,
+) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
+    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
+        &[&params.state, &params.minimum_id];
+    client.query_raw(statement, values.iter().copied()).await
+}
 pub const QUERIES: &[(&str, &str)] = &[
     ("GetMapping", GET_MAPPING),
     ("InsertMapping", INSERT_MAPPING),
+    ("GetByState", GET_BY_STATE),
+    ("GetOneByState", GET_ONE_BY_STATE),
+    ("GetByStateWithMinimumID", GET_BY_STATE_WITH_MINIMUM_ID),
 ];

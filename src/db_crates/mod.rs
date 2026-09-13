@@ -9,6 +9,7 @@ mod sqlx;
 mod sqlx_params;
 mod tokio_postgres;
 mod tokio_postgres_params;
+mod validation;
 
 #[cfg(test)]
 mod rusqlite_tests;
@@ -18,6 +19,8 @@ pub(crate) mod test_support;
 mod tokio_postgres_name_tests;
 #[cfg(test)]
 mod tokio_postgres_tests;
+#[cfg(test)]
+mod validation_tests;
 
 pub(crate) use sqlx::Sqlx;
 pub(crate) use tokio_postgres::TokioPostgres;
@@ -133,6 +136,7 @@ impl DbCrate {
         queries: &[query::Query],
         query_parameter_limit: usize,
     ) -> Result<proc_macro2::TokenStream, query::QueryError> {
+        self.validate_array_dimensions(rows, queries)?;
         match self {
             Self::Sqlx(sqlx) => {
                 params_common::generate_queries(&sqlx, rows, queries, query_parameter_limit)

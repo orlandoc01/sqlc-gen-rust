@@ -1,6 +1,7 @@
 CREATE EXTENSION hstore;
 
 CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
+CREATE TYPE s AS ENUM ('a', 'b');
 
 CREATE TYPE complex AS (
     r       double precision,
@@ -33,4 +34,9 @@ CREATE TABLE mapping (
     enum_val mood NOT NULL,
     composite_val complex NOT NULL,
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+);
+
+CREATE TABLE state_mappings (
+    id BIGINT PRIMARY KEY,
+    state s NOT NULL
 );

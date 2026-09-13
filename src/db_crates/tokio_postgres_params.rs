@@ -39,11 +39,13 @@ struct Function<'a> {
     paths: TokioPostgresPaths,
     name: syn::Ident,
     client: syn::Ident,
+}
+
+struct StaticParts {
     statement: syn::Ident,
     values_ident: syn::Ident,
     values: proc_macro2::TokenStream,
     forwarded: proc_macro2::TokenStream,
-    prepare: proc_macro2::TokenStream,
 }
 
 impl<'a> Function<'a> {
@@ -55,12 +57,7 @@ impl<'a> Function<'a> {
     ) -> Self {
         let name = params_common::query_function_ident(query);
         let client = parts.local("client");
-        let statement = parts.local("statement");
-        let values_ident = parts.local("values");
         let paths = backend.paths();
-        let values = Self::static_values(query, parts, &values_ident, &paths.to_sql);
-        let forwarded = Self::forwarded_args(query, parts);
-        let prepare = Self::prepare_function(backend, &name, &client, &parts.constant, &paths);
 
         Self {
             backend,
@@ -70,11 +67,6 @@ impl<'a> Function<'a> {
             paths,
             name,
             client,
-            statement,
-            values_ident,
-            values,
-            forwarded,
-            prepare,
         }
     }
 
@@ -101,34 +93,37 @@ impl<'a> Function<'a> {
     }
 
     fn one_functions(&self) -> proc_macro2::TokenStream {
+        let parts = self.static_parts();
         let name = &self.name;
         let opt = quote::format_ident!("{name}_opt");
         let with = quote::format_ident!("{name}_with");
         let opt_with = quote::format_ident!("{name}_opt_with");
         let row = self.row.struct_ident();
         let client = &self.client;
-        let statement = &self.statement;
-        let values_ident = &self.values_ident;
+        let statement = &parts.statement;
+        let values_ident = &parts.values_ident;
         let row_type = quote::quote! {#row};
         let optional_row_type = quote::quote! {Option<#row>};
-        let one = self.plain_fn(name, &row_type, &with);
+        let one = self.plain_fn(name, &row_type, &with, &parts.forwarded);
         let one_with = self.with_fn(
             &with,
             &row_type,
+            &parts,
             quote::quote! {
                 let row = #client.query_one(#statement, #values_ident).await?;
                 #row::from_row(&row)
             },
         );
-        let optional = self.plain_fn(&opt, &optional_row_type, &opt_with);
+        let optional = self.plain_fn(&opt, &optional_row_type, &opt_with, &parts.forwarded);
         let optional_with = self.with_fn(
             &opt_with,
             &optional_row_type,
+            &parts,
             quote::quote! {
                 #client.query_opt(#statement, #values_ident).await?.map(|row| #row::from_row(&row)).transpose()
             },
         );
-        let prepare = &self.prepare;
+        let prepare = self.prepare_function();
         quote::quote! {
             #prepare
             #one
@@ -139,34 +134,37 @@ impl<'a> Function<'a> {
     }
 
     fn many_functions(&self) -> proc_macro2::TokenStream {
+        let parts = self.static_parts();
         let name = &self.name;
         let with = quote::format_ident!("{name}_with");
         let stream = quote::format_ident!("{name}_stream");
         let stream_with = quote::format_ident!("{name}_stream_with");
         let row = self.row.struct_ident();
         let client = &self.client;
-        let statement = &self.statement;
-        let values_ident = &self.values_ident;
+        let statement = &parts.statement;
+        let values_ident = &parts.values_ident;
         let many_type = quote::quote! {Vec<#row>};
         let stream_type = &self.paths.row_stream;
-        let many = self.plain_fn(name, &many_type, &with);
+        let many = self.plain_fn(name, &many_type, &with, &parts.forwarded);
         let many_with = self.with_fn(
             &with,
             &many_type,
+            &parts,
             quote::quote! {
                 let rows = #client.query(#statement, #values_ident).await?;
                 rows.iter().map(#row::from_row).collect()
             },
         );
-        let stream_fn = self.plain_fn(&stream, stream_type, &stream_with);
+        let stream_fn = self.plain_fn(&stream, stream_type, &stream_with, &parts.forwarded);
         let stream_with_fn = self.with_fn(
             &stream_with,
             stream_type,
+            &parts,
             quote::quote! {
                 #client.query_raw(#statement, #values_ident.iter().copied()).await
             },
         );
-        let prepare = &self.prepare;
+        let prepare = self.prepare_function();
         quote::quote! {
             #prepare
             #many
@@ -181,18 +179,20 @@ impl<'a> Function<'a> {
         result: proc_macro2::TokenStream,
         map: proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
+        let parts = self.static_parts();
         let name = &self.name;
         let with = quote::format_ident!("{name}_with");
         let client = &self.client;
-        let statement = &self.statement;
-        let values_ident = &self.values_ident;
-        let execute = self.plain_fn(name, &result, &with);
+        let statement = &parts.statement;
+        let values_ident = &parts.values_ident;
+        let execute = self.plain_fn(name, &result, &with, &parts.forwarded);
         let execute_with = self.with_fn(
             &with,
             &result,
+            &parts,
             quote::quote! { #client.execute(#statement, #values_ident).await #map },
         );
-        let prepare = &self.prepare;
+        let prepare = self.prepare_function();
         quote::quote! {
             #prepare
             #execute
@@ -205,11 +205,11 @@ impl<'a> Function<'a> {
         name: &syn::Ident,
         return_type: &proc_macro2::TokenStream,
         with_name: &syn::Ident,
+        forwarded: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
         let client = &self.client;
         let constant = &self.parts.constant;
         let arguments = &self.parts.arguments;
-        let forwarded = &self.forwarded;
         let generic_client = &self.paths.client;
         let error = &self.paths.error;
         quote::quote! {
@@ -223,39 +223,47 @@ impl<'a> Function<'a> {
         &self,
         name: &syn::Ident,
         return_type: &proc_macro2::TokenStream,
+        parts: &StaticParts,
         body: proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
         let client = &self.client;
-        let statement = &self.statement;
+        let statement = &parts.statement;
         let arguments = &self.parts.arguments;
-        let values = &self.values;
+        let values = &parts.values;
         let generic_client = &self.paths.client;
         let to_statement = &self.paths.to_statement;
         let error = &self.paths.error;
         quote::quote! {
-            pub async fn #name<S: ?Sized + #to_statement + Sync + Send>(#client: &impl #generic_client, #statement: &S #arguments) -> Result<#return_type, #error> {
+            pub async fn #name(#client: &impl #generic_client, #statement: &(impl #to_statement + ?Sized + Sync + Send) #arguments) -> Result<#return_type, #error> {
                 #values
                 #body
             }
         }
     }
 
-    fn prepare_function(
-        backend: TokioPostgres,
-        name: &syn::Ident,
-        client: &syn::Ident,
-        sql: &syn::Ident,
-        paths: &TokioPostgresPaths,
-    ) -> proc_macro2::TokenStream {
-        let prepare = quote::format_ident!("prepare_{name}");
-        let prepare_statement = backend.prepare_statement(client, sql);
-        let generic_client = &paths.client;
-        let statement = &paths.statement;
-        let error = &paths.error;
+    fn prepare_function(&self) -> proc_macro2::TokenStream {
+        let prepare = quote::format_ident!("prepare_{}", self.name);
+        let prepare_statement = self
+            .backend
+            .prepare_statement(&self.client, &self.parts.constant);
+        let client = &self.client;
+        let generic_client = &self.paths.client;
+        let statement = &self.paths.statement;
+        let error = &self.paths.error;
         quote::quote! {
             pub async fn #prepare(#client: &impl #generic_client) -> Result<#statement, #error> {
                 #prepare_statement
             }
+        }
+    }
+
+    fn static_parts(&self) -> StaticParts {
+        let values_ident = self.parts.local("values");
+        StaticParts {
+            statement: self.parts.local("statement"),
+            values: Self::static_values(self.query, self.parts, &values_ident, &self.paths.to_sql),
+            forwarded: Self::forwarded_args(self.query, self.parts),
+            values_ident,
         }
     }
 
