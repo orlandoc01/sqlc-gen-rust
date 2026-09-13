@@ -1,7 +1,8 @@
 use crate::query::{Annotation, Query, ReturningRows};
 
 use super::{
-    params_common::{self, GeneratedFunction, ParameterAccess, ParamsGenerator, QueryParts},
+    DbCrate,
+    params_common::{self, GeneratedFunction, ParamsGenerator, QueryParts},
     rusqlite::Rusqlite,
 };
 
@@ -26,10 +27,7 @@ impl ParamsGenerator for Rusqlite {
 
     fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
         params_common::simple_generated_functions(query, |annotation| {
-            matches!(
-                annotation,
-                Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecLastId
-            )
+            DbCrate::Rusqlite.supports(annotation)
         })
     }
 
@@ -161,10 +159,7 @@ impl<'a> Function<'a> {
         let constant = &self.parts.constant;
         let values = self.query.fields.iter().map(|field| {
             let name = &field.name;
-            match self.parts.access {
-                ParameterAccess::Direct => quote::quote! {#name},
-                ParameterAccess::Struct => quote::quote! {params.#name},
-            }
+            self.parts.access.field(name)
         });
         quote::quote! {
             let #params = rusqlite::params![#(#values),*];

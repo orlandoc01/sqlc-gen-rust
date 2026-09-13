@@ -1,10 +1,12 @@
 use crate::{
     db_crates::{
         DbCrate, Postgres, Sqlx,
+        params_common::ParamsGenerator,
+        rusqlite::Rusqlite,
         test_support::{column, identifier, query},
     },
     plugin,
-    query::{Query, ReturnRowAttributes, ReturningRows},
+    query::{Annotation, Query, ReturnRowAttributes, ReturningRows},
 };
 
 fn generate(
@@ -23,11 +25,41 @@ fn generate(
                 &plugin_query,
             )
             .unwrap();
-            let query = Query::from_query(&type_map, &plugin_query).unwrap();
+            let mut query = Query::from_query(&type_map, &plugin_query).unwrap();
+            query.apply_dynfilter();
             (row, query)
         })
         .unzip();
     backend.generate_queries(&rows, &queries, 1)
+}
+
+fn generated_functions(
+    backend: DbCrate,
+    query: &Query,
+) -> Vec<super::params_common::GeneratedFunction> {
+    match backend {
+        DbCrate::Sqlx(sqlx) => sqlx.generated_functions(query),
+        DbCrate::Rusqlite => Rusqlite.generated_functions(query),
+        DbCrate::Postgres(postgres) => postgres.generated_functions(query),
+    }
+}
+
+fn parsed_query(backend: DbCrate, annotation: Annotation, dynamic: bool) -> Query {
+    let sql = if dynamic {
+        "SELECT id FROM authors WHERE TRUE\nAND id = @id -- :if @id"
+    } else {
+        "SELECT id FROM authors WHERE id = $1"
+    };
+    let plugin_query = query(
+        "Example",
+        &annotation.to_string(),
+        sql,
+        vec![column("id", false)],
+        vec![(1, column("id", false))],
+    );
+    let mut query = Query::from_query(&backend.db_type_map(), &plugin_query).unwrap();
+    query.apply_dynfilter();
+    query
 }
 
 fn backends() -> [DbCrate; 7] {
@@ -152,6 +184,84 @@ fn reserves_prepare_helpers_only_for_postgres_drivers() {
             "PrepareGetAuthor",
             "prepare_get_author",
         );
+    }
+}
+
+#[test]
+fn rejects_generated_constant_and_dynamic_plan_collisions_on_every_backend() {
+    let dynamic = query(
+        "SearchEntries",
+        ":many",
+        "SELECT id FROM entries WHERE TRUE\nAND id = @id -- :if @id",
+        vec![column("id", false)],
+        vec![(1, column("id", false))],
+    );
+    let static_query = query(
+        "SearchEntriesDyn",
+        ":many",
+        "SELECT id FROM entries",
+        vec![column("id", false)],
+        Vec::new(),
+    );
+
+    for backend in backends() {
+        for queries in [
+            vec![dynamic.clone(), static_query.clone()],
+            vec![static_query.clone(), dynamic.clone()],
+        ] {
+            let error = generate(backend, queries, None).unwrap_err().to_string();
+            assert!(error.contains("`SearchEntries`"), "{error}");
+            assert!(error.contains("`SearchEntriesDyn`"), "{error}");
+            assert!(error.contains("`SEARCH_ENTRIES_DYN`"), "{error}");
+            assert!(error.contains("dynamic plan"), "{error}");
+            assert!(error.contains("SQL constant"), "{error}");
+        }
+
+        let error = generate(
+            backend,
+            vec![query(
+                "Queries",
+                ":exec",
+                "DELETE FROM entries",
+                Vec::new(),
+                Vec::new(),
+            )],
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("query index"), "{error}");
+        assert!(error.contains("SQL constant"), "{error}");
+        assert!(error.contains("`QUERIES`"), "{error}");
+    }
+}
+
+#[test]
+fn generated_functions_match_backend_annotation_support() {
+    let annotations = [
+        Annotation::Exec,
+        Annotation::ExecResult,
+        Annotation::ExecRows,
+        Annotation::ExecLastId,
+        Annotation::Many,
+        Annotation::One,
+        Annotation::BatchExec,
+        Annotation::BatchMany,
+        Annotation::BatchOne,
+        Annotation::CopyFrom,
+    ];
+
+    for backend in backends() {
+        for annotation in annotations {
+            for dynamic in [false, true] {
+                let query = parsed_query(backend, annotation, dynamic);
+                assert_eq!(
+                    !generated_functions(backend, &query).is_empty(),
+                    backend.supports(annotation),
+                    "{backend:?} {annotation} dynamic={dynamic}"
+                );
+            }
+        }
     }
 }
 

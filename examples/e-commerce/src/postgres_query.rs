@@ -64,10 +64,12 @@ pub fn create_user(
 }
 pub fn create_user_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateUserParams<'_>,
 ) -> Result<CreateUserRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.username,
         &params.email,
         &params.hashed_password,
@@ -84,10 +86,12 @@ pub fn create_user_opt(
 }
 pub fn create_user_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateUserParams<'_>,
 ) -> Result<Option<CreateUserRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.username,
         &params.email,
         &params.hashed_password,
@@ -135,10 +139,12 @@ pub fn get_user_by_email(
 }
 pub fn get_user_by_email_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     email: &str,
 ) -> Result<GetUserByEmailRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&email];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&email];
     let row = client.query_one(statement, values)?;
     GetUserByEmailRow::from_row(&row)
 }
@@ -150,10 +156,12 @@ pub fn get_user_by_email_opt(
 }
 pub fn get_user_by_email_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     email: &str,
 ) -> Result<Option<GetUserByEmailRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&email];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&email];
     client
         .query_opt(statement, values)?
         .map(|row| GetUserByEmailRow::from_row(&row))
@@ -199,10 +207,13 @@ pub fn list_users(
 }
 pub fn list_users_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: ListUsersParams,
 ) -> Result<Vec<ListUsersRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.offset, &params.limit];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.offset, &params.limit];
     let rows = client.query(statement, values)?;
     rows.iter().map(ListUsersRow::from_row).collect()
 }
@@ -214,10 +225,13 @@ pub fn list_users_iter<'c>(
 }
 pub fn list_users_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: ListUsersParams,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.offset, &params.limit];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.offset, &params.limit];
     client.query_raw(statement, values.iter().copied())
 }
 pub const CREATE_PRODUCT: &str = r"INSERT INTO products (
@@ -274,10 +288,12 @@ pub fn create_product(
 }
 pub fn create_product_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateProductParams<'_>,
 ) -> Result<CreateProductRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.category_id,
         &params.name,
         &params.description,
@@ -296,10 +312,12 @@ pub fn create_product_opt(
 }
 pub fn create_product_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateProductParams<'_>,
 ) -> Result<Option<CreateProductRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.category_id,
         &params.name,
         &params.description,
@@ -367,10 +385,12 @@ pub fn get_product_with_category(
 }
 pub fn get_product_with_category_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: uuid::Uuid,
 ) -> Result<GetProductWithCategoryRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     let row = client.query_one(statement, values)?;
     GetProductWithCategoryRow::from_row(&row)
 }
@@ -382,10 +402,12 @@ pub fn get_product_with_category_opt(
 }
 pub fn get_product_with_category_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: uuid::Uuid,
 ) -> Result<Option<GetProductWithCategoryRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     client
         .query_opt(statement, values)?
         .map(|row| GetProductWithCategoryRow::from_row(&row))
@@ -459,10 +481,12 @@ pub fn search_products(
 }
 pub fn search_products_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: SearchProductsParams<'_>,
 ) -> Result<Vec<SearchProductsRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.name,
         &params.category_ids,
         &params.min_price,
@@ -481,10 +505,12 @@ pub fn search_products_iter<'c>(
 }
 pub fn search_products_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: SearchProductsParams<'_>,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.name,
         &params.category_ids,
         &params.min_price,
@@ -539,10 +565,12 @@ pub fn get_products_with_specific_attribute(
 }
 pub fn get_products_with_specific_attribute_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     column_1: serde_json::Value,
 ) -> Result<Vec<GetProductsWithSpecificAttributeRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&column_1];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&column_1];
     let rows = client.query(statement, values)?;
     rows.iter()
         .map(GetProductsWithSpecificAttributeRow::from_row)
@@ -560,10 +588,12 @@ pub fn get_products_with_specific_attribute_iter<'c>(
 }
 pub fn get_products_with_specific_attribute_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     column_1: serde_json::Value,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&column_1];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&column_1];
     client.query_raw(statement, values.iter().copied())
 }
 pub const UPDATE_PRODUCT_STOCK: &str = r"UPDATE products
@@ -587,10 +617,13 @@ pub fn update_product_stock(
 }
 pub fn update_product_stock_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: UpdateProductStockParams,
 ) -> Result<(), postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.id, &params.add_quantity];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.id, &params.add_quantity];
     client.execute(statement, values).map(|_| ())
 }
 pub const CREATE_ORDER: &str = r"INSERT INTO orders (user_id, status, total_amount)
@@ -633,10 +666,12 @@ pub fn create_order(
 }
 pub fn create_order_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateOrderParams,
 ) -> Result<CreateOrderRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] =
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
         &[&params.user_id, &params.status, &params.total_amount];
     let row = client.query_one(statement, values)?;
     CreateOrderRow::from_row(&row)
@@ -649,10 +684,12 @@ pub fn create_order_opt(
 }
 pub fn create_order_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateOrderParams,
 ) -> Result<Option<CreateOrderRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] =
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
         &[&params.user_id, &params.status, &params.total_amount];
     client
         .query_opt(statement, values)?
@@ -700,10 +737,12 @@ pub fn create_order_item(
 }
 pub fn create_order_item_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateOrderItemParams,
 ) -> Result<CreateOrderItemRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.order_id,
         &params.product_id,
         &params.quantity,
@@ -720,10 +759,12 @@ pub fn create_order_item_opt(
 }
 pub fn create_order_item_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateOrderItemParams,
 ) -> Result<Option<CreateOrderItemRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.order_id,
         &params.product_id,
         &params.quantity,
@@ -780,10 +821,12 @@ pub fn get_order_details(
 }
 pub fn get_order_details_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: i64,
 ) -> Result<GetOrderDetailsRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     let row = client.query_one(statement, values)?;
     GetOrderDetailsRow::from_row(&row)
 }
@@ -795,10 +838,12 @@ pub fn get_order_details_opt(
 }
 pub fn get_order_details_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: i64,
 ) -> Result<Option<GetOrderDetailsRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     client
         .query_opt(statement, values)?
         .map(|row| GetOrderDetailsRow::from_row(&row))
@@ -841,10 +886,12 @@ pub fn list_order_items_by_order_id(
 }
 pub fn list_order_items_by_order_id_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     order_id: i64,
 ) -> Result<Vec<ListOrderItemsByOrderIdRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&order_id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&order_id];
     let rows = client.query(statement, values)?;
     rows.iter()
         .map(ListOrderItemsByOrderIdRow::from_row)
@@ -858,10 +905,12 @@ pub fn list_order_items_by_order_id_iter<'c>(
 }
 pub fn list_order_items_by_order_id_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     order_id: i64,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&order_id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&order_id];
     client.query_raw(statement, values.iter().copied())
 }
 pub const CREATE_REVIEW: &str = r"INSERT INTO reviews (user_id, product_id, rating, comment)
@@ -907,10 +956,12 @@ pub fn create_review(
 }
 pub fn create_review_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateReviewParams<'_>,
 ) -> Result<CreateReviewRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.user_id,
         &params.product_id,
         &params.rating,
@@ -927,10 +978,12 @@ pub fn create_review_opt(
 }
 pub fn create_review_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateReviewParams<'_>,
 ) -> Result<Option<CreateReviewRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.user_id,
         &params.product_id,
         &params.rating,
@@ -975,10 +1028,12 @@ pub fn get_product_average_rating(
 }
 pub fn get_product_average_rating_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     product_id: uuid::Uuid,
 ) -> Result<GetProductAverageRatingRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&product_id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&product_id];
     let row = client.query_one(statement, values)?;
     GetProductAverageRatingRow::from_row(&row)
 }
@@ -990,10 +1045,12 @@ pub fn get_product_average_rating_opt(
 }
 pub fn get_product_average_rating_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     product_id: uuid::Uuid,
 ) -> Result<Option<GetProductAverageRatingRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&product_id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&product_id];
     client
         .query_opt(statement, values)?
         .map(|row| GetProductAverageRatingRow::from_row(&row))
@@ -1039,9 +1096,11 @@ pub fn get_category_sales_ranking(
 }
 pub fn get_category_sales_ranking_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
 ) -> Result<Vec<GetCategorySalesRankingRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[];
     let rows = client.query(statement, values)?;
     rows.iter()
         .map(GetCategorySalesRankingRow::from_row)
@@ -1054,9 +1113,11 @@ pub fn get_category_sales_ranking_iter<'c>(
 }
 pub fn get_category_sales_ranking_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[];
     client.query_raw(statement, values.iter().copied())
 }
 pub const DELETE_USER_AND_RELATED_DATA: &str = r"DELETE FROM users WHERE id = $1";
@@ -1073,10 +1134,12 @@ pub fn delete_user_and_related_data(
 }
 pub fn delete_user_and_related_data_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: uuid::Uuid,
 ) -> Result<(), postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     client.execute(statement, values).map(|_| ())
 }
 pub const QUERIES: &[(&str, &str)] = &[

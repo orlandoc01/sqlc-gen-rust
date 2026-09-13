@@ -264,6 +264,89 @@ mod tests {
             3
         );
     }
+
+    #[test_context(PgSyncContext)]
+    #[test]
+    fn reports_dynamic_one_cardinality(ctx: &mut PgSyncContext) {
+        let client = &mut ctx.client;
+        migrate(client);
+
+        let missing = queries::GetUserByEmailParams {
+            email: Some("missing@example.com"),
+        };
+        assert!(queries::get_user_by_email(client, missing).is_err());
+        assert!(
+            queries::get_user_by_email_opt(
+                client,
+                queries::GetUserByEmailParams {
+                    email: Some("missing@example.com"),
+                },
+            )
+            .unwrap()
+            .is_none()
+        );
+
+        let user = queries::get_user_by_email(
+            client,
+            queries::GetUserByEmailParams {
+                email: Some("alice@example.com"),
+            },
+        )
+        .unwrap();
+        assert_eq!(user.id, 1);
+        assert_eq!(
+            queries::get_user_by_email_opt(
+                client,
+                queries::GetUserByEmailParams {
+                    email: Some("alice@example.com"),
+                },
+            )
+            .unwrap()
+            .unwrap()
+            .id,
+            1
+        );
+
+        assert!(queries::get_user_by_email(client, Default::default()).is_err());
+        assert!(queries::get_user_by_email_opt(client, Default::default()).is_err());
+    }
+
+    #[test_context(PgSyncContext)]
+    #[test]
+    fn executes_dynamic_mutations_and_propagates_constraints(ctx: &mut PgSyncContext) {
+        let client = &mut ctx.client;
+        migrate(client);
+
+        queries::update_user_email(
+            client,
+            queries::UpdateUserEmailParams {
+                new_email: "alice-renamed@example.com",
+                id: 1,
+                email: Some("alice@example.com"),
+            },
+        )
+        .unwrap();
+        queries::update_user_email(
+            client,
+            queries::UpdateUserEmailParams {
+                new_email: "bob-renamed@example.com",
+                id: 2,
+                email: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            queries::update_user_email(
+                client,
+                queries::UpdateUserEmailParams {
+                    new_email: "alice-renamed@example.com",
+                    id: 3,
+                    email: None,
+                },
+            )
+            .is_err()
+        );
+    }
 }
 
 #[cfg(test)]

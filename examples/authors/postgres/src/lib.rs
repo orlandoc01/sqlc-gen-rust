@@ -1,4 +1,6 @@
 #[allow(dead_code)]
+mod locals;
+#[allow(dead_code)]
 mod queries;
 
 #[cfg(test)]
@@ -192,5 +194,40 @@ mod tests {
         assert_eq!(row.timestamp_val, timestamp);
         assert_eq!(row.timestamptz_val, timestamptz);
         assert_eq!(row.nullable_timestamp, None);
+    }
+
+    #[test_context(PgSyncContext)]
+    #[test]
+    fn binds_direct_parameters_named_like_generator_locals(ctx: &mut PgSyncContext) {
+        let client = &mut ctx.client;
+        migrate_db(client);
+        for (id, name) in [(1, "Client"), (2, "Statement"), (3, "Values")] {
+            queries::create_author_with_id(client, queries::CreateAuthorWithIdParams { id, name })
+                .unwrap();
+        }
+
+        assert_eq!(
+            locals::list_authors_by_local_names(client, "Client", "missing", "missing")
+                .unwrap()
+                .iter()
+                .map(|author| author.id)
+                .collect::<Vec<_>>(),
+            [1]
+        );
+        let statement = locals::prepare_list_authors_by_local_names(client).unwrap();
+        assert_eq!(
+            locals::list_authors_by_local_names_with(
+                client,
+                &statement,
+                "missing",
+                "Statement",
+                "missing",
+            )
+            .unwrap()
+            .iter()
+            .map(|author| author.id)
+            .collect::<Vec<_>>(),
+            [2]
+        );
     }
 }

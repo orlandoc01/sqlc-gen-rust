@@ -127,13 +127,11 @@ impl<'a> Function<'a> {
     ) -> proc_macro2::TokenStream {
         let parameters = query.fields.iter().map(|field| {
             let name = &field.name;
-            match parts.access {
-                ParameterAccess::Direct => quote::quote! {&#name},
-                ParameterAccess::Struct => quote::quote! {&params.#name},
-            }
+            let value = parts.access.field(name);
+            quote::quote! {&#value}
         });
         quote::quote! {
-            let #values: &[&(dyn #to_sql + Sync)] = &[#(#parameters,)*];
+            let #values: &[&(dyn #to_sql + ::std::marker::Sync)] = &[#(#parameters,)*];
         }
     }
 

@@ -45,9 +45,9 @@ pub enum QueryError {
 #[derive(Debug, Clone)]
 pub struct GeneratedFunctionConflict {
     first_query_name: String,
-    first_helper: String,
+    first_helper: &'static str,
     second_query_name: String,
-    second_helper: String,
+    second_helper: &'static str,
     function_ident: String,
     location: &'static std::panic::Location<'static>,
 }
@@ -110,9 +110,9 @@ impl QueryError {
     #[track_caller]
     pub(crate) fn conflicting_generated_function(
         first_query_name: String,
-        first_helper: String,
+        first_helper: &'static str,
         second_query_name: String,
-        second_helper: String,
+        second_helper: &'static str,
         function_ident: String,
     ) -> Self {
         Self::ConflictingGeneratedFunction(Box::new(GeneratedFunctionConflict {
@@ -187,7 +187,7 @@ impl std::fmt::Display for QueryError {
             ),
             QueryError::ConflictingGeneratedFunction(conflict) => write!(
                 f,
-                "Queries `{}` ({}) and `{}` ({}) both generate Rust function `{}`",
+                "Queries `{}` ({}) and `{}` ({}) both generate Rust item `{}`",
                 conflict.first_query_name,
                 conflict.first_helper,
                 conflict.second_query_name,

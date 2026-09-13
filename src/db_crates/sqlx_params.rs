@@ -1,5 +1,6 @@
 use super::{
-    params_common::{self, GeneratedFunction, ParameterAccess, ParamsGenerator, QueryParts},
+    DbCrate,
+    params_common::{self, GeneratedFunction, ParamsGenerator, QueryParts},
     sqlx::Sqlx,
 };
 use crate::query::{Annotation, Query, ReturningRows};
@@ -32,11 +33,7 @@ impl ParamsGenerator for Sqlx {
 
     fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
         params_common::simple_generated_functions(query, |annotation| {
-            matches!(
-                annotation,
-                Annotation::Many | Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult
-            ) || (matches!(self, Self::MySql | Self::Sqlite)
-                && annotation == Annotation::ExecLastId)
+            DbCrate::Sqlx(*self).supports(annotation)
         })
     }
 
@@ -176,16 +173,10 @@ impl<'a> Function<'a> {
         }
         let q = &self.q;
         let constant = &self.parts.constant;
-        let bind = match self.parts.access {
-            ParameterAccess::Direct => {
-                self.sqlx
-                    .query_bind(self.query, q.clone(), |name| quote::quote! {#name})
-            }
-            ParameterAccess::Struct => {
-                self.sqlx
-                    .query_bind(self.query, q.clone(), |name| quote::quote! {params.#name})
-            }
-        };
+        let access = self.parts.access;
+        let bind = self
+            .sqlx
+            .query_bind(self.query, q.clone(), |name| access.field(name));
         let query = match row {
             Some(row) => quote::quote! {sqlx::query_as::<_, #row>(#constant)},
             None => quote::quote! {sqlx::query(#constant)},

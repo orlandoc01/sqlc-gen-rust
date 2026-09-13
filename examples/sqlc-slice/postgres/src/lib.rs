@@ -58,6 +58,43 @@ mod tests {
 
     #[test_context(PgSyncContext)]
     #[test]
+    fn iterators_outlive_static_inputs_and_statements(ctx: &mut PgSyncContext) {
+        let client = &mut ctx.client;
+        migrate_db(client);
+        seed_authors(client);
+
+        let iterator = {
+            let ids = vec![1_i64, 3];
+            queries::list_authors_by_ids_iter(client, &ids).unwrap()
+        };
+        assert_eq!(
+            iterator
+                .collect::<Vec<_>>()
+                .unwrap()
+                .iter()
+                .map(|row| row.get::<_, i64>(0))
+                .collect::<Vec<_>>(),
+            [1, 3]
+        );
+
+        let iterator = {
+            let ids = vec![2_i64];
+            let statement = queries::prepare_list_authors_by_ids(client).unwrap();
+            queries::list_authors_by_ids_iter_with(client, &statement, &ids).unwrap()
+        };
+        assert_eq!(
+            iterator
+                .collect::<Vec<_>>()
+                .unwrap()
+                .iter()
+                .map(|row| row.get::<_, i64>(0))
+                .collect::<Vec<_>>(),
+            [2]
+        );
+    }
+
+    #[test_context(PgSyncContext)]
+    #[test]
     fn lists_authors_by_two_id_lists(ctx: &mut PgSyncContext) {
         let client = &mut ctx.client;
         migrate_db(client);

@@ -2,6 +2,7 @@ CREATE EXTENSION hstore;
 
 CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
 CREATE TYPE s AS ENUM ('a', 'b');
+CREATE TYPE sync AS ENUM ('ready');
 
 CREATE TYPE complex AS (
     r       double precision,
@@ -39,4 +40,9 @@ CREATE TABLE mapping (
 CREATE TABLE state_mappings (
     id BIGINT PRIMARY KEY,
     state s NOT NULL
+);
+
+CREATE TABLE sync_mappings (
+    id BIGINT PRIMARY KEY,
+    state sync NOT NULL
 );

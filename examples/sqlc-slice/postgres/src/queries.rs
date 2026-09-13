@@ -31,10 +31,12 @@ pub fn list_authors_by_ids(
 }
 pub fn list_authors_by_ids_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     ids: &[i64],
 ) -> Result<Vec<ListAuthorsByIDsRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&ids];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&ids];
     let rows = client.query(statement, values)?;
     rows.iter().map(ListAuthorsByIDsRow::from_row).collect()
 }
@@ -46,10 +48,12 @@ pub fn list_authors_by_ids_iter<'c>(
 }
 pub fn list_authors_by_ids_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     ids: &[i64],
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&ids];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&ids];
     client.query_raw(statement, values.iter().copied())
 }
 pub const LIST_AUTHORS_BY_TWO_ID_LISTS: &str = r"SELECT id, name
@@ -87,10 +91,13 @@ pub fn list_authors_by_two_id_lists(
 }
 pub fn list_authors_by_two_id_lists_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: ListAuthorsByTwoIdListsParams<'_>,
 ) -> Result<Vec<ListAuthorsByTwoIdListsRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.ids, &params.backup_ids];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.ids, &params.backup_ids];
     let rows = client.query(statement, values)?;
     rows.iter()
         .map(ListAuthorsByTwoIdListsRow::from_row)
@@ -104,10 +111,13 @@ pub fn list_authors_by_two_id_lists_iter<'c>(
 }
 pub fn list_authors_by_two_id_lists_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: ListAuthorsByTwoIdListsParams<'_>,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.ids, &params.backup_ids];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.ids, &params.backup_ids];
     client.query_raw(statement, values.iter().copied())
 }
 pub const LIST_AUTHORS_BY_IDS_MIXED: &str = r"SELECT id, name
@@ -149,10 +159,12 @@ pub fn list_authors_by_ids_mixed(
 }
 pub fn list_authors_by_ids_mixed_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: ListAuthorsByIDsMixedParams<'_>,
 ) -> Result<Vec<ListAuthorsByIDsMixedRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.ids,
         &params.min_id,
         &params.skip_ids,
@@ -171,10 +183,12 @@ pub fn list_authors_by_ids_mixed_iter<'c>(
 }
 pub fn list_authors_by_ids_mixed_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: ListAuthorsByIDsMixedParams<'_>,
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.ids,
         &params.min_id,
         &params.skip_ids,
@@ -197,10 +211,12 @@ pub fn delete_authors_by_ids(
 }
 pub fn delete_authors_by_ids_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     ids: &[i64],
 ) -> Result<(), postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&ids];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&ids];
     client.execute(statement, values).map(|_| ())
 }
 pub const QUERIES: &[(&str, &str)] = &[

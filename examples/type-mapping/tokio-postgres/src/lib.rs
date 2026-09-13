@@ -237,4 +237,37 @@ mod tests {
             1
         );
     }
+
+    #[test_context(PgTokioContext)]
+    #[tokio::test]
+    async fn enum_named_sync_works_with_static_and_dynamic_queries(ctx: &mut PgTokioContext) {
+        let client = &ctx.client;
+        migrate_db(client).await;
+        client
+            .execute(
+                "INSERT INTO sync_mappings (id, state) VALUES (1, $1)",
+                &[&queries::Sync::Ready],
+            )
+            .await
+            .unwrap();
+
+        let entry =
+            queries::get_sync_entry_with(client, queries::GET_SYNC_ENTRY, queries::Sync::Ready)
+                .await
+                .unwrap();
+        assert_eq!(entry.id, 1);
+        assert!(matches!(entry.state, queries::Sync::Ready));
+        let entries = queries::search_sync_entries(
+            client,
+            queries::SearchSyncEntriesParams {
+                state: Some(queries::Sync::Ready),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            entries.iter().map(|entry| entry.id).collect::<Vec<_>>(),
+            [1]
+        );
+    }
 }

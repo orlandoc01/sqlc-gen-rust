@@ -42,3 +42,22 @@ WHERE TRUE
   AND email = @email -- :if @email
   AND (profile @> @profile::jsonb OR profile @> @profile::jsonb) -- :if @profile
 ORDER BY id;
+
+-- name: SetUserPhone :execrows
+UPDATE users SET phone = @new_phone
+WHERE TRUE
+  AND id = @user_id -- :if @user_id
+  AND TRUE;
+
+-- name: GetUserByEmail :one
+SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email = @email -- :if @email
+ORDER BY id;
+
+-- name: UpdateUserEmail :exec
+UPDATE users SET email = @new_email
+WHERE id = @id
+  AND email = @email -- :if @email
+;

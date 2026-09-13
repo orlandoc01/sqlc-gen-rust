@@ -72,3 +72,13 @@ SELECT id, state FROM state_mappings
 WHERE state = sqlc.arg(state)
   AND id >= sqlc.arg('minimum_id')
 ORDER BY id;
+
+-- name: GetSyncEntry :one
+SELECT id, state FROM sync_mappings
+WHERE state = sqlc.arg(state);
+
+-- name: SearchSyncEntries :many
+SELECT id, state FROM sync_mappings
+WHERE TRUE
+  AND state = @state -- :if @state
+ORDER BY id;

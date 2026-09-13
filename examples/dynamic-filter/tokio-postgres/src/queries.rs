@@ -1024,7 +1024,10 @@ impl SearchUsersRow {
 }
 fn search_users_query<'p>(
     params: &'p SearchUsersParams<'_>,
-) -> (String, Vec<&'p (dyn tokio_postgres::types::ToSql + Sync)>) {
+) -> (
+    String,
+    Vec<&'p (dyn tokio_postgres::types::ToSql + ::std::marker::Sync)>,
+) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::from_option(&params.phone),
@@ -1036,7 +1039,7 @@ fn search_users_query<'p>(
         dynfilter::Arg::Flag(params.id_desc),
     ];
     let (sql, binds) = SEARCH_USERS_DYN.build(&args);
-    let values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
         .iter()
         .map(|bind| match bind {
             dynfilter::Bind::Arg(0usize) => &params.email as _,
@@ -1094,13 +1097,16 @@ impl CountUsersRow {
 }
 fn count_users_query<'p>(
     params: &'p CountUsersParams<'_>,
-) -> (String, Vec<&'p (dyn tokio_postgres::types::ToSql + Sync)>) {
+) -> (
+    String,
+    Vec<&'p (dyn tokio_postgres::types::ToSql + ::std::marker::Sync)>,
+) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::from_option(&params.ids),
     ];
     let (sql, binds) = COUNT_USERS_DYN.build(&args);
-    let values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
         .iter()
         .map(|bind| match bind {
             dynfilter::Bind::Arg(0usize) => &params.email as _,
@@ -1148,13 +1154,16 @@ pub struct TouchUsersParams<'a> {
 }
 fn touch_users_query<'p>(
     params: &'p TouchUsersParams<'_>,
-) -> (String, Vec<&'p (dyn tokio_postgres::types::ToSql + Sync)>) {
+) -> (
+    String,
+    Vec<&'p (dyn tokio_postgres::types::ToSql + ::std::marker::Sync)>,
+) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::from_option(&params.ids),
     ];
     let (sql, binds) = TOUCH_USERS_DYN.build(&args);
-    let values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
         .iter()
         .map(|bind| match bind {
             dynfilter::Bind::Arg(0usize) => &params.email as _,
@@ -1200,9 +1209,14 @@ pub async fn list_all_users(
 }
 pub async fn list_all_users_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
 ) -> Result<Vec<ListAllUsersRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[];
     let rows = client.query(statement, values).await?;
     rows.iter().map(ListAllUsersRow::from_row).collect()
 }
@@ -1213,9 +1227,14 @@ pub async fn list_all_users_stream(
 }
 pub async fn list_all_users_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl tokio_postgres::ToStatement
+         + ?::std::marker::Sized
+         + ::std::marker::Sync
+         + ::std::marker::Send
+     ),
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)] = &[];
     client.query_raw(statement, values.iter().copied()).await
 }
 pub const SEARCH_USERS_BY_PROFILE: &str = r"SELECT id, email, phone
@@ -1253,13 +1272,16 @@ impl SearchUsersByProfileRow {
 }
 fn search_users_by_profile_query<'p>(
     params: &'p SearchUsersByProfileParams<'_>,
-) -> (String, Vec<&'p (dyn tokio_postgres::types::ToSql + Sync)>) {
+) -> (
+    String,
+    Vec<&'p (dyn tokio_postgres::types::ToSql + ::std::marker::Sync)>,
+) {
     let args = [
         dynfilter::Arg::from_option(&params.email),
         dynfilter::Arg::from_option(&params.profile),
     ];
     let (sql, binds) = SEARCH_USERS_BY_PROFILE_DYN.build(&args);
-    let values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
         .iter()
         .map(|bind| match bind {
             dynfilter::Bind::Arg(0usize) => &params.email as _,
@@ -1303,13 +1325,16 @@ pub struct SetUserPhoneParams<'a> {
 }
 fn set_user_phone_query<'p>(
     params: &'p SetUserPhoneParams<'_>,
-) -> (String, Vec<&'p (dyn tokio_postgres::types::ToSql + Sync)>) {
+) -> (
+    String,
+    Vec<&'p (dyn tokio_postgres::types::ToSql + ::std::marker::Sync)>,
+) {
     let args = [
         dynfilter::Arg::Active,
         dynfilter::Arg::from_option(&params.user_id),
     ];
     let (sql, binds) = SET_USER_PHONE_DYN.build(&args);
-    let values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = binds
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
         .iter()
         .map(|bind| match bind {
             dynfilter::Bind::Arg(0usize) => &params.new_phone as _,
@@ -1326,6 +1351,120 @@ pub async fn set_user_phone(
     let (sql, values) = set_user_phone_query(&params);
     client.execute(sql.as_str(), &values).await
 }
+pub const GET_USER_BY_EMAIL: &str = r"SELECT id, email, phone
+FROM users
+WHERE TRUE
+  AND email = $1 -- :if $1
+ORDER BY id";
+static GET_USER_BY_EMAIL_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            GET_USER_BY_EMAIL,
+            dynfilter::Placeholders::Numbered,
+            &[1usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct GetUserByEmailParams<'a> {
+    pub email: Option<&'a str>,
+}
+pub struct GetUserByEmailRow {
+    pub id: i64,
+    pub email: String,
+    pub phone: String,
+}
+impl GetUserByEmailRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+        Ok(Self {
+            id: row.try_get(0)?,
+            email: row.try_get(1)?,
+            phone: row.try_get(2)?,
+        })
+    }
+}
+fn get_user_by_email_query<'p>(
+    params: &'p GetUserByEmailParams<'_>,
+) -> (
+    String,
+    Vec<&'p (dyn tokio_postgres::types::ToSql + ::std::marker::Sync)>,
+) {
+    let args = [dynfilter::Arg::from_option(&params.email)];
+    let (sql, binds) = GET_USER_BY_EMAIL_DYN.build(&args);
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
+        .iter()
+        .map(|bind| match bind {
+            dynfilter::Bind::Arg(0usize) => &params.email as _,
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        })
+        .collect();
+    (sql, values)
+}
+pub async fn get_user_by_email(
+    client: &impl tokio_postgres::GenericClient,
+    params: GetUserByEmailParams<'_>,
+) -> Result<GetUserByEmailRow, tokio_postgres::Error> {
+    let (sql, values) = get_user_by_email_query(&params);
+    let row = client.query_one(sql.as_str(), &values).await?;
+    GetUserByEmailRow::from_row(&row)
+}
+pub async fn get_user_by_email_opt(
+    client: &impl tokio_postgres::GenericClient,
+    params: GetUserByEmailParams<'_>,
+) -> Result<Option<GetUserByEmailRow>, tokio_postgres::Error> {
+    let (sql, values) = get_user_by_email_query(&params);
+    client
+        .query_opt(sql.as_str(), &values)
+        .await?
+        .map(|row| GetUserByEmailRow::from_row(&row))
+        .transpose()
+}
+pub const UPDATE_USER_EMAIL: &str = r"UPDATE users SET email = $1
+WHERE id = $2
+  AND email = $3 -- :if $3";
+static UPDATE_USER_EMAIL_DYN: std::sync::LazyLock<dynfilter::Compiled> =
+    std::sync::LazyLock::new(|| {
+        dynfilter::compile_with_arg_order(
+            UPDATE_USER_EMAIL,
+            dynfilter::Placeholders::Numbered,
+            &[1usize, 2usize, 3usize],
+        )
+    });
+#[derive(Debug, Clone, Default)]
+pub struct UpdateUserEmailParams<'a> {
+    pub new_email: &'a str,
+    pub id: i64,
+    pub email: Option<&'a str>,
+}
+fn update_user_email_query<'p>(
+    params: &'p UpdateUserEmailParams<'_>,
+) -> (
+    String,
+    Vec<&'p (dyn tokio_postgres::types::ToSql + ::std::marker::Sync)>,
+) {
+    let args = [
+        dynfilter::Arg::Active,
+        dynfilter::Arg::Active,
+        dynfilter::Arg::from_option(&params.email),
+    ];
+    let (sql, binds) = UPDATE_USER_EMAIL_DYN.build(&args);
+    let values: Vec<&(dyn tokio_postgres::types::ToSql + ::std::marker::Sync)> = binds
+        .iter()
+        .map(|bind| match bind {
+            dynfilter::Bind::Arg(0usize) => &params.new_email as _,
+            dynfilter::Bind::Arg(1usize) => &params.id as _,
+            dynfilter::Bind::Arg(2usize) => &params.email as _,
+            _ => unreachable!("dynfilter bind plan referenced an unknown argument"),
+        })
+        .collect();
+    (sql, values)
+}
+pub async fn update_user_email(
+    client: &impl tokio_postgres::GenericClient,
+    params: UpdateUserEmailParams<'_>,
+) -> Result<(), tokio_postgres::Error> {
+    let (sql, values) = update_user_email_query(&params);
+    client.execute(sql.as_str(), &values).await.map(|_| ())
+}
 pub const QUERIES: &[(&str, &str)] = &[
     ("SearchUsers", SEARCH_USERS),
     ("CountUsers", COUNT_USERS),
@@ -1333,4 +1472,6 @@ pub const QUERIES: &[(&str, &str)] = &[
     ("ListAllUsers", LIST_ALL_USERS),
     ("SearchUsersByProfile", SEARCH_USERS_BY_PROFILE),
     ("SetUserPhone", SET_USER_PHONE),
+    ("GetUserByEmail", GET_USER_BY_EMAIL),
+    ("UpdateUserEmail", UPDATE_USER_EMAIL),
 ];

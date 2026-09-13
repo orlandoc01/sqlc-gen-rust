@@ -222,4 +222,34 @@ mod tests {
             1
         );
     }
+
+    #[test_context(PgSyncContext)]
+    #[test]
+    fn enum_named_sync_works_with_static_and_dynamic_queries(ctx: &mut PgSyncContext) {
+        let client = &mut ctx.client;
+        migrate_db(client);
+        client
+            .execute(
+                "INSERT INTO sync_mappings (id, state) VALUES (1, $1)",
+                &[&queries::Sync::Ready],
+            )
+            .unwrap();
+
+        let entry =
+            queries::get_sync_entry_with(client, queries::GET_SYNC_ENTRY, queries::Sync::Ready)
+                .unwrap();
+        assert_eq!(entry.id, 1);
+        assert!(matches!(entry.state, queries::Sync::Ready));
+        let entries = queries::search_sync_entries(
+            client,
+            queries::SearchSyncEntriesParams {
+                state: Some(queries::Sync::Ready),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            entries.iter().map(|entry| entry.id).collect::<Vec<_>>(),
+            [1]
+        );
+    }
 }

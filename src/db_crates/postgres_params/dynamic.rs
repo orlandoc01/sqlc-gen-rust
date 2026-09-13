@@ -81,6 +81,23 @@ fn make_helper(
     to_sql: &proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let params = params_common::params_type(function.query);
+    let lifetime = function
+        .query
+        .fields
+        .iter()
+        .any(|field| field.scalar_type().need_params_struct_lifetime())
+        .then(|| syn::Lifetime::new("'p", proc_macro2::Span::call_site()));
+    let generics = lifetime
+        .as_ref()
+        .map(|lifetime| quote::quote! {<#lifetime>});
+    let params_ref = match &lifetime {
+        Some(lifetime) => quote::quote! {&#lifetime #params},
+        None => quote::quote! {&#params},
+    };
+    let values_ref = match &lifetime {
+        Some(lifetime) => quote::quote! {&#lifetime},
+        None => quote::quote! {&},
+    };
     let dynamic = quote::format_ident!("{}_DYN", function.parts.constant);
     let args = params_common::dynamic_args(function.query);
     let binds = params_common::dynamic_binds(function.query)
@@ -96,10 +113,10 @@ fn make_helper(
             quote::quote! { #pattern => &params.#name as _, }
         });
     quote::quote! {
-        fn #helper<'p>(params: &'p #params) -> (String, Vec<&'p (dyn #to_sql + Sync)>) {
+        fn #helper #generics(params: #params_ref) -> (String, Vec<#values_ref (dyn #to_sql + ::std::marker::Sync)>) {
             let args = [#(#args,)*];
             let (sql, binds) = #dynamic.build(&args);
-            let values: Vec<&(dyn #to_sql + Sync)> = binds
+            let values: Vec<&(dyn #to_sql + ::std::marker::Sync)> = binds
                 .iter()
                 .map(|bind| match bind {
                     #(#binds)*

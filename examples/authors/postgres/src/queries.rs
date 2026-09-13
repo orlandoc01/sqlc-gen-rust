@@ -31,10 +31,12 @@ pub fn get_author(
 }
 pub fn get_author_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     get_author_with: i64,
 ) -> Result<GetAuthorRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&get_author_with];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&get_author_with];
     let row = client.query_one(statement, values)?;
     GetAuthorRow::from_row(&row)
 }
@@ -46,10 +48,12 @@ pub fn get_author_opt(
 }
 pub fn get_author_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     get_author_with: i64,
 ) -> Result<Option<GetAuthorRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&get_author_with];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&get_author_with];
     client
         .query_opt(statement, values)?
         .map(|row| GetAuthorRow::from_row(&row))
@@ -83,9 +87,11 @@ pub fn list_authors(
 }
 pub fn list_authors_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
 ) -> Result<Vec<ListAuthorsRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[];
     let rows = client.query(statement, values)?;
     rows.iter().map(ListAuthorsRow::from_row).collect()
 }
@@ -96,9 +102,11 @@ pub fn list_authors_iter<'c>(
 }
 pub fn list_authors_iter_with<'c>(
     client: &'c mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
 ) -> Result<postgres::RowIter<'c>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[];
     client.query_raw(statement, values.iter().copied())
 }
 pub const COUNT_AUTHORS: &str = r"SELECT COUNT(*) FROM authors";
@@ -124,9 +132,11 @@ pub fn count_authors(
 }
 pub fn count_authors_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
 ) -> Result<CountAuthorsRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[];
     let row = client.query_one(statement, values)?;
     CountAuthorsRow::from_row(&row)
 }
@@ -137,9 +147,11 @@ pub fn count_authors_opt(
 }
 pub fn count_authors_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
 ) -> Result<Option<CountAuthorsRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[];
     client
         .query_opt(statement, values)?
         .map(|row| CountAuthorsRow::from_row(&row))
@@ -183,10 +195,13 @@ pub fn create_author(
 }
 pub fn create_author_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateAuthorParams<'_>,
 ) -> Result<CreateAuthorRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.name, &params.bio];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.name, &params.bio];
     let row = client.query_one(statement, values)?;
     CreateAuthorRow::from_row(&row)
 }
@@ -198,10 +213,13 @@ pub fn create_author_opt(
 }
 pub fn create_author_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateAuthorParams<'_>,
 ) -> Result<Option<CreateAuthorRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.name, &params.bio];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.name, &params.bio];
     client
         .query_opt(statement, values)?
         .map(|row| CreateAuthorRow::from_row(&row))
@@ -222,10 +240,12 @@ pub fn delete_author(
 }
 pub fn delete_author_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: i64,
 ) -> Result<(), postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     client.execute(statement, values).map(|_| ())
 }
 pub const GET_KEYWORD_IDENT: &str = r"SELECT id, type FROM keyword_idents
@@ -255,10 +275,12 @@ pub fn get_keyword_ident(
 }
 pub fn get_keyword_ident_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     r#type: &str,
 ) -> Result<GetKeywordIdentRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&r#type];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&r#type];
     let row = client.query_one(statement, values)?;
     GetKeywordIdentRow::from_row(&row)
 }
@@ -270,10 +292,12 @@ pub fn get_keyword_ident_opt(
 }
 pub fn get_keyword_ident_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     r#type: &str,
 ) -> Result<Option<GetKeywordIdentRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&r#type];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&r#type];
     client
         .query_opt(statement, values)?
         .map(|row| GetKeywordIdentRow::from_row(&row))
@@ -308,10 +332,12 @@ pub fn get_authors_by_name(
 }
 pub fn get_authors_by_name_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     name: &str,
 ) -> Result<GetAuthorsByNameRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&name];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&name];
     let row = client.query_one(statement, values)?;
     GetAuthorsByNameRow::from_row(&row)
 }
@@ -323,10 +349,12 @@ pub fn get_authors_by_name_opt(
 }
 pub fn get_authors_by_name_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     name: &str,
 ) -> Result<Option<GetAuthorsByNameRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&name];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&name];
     client
         .query_opt(statement, values)?
         .map(|row| GetAuthorsByNameRow::from_row(&row))
@@ -351,10 +379,13 @@ pub fn create_author_with_id(
 }
 pub fn create_author_with_id_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: CreateAuthorWithIdParams<'_>,
 ) -> Result<u64, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.id, &params.name];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.id, &params.name];
     client.execute(statement, values)
 }
 pub const TOUCH_AUTHORS: &str = r"UPDATE authors SET bio = bio
@@ -372,10 +403,12 @@ pub fn touch_authors(
 }
 pub fn touch_authors_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: i64,
 ) -> Result<u64, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     client.execute(statement, values)
 }
 pub const RENAME_AUTHORS_RETURNING_ID: &str = r"UPDATE authors SET name = $1
@@ -399,10 +432,13 @@ pub fn rename_authors_returning_id(
 }
 pub fn rename_authors_returning_id_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: RenameAuthorsReturningIdParams<'_>,
 ) -> Result<u64, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&params.name, &params.id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] =
+        &[&params.name, &params.id];
     client.execute(statement, values)
 }
 pub const DELETE_AUTHOR_RETURNING_ID: &str = r"DELETE FROM authors
@@ -421,10 +457,12 @@ pub fn delete_author_returning_id(
 }
 pub fn delete_author_returning_id_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: i64,
 ) -> Result<(), postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     client.execute(statement, values).map(|_| ())
 }
 pub const INSERT_TIMESTAMPS: &str = r"INSERT INTO timestamps (id, timestamp_val, timestamptz_val, nullable_timestamp)
@@ -449,10 +487,12 @@ pub fn insert_timestamps(
 }
 pub fn insert_timestamps_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     params: InsertTimestampsParams,
 ) -> Result<(), postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[
         &params.id,
         &params.timestamp_val,
         &params.timestamptz_val,
@@ -490,10 +530,12 @@ pub fn get_timestamps(
 }
 pub fn get_timestamps_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: i64,
 ) -> Result<GetTimestampsRow, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     let row = client.query_one(statement, values)?;
     GetTimestampsRow::from_row(&row)
 }
@@ -505,10 +547,12 @@ pub fn get_timestamps_opt(
 }
 pub fn get_timestamps_opt_with(
     client: &mut impl postgres::GenericClient,
-    statement: &(impl postgres::ToStatement + ?Sized + Sync + Send),
+    statement: &(
+         impl postgres::ToStatement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send
+     ),
     id: i64,
 ) -> Result<Option<GetTimestampsRow>, postgres::Error> {
-    let values: &[&(dyn postgres::types::ToSql + Sync)] = &[&id];
+    let values: &[&(dyn postgres::types::ToSql + ::std::marker::Sync)] = &[&id];
     client
         .query_opt(statement, values)?
         .map(|row| GetTimestampsRow::from_row(&row))

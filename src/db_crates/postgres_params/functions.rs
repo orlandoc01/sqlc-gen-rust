@@ -175,7 +175,7 @@ impl Function<'_> {
         let lifetime = &signature.lifetime;
         let client_ref = &signature.client_ref;
         quote::quote! {
-            pub #async_token fn #name #lifetime(#client: #client_ref impl #generic_client, #statement: &(impl #to_statement + ?Sized + Sync + Send) #arguments) -> Result<#return_type, #error> {
+            pub #async_token fn #name #lifetime(#client: #client_ref impl #generic_client, #statement: &(impl #to_statement + ?::std::marker::Sized + ::std::marker::Sync + ::std::marker::Send) #arguments) -> Result<#return_type, #error> {
                 #values
                 #body
             }

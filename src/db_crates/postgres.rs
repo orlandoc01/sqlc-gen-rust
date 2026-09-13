@@ -119,6 +119,13 @@ impl Postgres {
         }
     }
 
+    pub(crate) fn many_iterator_helpers(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Sync => ("iter helper", "iter with helper"),
+            Self::Tokio | Self::Deadpool => ("stream helper", "stream with helper"),
+        }
+    }
+
     pub(crate) fn prepare_statement(
         self,
         client: &syn::Ident,

@@ -45,9 +45,14 @@ fn generates_static_statement_functions_and_parameter_array() {
     let tokens = generated(Postgres::Tokio, static_query(), 1);
     assert!(
         tokens.contains(
-            "get_author_with (client : & impl tokio_postgres :: GenericClient , statement : & (impl tokio_postgres :: ToStatement + ? Sized + Sync + Send)"
+            "get_author_with (client : & impl tokio_postgres :: GenericClient , statement : & (impl tokio_postgres :: ToStatement + ? :: std :: marker :: Sized + :: std :: marker :: Sync + :: std :: marker :: Send)"
         )
     );
+    for backend in [Postgres::Sync, Postgres::Tokio] {
+        let tokens = generated(backend, static_query(), 1);
+        assert!(tokens.contains(":: std :: marker :: Sync"));
+        assert!(!tokens.contains("+ Sync"));
+    }
 }
 
 #[test]
@@ -65,11 +70,11 @@ fn generates_dynamic_functions_without_statements() {
             1,
         );
 
-        assert!(tokens.contains("fn search_authors_query < 'p >"));
+        assert!(tokens.contains("fn search_authors_query (params"));
         assert!(tokens.contains("dynfilter :: Bind :: Arg (0usize) => & params . id as _"));
         assert!(!tokens.contains("prepare_search_authors"));
         assert!(tokens.contains("Result < Vec < SearchAuthorsRow >"));
-        assert!(tokens.contains("params : & 'p SearchAuthorsParams"));
+        assert!(tokens.contains("params : & SearchAuthorsParams"));
         assert_eq!(tokens.matches("search_authors_query (& params)").count(), 2);
     }
 }
@@ -115,7 +120,7 @@ fn sync_dynamic_many_uses_iter_and_the_dynamic_helper() {
     assert!(syn::parse2::<syn::File>(tokens.clone()).is_ok());
     let tokens = tokens.to_string();
 
-    assert!(tokens.contains("fn search_authors_query < 'p >"));
+    assert!(tokens.contains("fn search_authors_query (params"));
     assert!(tokens.contains("fn search_authors_iter"));
     assert!(!tokens.contains("search_authors_stream"));
     assert!(tokens.contains("Result < postgres :: RowIter < 'c > , postgres :: Error >"));
@@ -144,102 +149,141 @@ fn tokio_uses_async_stream_functions() {
 
 #[test]
 fn direct_parameters_do_not_collide_with_generated_locals() {
-    let tokens = generated(
-        Postgres::Tokio,
-        query(
-            "ByStatement",
-            ":many",
-            "SELECT id FROM authors WHERE statement = $1 AND client = $2 AND values = $3",
-            vec![column("id", false)],
-            vec![
-                (1, column("statement", false)),
-                (2, column("client", false)),
-                (3, column("values", false)),
-            ],
-        ),
-        3,
-    );
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated(
+            backend,
+            query(
+                "ByStatement",
+                ":many",
+                "SELECT id FROM authors WHERE statement = $1 AND client = $2 AND values = $3",
+                vec![column("id", false)],
+                vec![
+                    (1, column("statement", false)),
+                    (2, column("client", false)),
+                    (3, column("values", false)),
+                ],
+            ),
+            3,
+        );
+        let paths = backend.paths();
 
-    assert!(tokens.contains(
-        "pub async fn by_statement (client_ : & impl tokio_postgres :: GenericClient , statement : i32 , client : i32 , values : i32)"
-    ));
-    assert!(
-        tokens.contains(
-            "statement_ : & (impl tokio_postgres :: ToStatement + ? Sized + Sync + Send)"
-        )
-    );
-    assert!(tokens.contains("let values_ : & [& (dyn tokio_postgres :: types :: ToSql + Sync)]"));
+        assert!(tokens.contains(&format!(
+            "client_ : {} impl {} , statement : i32 , client : i32 , values : i32",
+            paths.plain.client_ref, paths.client
+        )));
+        assert!(tokens.contains(&format!(
+            "statement_ : & (impl {} + ? :: std :: marker :: Sized + :: std :: marker :: Sync + :: std :: marker :: Send)",
+            paths.to_statement
+        )));
+        assert!(tokens.contains(&format!(
+            "let values_ : & [& (dyn {} + :: std :: marker :: Sync)]",
+            paths.to_sql
+        )));
+        assert!(tokens.contains(&format!(
+            "self :: by_statement_{}_with",
+            backend.many_iterator_suffix()
+        )));
+    }
 }
 
 #[test]
 fn direct_parameters_do_not_shadow_forwarding_functions() {
-    let tokens = generated_tokens(
-        Postgres::Tokio,
-        query(
-            "GetAuthor",
-            ":one",
-            "SELECT id FROM authors WHERE id = $1",
-            vec![column("id", false)],
-            vec![(1, column("get_author_with", false))],
-        ),
-        1,
-    );
-    assert!(syn::parse2::<syn::File>(tokens.clone()).is_ok());
-    let tokens = tokens.to_string();
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated_tokens(
+            backend,
+            query(
+                "GetAuthor",
+                ":one",
+                "SELECT id FROM authors WHERE id = $1",
+                vec![column("id", false)],
+                vec![(1, column("get_author_with", false))],
+            ),
+            1,
+        );
+        assert!(syn::parse2::<syn::File>(tokens.clone()).is_ok());
+        assert!(
+            tokens
+                .to_string()
+                .contains("self :: get_author_with (client , GET_AUTHOR , get_author_with)")
+        );
 
-    assert!(tokens.contains("self :: get_author_with (client , GET_AUTHOR , get_author_with)"));
+        let opt_tokens = generated(
+            backend,
+            query(
+                "GetAuthor",
+                ":one",
+                "SELECT id FROM authors WHERE id = $1",
+                vec![column("id", false)],
+                vec![(1, column("get_author_opt_with", false))],
+            ),
+            1,
+        );
+        assert!(
+            opt_tokens.contains(
+                "self :: get_author_opt_with (client , GET_AUTHOR , get_author_opt_with)"
+            )
+        );
 
-    let opt_tokens = generated(
-        Postgres::Tokio,
-        query(
-            "GetAuthor",
-            ":one",
-            "SELECT id FROM authors WHERE id = $1",
-            vec![column("id", false)],
-            vec![(1, column("get_author_opt_with", false))],
-        ),
-        1,
-    );
-    assert!(
-        opt_tokens
-            .contains("self :: get_author_opt_with (client , GET_AUTHOR , get_author_opt_with)")
-    );
-
-    let stream_tokens = generated(
-        Postgres::Tokio,
-        query(
-            "ListAuthors",
-            ":many",
-            "SELECT id FROM authors WHERE id = $1",
-            vec![column("id", false)],
-            vec![(1, column("list_authors_stream_with", false))],
-        ),
-        1,
-    );
-    assert!(stream_tokens.contains(
-        "self :: list_authors_stream_with (client , LIST_AUTHORS , list_authors_stream_with)"
-    ));
+        let suffix = backend.many_iterator_suffix();
+        let helper = format!("list_authors_{suffix}_with");
+        let iterator_tokens = generated(
+            backend,
+            query(
+                "ListAuthors",
+                ":many",
+                "SELECT id FROM authors WHERE id = $1",
+                vec![column("id", false)],
+                vec![(1, column(&helper, false))],
+            ),
+            1,
+        );
+        assert!(iterator_tokens.contains(&format!(
+            "self :: list_authors_{suffix}_with (client , LIST_AUTHORS , {helper})"
+        )));
+    }
 }
 
 #[test]
 fn required_system_time_params_do_not_derive_default() {
     let mut timestamp = column("timestamp", false);
     timestamp.r#type = Some(identifier("timestamp"));
-    let tokens = generated(
-        Postgres::Tokio,
-        query(
-            "EchoTimestamp",
-            ":one",
-            "SELECT $1::timestamp AS timestamp",
-            vec![timestamp.clone()],
-            vec![(1, timestamp)],
-        ),
-        0,
-    );
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated(
+            backend,
+            query(
+                "EchoTimestamp",
+                ":one",
+                "SELECT $1::timestamp AS timestamp",
+                vec![timestamp.clone()],
+                vec![(1, timestamp.clone())],
+            ),
+            0,
+        );
 
-    assert!(tokens.contains("pub struct EchoTimestampParams"));
-    assert!(tokens.contains("std :: time :: SystemTime"));
-    assert!(!tokens.contains("derive (Debug , Clone , Default)"));
+        assert!(tokens.contains("pub struct EchoTimestampParams"));
+        assert!(tokens.contains("std :: time :: SystemTime"));
+        assert!(!tokens.contains("Default"));
+    }
+}
+
+#[test]
+fn dynamic_execresult_uses_the_count_execution_arm() {
+    for backend in [Postgres::Sync, Postgres::Tokio, Postgres::Deadpool] {
+        let tokens = generated(
+            backend,
+            query(
+                "TouchAuthors",
+                ":execresult",
+                "UPDATE authors SET id = id WHERE id = $1 -- :if @id",
+                Vec::new(),
+                vec![(1, column("id", false))],
+            ),
+            1,
+        );
+        assert!(tokens.contains("touch_authors"));
+        assert!(tokens.contains("Result < u64"));
+        assert!(!tokens.contains("prepare_touch_authors"));
+    }
 }
 
 #[test]

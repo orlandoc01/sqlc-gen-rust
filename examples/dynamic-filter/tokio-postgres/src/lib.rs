@@ -291,6 +291,103 @@ mod tests {
             3
         );
     }
+
+    #[test_context(PgTokioContext)]
+    #[tokio::test]
+    async fn reports_dynamic_one_cardinality(ctx: &mut PgTokioContext) {
+        let client = &ctx.client;
+        migrate(client).await;
+
+        let missing = queries::GetUserByEmailParams {
+            email: Some("missing@example.com"),
+        };
+        assert!(queries::get_user_by_email(client, missing).await.is_err());
+        assert!(
+            queries::get_user_by_email_opt(
+                client,
+                queries::GetUserByEmailParams {
+                    email: Some("missing@example.com"),
+                },
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+
+        let user = queries::get_user_by_email(
+            client,
+            queries::GetUserByEmailParams {
+                email: Some("alice@example.com"),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(user.id, 1);
+        assert_eq!(
+            queries::get_user_by_email_opt(
+                client,
+                queries::GetUserByEmailParams {
+                    email: Some("alice@example.com"),
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+            1
+        );
+
+        assert!(
+            queries::get_user_by_email(client, Default::default())
+                .await
+                .is_err()
+        );
+        assert!(
+            queries::get_user_by_email_opt(client, Default::default())
+                .await
+                .is_err()
+        );
+    }
+
+    #[test_context(PgTokioContext)]
+    #[tokio::test]
+    async fn executes_dynamic_mutations_and_propagates_constraints(ctx: &mut PgTokioContext) {
+        let client = &ctx.client;
+        migrate(client).await;
+
+        queries::update_user_email(
+            client,
+            queries::UpdateUserEmailParams {
+                new_email: "alice-renamed@example.com",
+                id: 1,
+                email: Some("alice@example.com"),
+            },
+        )
+        .await
+        .unwrap();
+        queries::update_user_email(
+            client,
+            queries::UpdateUserEmailParams {
+                new_email: "bob-renamed@example.com",
+                id: 2,
+                email: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            queries::update_user_email(
+                client,
+                queries::UpdateUserEmailParams {
+                    new_email: "alice-renamed@example.com",
+                    id: 3,
+                    email: None,
+                },
+            )
+            .await
+            .is_err()
+        );
+    }
 }
 
 #[cfg(test)]

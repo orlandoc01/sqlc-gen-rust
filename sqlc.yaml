@@ -77,6 +77,16 @@ sql:
         options:
           output: queries.rs
           db_crate: postgres
+  - schema: examples/authors/postgres/schema.sql
+    queries: examples/authors/postgres/locals.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/postgres/src
+        options:
+          output: locals.rs
+          db_crate: postgres
+          query_parameter_limit: 3
   - schema: examples/authors/deadpool-postgres/schema.sql
     queries: examples/authors/deadpool-postgres/queries.sql
     engine: postgresql
