@@ -1,1 +1,10 @@
 /target
+# Scratch config written and removed by `just generate`
+/_sqlc_dev.yaml
+# Local environment overrides; `.dev.env` holds only devcontainer fixtures
+.env
+.env.local
+.dev.env.local
+# Local agent state
+.claude/settings.local.json
+.claude/worktrees/

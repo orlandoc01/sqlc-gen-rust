@@ -418,6 +418,25 @@ sql:
 
 Generated code destination. Default is `queries.rs`.
 
+## Compatibility
+
+The plugin is pre-1.0. Generated code and configuration options may change between minor
+versions; release notes call out breaking changes.
+
+| Component | Tested with |
+| --- | --- |
+| Plugin build toolchain | Rust 1.89.0 with the `wasm32-wasip1` target (`rust-toolchain.toml`), protoc 29.3 |
+| sqlc | 1.31.1 |
+| sqlx | 0.8 |
+| rusqlite | 0.32 |
+| postgres | 0.19 |
+| tokio-postgres | 0.7 |
+| deadpool-postgres | 0.14 |
+
+The pinned toolchain is only needed to build the plugin itself. Projects that consume the
+generated Rust need a compiler with `std::sync::LazyLock` (Rust 1.80 or newer) and one of the
+backend crate versions above; the example crates use edition 2024.
+
 ## Credits
 
 The core plugin and type mapping come from
@@ -432,6 +451,14 @@ Licensed under either of
 
 at your option.
 
+Generated output is your own code. When a query uses `-- :if`, the plugin inlines its `dynfilter`
+runtime from `src/db_crates/dynfilter_runtime.rs` into the generated file; that copied code stays
+under the same MIT OR Apache-2.0 terms, and either license permits shipping it inside a project
+under a different license as long as that license's notice requirements are met.
+
 ## Contribution
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development setup and pull-request checklist, and
+[SECURITY.md](./SECURITY.md) for reporting vulnerabilities.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

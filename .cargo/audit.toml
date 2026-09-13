@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 (rsa, Marvin timing side channel) is reached only
+    # through sqlx-mysql in the example workspace, never the plugin wasm, and
+    # no fixed rsa release exists. Drop this entry once sqlx-mysql depends on
+    # a patched rsa.
+    "RUSTSEC-2023-0071",
+]
