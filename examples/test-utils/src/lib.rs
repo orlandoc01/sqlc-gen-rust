@@ -1,3 +1,5 @@
+use std::str::FromStr as _;
+
 use test_context::{AsyncTestContext, TestContext};
 
 fn generate_tmp_db() -> String {
@@ -102,6 +104,35 @@ impl AsyncTestContext for PgTokioContext {
         drop(client);
         connection_task.await.unwrap().unwrap();
         database.teardown().await;
+    }
+}
+
+pub struct PgDeadpoolContext {
+    database: PgDatabase,
+    pub pool: deadpool_postgres::Pool,
+}
+
+impl AsyncTestContext for PgDeadpoolContext {
+    async fn setup() -> Self {
+        let database = PgDatabase::setup().await;
+        let config = tokio_postgres::Config::from_str(database.test_url().as_str()).unwrap();
+        let manager = deadpool_postgres::Manager::from_config(
+            config,
+            tokio_postgres::NoTls,
+            deadpool_postgres::ManagerConfig {
+                recycling_method: deadpool_postgres::RecyclingMethod::Fast,
+            },
+        );
+        let pool = deadpool_postgres::Pool::builder(manager)
+            .max_size(4)
+            .build()
+            .unwrap();
+        Self { database, pool }
+    }
+
+    async fn teardown(self) {
+        self.pool.close();
+        self.database.teardown().await;
     }
 }
 

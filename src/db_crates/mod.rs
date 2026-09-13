@@ -9,6 +9,7 @@ mod sqlx;
 mod sqlx_params;
 mod tokio_postgres;
 mod tokio_postgres_params;
+mod validation;
 
 #[cfg(test)]
 mod rusqlite_tests;
@@ -18,6 +19,8 @@ pub(crate) mod test_support;
 mod tokio_postgres_name_tests;
 #[cfg(test)]
 mod tokio_postgres_tests;
+#[cfg(test)]
+mod validation_tests;
 
 pub(crate) use sqlx::Sqlx;
 pub(crate) use tokio_postgres::TokioPostgres;
@@ -26,7 +29,7 @@ pub(crate) use tokio_postgres::TokioPostgres;
 pub(crate) enum DbCrate {
     Sqlx(Sqlx),
     Rusqlite,
-    TokioPostgres,
+    TokioPostgres(TokioPostgres),
 }
 
 impl Default for DbCrate {
@@ -60,12 +63,13 @@ impl<'de> serde::Deserialize<'de> for DbCrate {
 }
 
 impl DbCrate {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Sqlx(Sqlx::Postgres),
         Self::Sqlx(Sqlx::MySql),
         Self::Sqlx(Sqlx::Sqlite),
         Self::Rusqlite,
-        Self::TokioPostgres,
+        Self::TokioPostgres(TokioPostgres::Tokio),
+        Self::TokioPostgres(TokioPostgres::Deadpool),
     ];
 
     fn name(self) -> &'static str {
@@ -74,7 +78,8 @@ impl DbCrate {
             Self::Sqlx(Sqlx::MySql) => "sqlx-mysql",
             Self::Sqlx(Sqlx::Sqlite) => "sqlx-sqlite",
             Self::Rusqlite => "rusqlite",
-            Self::TokioPostgres => "tokio-postgres",
+            Self::TokioPostgres(TokioPostgres::Tokio) => "tokio-postgres",
+            Self::TokioPostgres(TokioPostgres::Deadpool) => "deadpool-postgres",
         }
     }
 
@@ -82,7 +87,7 @@ impl DbCrate {
         match self {
             Self::Sqlx(sqlx) => sqlx.db_type_map(),
             Self::Rusqlite => rusqlite::Rusqlite.db_type_map(),
-            Self::TokioPostgres => TokioPostgres.db_type_map(),
+            Self::TokioPostgres(backend) => backend.db_type_map(),
         }
     }
 
@@ -90,7 +95,7 @@ impl DbCrate {
         match self {
             Self::Sqlx(_) => proc_macro2::TokenStream::new(),
             Self::Rusqlite => rusqlite::Rusqlite.init(),
-            Self::TokioPostgres => proc_macro2::TokenStream::new(),
+            Self::TokioPostgres(_) => proc_macro2::TokenStream::new(),
         }
     }
 
@@ -98,7 +103,7 @@ impl DbCrate {
         match self {
             Self::Sqlx(sqlx) => sqlx.defined_enum(enum_type),
             Self::Rusqlite => rusqlite::Rusqlite.defined_enum(enum_type),
-            Self::TokioPostgres => TokioPostgres.defined_enum(enum_type),
+            Self::TokioPostgres(backend) => backend.defined_enum(enum_type),
         }
     }
 
@@ -119,7 +124,7 @@ impl DbCrate {
                     | Annotation::BatchMany
                     | Annotation::BatchOne
             ) | (
-                Self::Sqlx(Sqlx::Postgres) | Self::TokioPostgres,
+                Self::Sqlx(Sqlx::Postgres) | Self::TokioPostgres(_),
                 Annotation::ExecLastId
             ) | (Self::Rusqlite, Annotation::ExecResult)
         )
@@ -131,6 +136,7 @@ impl DbCrate {
         queries: &[query::Query],
         query_parameter_limit: usize,
     ) -> Result<proc_macro2::TokenStream, query::QueryError> {
+        self.validate_array_dimensions(rows, queries)?;
         match self {
             Self::Sqlx(sqlx) => {
                 params_common::generate_queries(&sqlx, rows, queries, query_parameter_limit)
@@ -141,12 +147,9 @@ impl DbCrate {
                 queries,
                 query_parameter_limit,
             ),
-            Self::TokioPostgres => params_common::generate_queries(
-                &TokioPostgres,
-                rows,
-                queries,
-                query_parameter_limit,
-            ),
+            Self::TokioPostgres(backend) => {
+                params_common::generate_queries(&backend, rows, queries, query_parameter_limit)
+            }
         }
     }
 }

@@ -29,9 +29,9 @@ pub async fn get_author(
 ) -> Result<GetAuthorRow, tokio_postgres::Error> {
     self::get_author_with(client, GET_AUTHOR, get_author_with).await
 }
-pub async fn get_author_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_author_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     get_author_with: i64,
 ) -> Result<GetAuthorRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&get_author_with];
@@ -44,9 +44,9 @@ pub async fn get_author_opt(
 ) -> Result<Option<GetAuthorRow>, tokio_postgres::Error> {
     self::get_author_opt_with(client, GET_AUTHOR, get_author_with).await
 }
-pub async fn get_author_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_author_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     get_author_with: i64,
 ) -> Result<Option<GetAuthorRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&get_author_with];
@@ -82,9 +82,9 @@ pub async fn list_authors(
 ) -> Result<Vec<ListAuthorsRow>, tokio_postgres::Error> {
     self::list_authors_with(client, LIST_AUTHORS).await
 }
-pub async fn list_authors_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn list_authors_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Vec<ListAuthorsRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     let rows = client.query(statement, values).await?;
@@ -95,9 +95,9 @@ pub async fn list_authors_stream(
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     self::list_authors_stream_with(client, LIST_AUTHORS).await
 }
-pub async fn list_authors_stream_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn list_authors_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     client.query_raw(statement, values.iter().copied()).await
@@ -123,9 +123,9 @@ pub async fn count_authors(
 ) -> Result<CountAuthorsRow, tokio_postgres::Error> {
     self::count_authors_with(client, COUNT_AUTHORS).await
 }
-pub async fn count_authors_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn count_authors_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<CountAuthorsRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     let row = client.query_one(statement, values).await?;
@@ -136,9 +136,9 @@ pub async fn count_authors_opt(
 ) -> Result<Option<CountAuthorsRow>, tokio_postgres::Error> {
     self::count_authors_opt_with(client, COUNT_AUTHORS).await
 }
-pub async fn count_authors_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn count_authors_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Option<CountAuthorsRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     client
@@ -183,9 +183,9 @@ pub async fn create_author(
 ) -> Result<CreateAuthorRow, tokio_postgres::Error> {
     self::create_author_with(client, CREATE_AUTHOR, params).await
 }
-pub async fn create_author_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_author_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateAuthorParams<'_>,
 ) -> Result<CreateAuthorRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.name, &params.bio];
@@ -198,9 +198,9 @@ pub async fn create_author_opt(
 ) -> Result<Option<CreateAuthorRow>, tokio_postgres::Error> {
     self::create_author_opt_with(client, CREATE_AUTHOR, params).await
 }
-pub async fn create_author_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_author_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateAuthorParams<'_>,
 ) -> Result<Option<CreateAuthorRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.name, &params.bio];
@@ -223,9 +223,9 @@ pub async fn delete_author(
 ) -> Result<(), tokio_postgres::Error> {
     self::delete_author_with(client, DELETE_AUTHOR, id).await
 }
-pub async fn delete_author_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn delete_author_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<(), tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -256,9 +256,9 @@ pub async fn get_keyword_ident(
 ) -> Result<GetKeywordIdentRow, tokio_postgres::Error> {
     self::get_keyword_ident_with(client, GET_KEYWORD_IDENT, r#type).await
 }
-pub async fn get_keyword_ident_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_keyword_ident_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     r#type: &str,
 ) -> Result<GetKeywordIdentRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&r#type];
@@ -271,9 +271,9 @@ pub async fn get_keyword_ident_opt(
 ) -> Result<Option<GetKeywordIdentRow>, tokio_postgres::Error> {
     self::get_keyword_ident_opt_with(client, GET_KEYWORD_IDENT, r#type).await
 }
-pub async fn get_keyword_ident_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_keyword_ident_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     r#type: &str,
 ) -> Result<Option<GetKeywordIdentRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&r#type];
@@ -310,9 +310,9 @@ pub async fn get_authors_by_name(
 ) -> Result<GetAuthorsByNameRow, tokio_postgres::Error> {
     self::get_authors_by_name_with(client, GET_AUTHORS_BY_NAME, name).await
 }
-pub async fn get_authors_by_name_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_authors_by_name_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     name: &str,
 ) -> Result<GetAuthorsByNameRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&name];
@@ -325,9 +325,9 @@ pub async fn get_authors_by_name_opt(
 ) -> Result<Option<GetAuthorsByNameRow>, tokio_postgres::Error> {
     self::get_authors_by_name_opt_with(client, GET_AUTHORS_BY_NAME, name).await
 }
-pub async fn get_authors_by_name_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_authors_by_name_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     name: &str,
 ) -> Result<Option<GetAuthorsByNameRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&name];
@@ -354,9 +354,9 @@ pub async fn create_author_with_id(
 ) -> Result<u64, tokio_postgres::Error> {
     self::create_author_with_id_with(client, CREATE_AUTHOR_WITH_ID, params).await
 }
-pub async fn create_author_with_id_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_author_with_id_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateAuthorWithIdParams<'_>,
 ) -> Result<u64, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.id, &params.name];
@@ -375,9 +375,9 @@ pub async fn touch_authors(
 ) -> Result<u64, tokio_postgres::Error> {
     self::touch_authors_with(client, TOUCH_AUTHORS, id).await
 }
-pub async fn touch_authors_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn touch_authors_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<u64, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -402,11 +402,9 @@ pub async fn rename_authors_returning_id(
 ) -> Result<u64, tokio_postgres::Error> {
     self::rename_authors_returning_id_with(client, RENAME_AUTHORS_RETURNING_ID, params).await
 }
-pub async fn rename_authors_returning_id_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn rename_authors_returning_id_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: RenameAuthorsReturningIdParams<'_>,
 ) -> Result<u64, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.name, &params.id];
@@ -426,11 +424,9 @@ pub async fn delete_author_returning_id(
 ) -> Result<(), tokio_postgres::Error> {
     self::delete_author_returning_id_with(client, DELETE_AUTHOR_RETURNING_ID, id).await
 }
-pub async fn delete_author_returning_id_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn delete_author_returning_id_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<(), tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -456,9 +452,9 @@ pub async fn insert_timestamps(
 ) -> Result<(), tokio_postgres::Error> {
     self::insert_timestamps_with(client, INSERT_TIMESTAMPS, params).await
 }
-pub async fn insert_timestamps_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn insert_timestamps_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: InsertTimestampsParams,
 ) -> Result<(), tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -497,9 +493,9 @@ pub async fn get_timestamps(
 ) -> Result<GetTimestampsRow, tokio_postgres::Error> {
     self::get_timestamps_with(client, GET_TIMESTAMPS, id).await
 }
-pub async fn get_timestamps_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_timestamps_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<GetTimestampsRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -512,9 +508,9 @@ pub async fn get_timestamps_opt(
 ) -> Result<Option<GetTimestampsRow>, tokio_postgres::Error> {
     self::get_timestamps_opt_with(client, GET_TIMESTAMPS, id).await
 }
-pub async fn get_timestamps_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_timestamps_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<Option<GetTimestampsRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];

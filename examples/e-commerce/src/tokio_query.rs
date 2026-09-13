@@ -62,9 +62,9 @@ pub async fn create_user(
 ) -> Result<CreateUserRow, tokio_postgres::Error> {
     self::create_user_with(client, CREATE_USER, params).await
 }
-pub async fn create_user_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_user_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateUserParams<'_>,
 ) -> Result<CreateUserRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -82,9 +82,9 @@ pub async fn create_user_opt(
 ) -> Result<Option<CreateUserRow>, tokio_postgres::Error> {
     self::create_user_opt_with(client, CREATE_USER, params).await
 }
-pub async fn create_user_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_user_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateUserParams<'_>,
 ) -> Result<Option<CreateUserRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -134,9 +134,9 @@ pub async fn get_user_by_email(
 ) -> Result<GetUserByEmailRow, tokio_postgres::Error> {
     self::get_user_by_email_with(client, GET_USER_BY_EMAIL, email).await
 }
-pub async fn get_user_by_email_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_user_by_email_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     email: &str,
 ) -> Result<GetUserByEmailRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&email];
@@ -149,9 +149,9 @@ pub async fn get_user_by_email_opt(
 ) -> Result<Option<GetUserByEmailRow>, tokio_postgres::Error> {
     self::get_user_by_email_opt_with(client, GET_USER_BY_EMAIL, email).await
 }
-pub async fn get_user_by_email_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_user_by_email_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     email: &str,
 ) -> Result<Option<GetUserByEmailRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&email];
@@ -199,9 +199,9 @@ pub async fn list_users(
 ) -> Result<Vec<ListUsersRow>, tokio_postgres::Error> {
     self::list_users_with(client, LIST_USERS, params).await
 }
-pub async fn list_users_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn list_users_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: ListUsersParams,
 ) -> Result<Vec<ListUsersRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.offset, &params.limit];
@@ -214,9 +214,9 @@ pub async fn list_users_stream(
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     self::list_users_stream_with(client, LIST_USERS, params).await
 }
-pub async fn list_users_stream_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn list_users_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: ListUsersParams,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.offset, &params.limit];
@@ -274,9 +274,9 @@ pub async fn create_product(
 ) -> Result<CreateProductRow, tokio_postgres::Error> {
     self::create_product_with(client, CREATE_PRODUCT, params).await
 }
-pub async fn create_product_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_product_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateProductParams<'_>,
 ) -> Result<CreateProductRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -296,9 +296,9 @@ pub async fn create_product_opt(
 ) -> Result<Option<CreateProductRow>, tokio_postgres::Error> {
     self::create_product_opt_with(client, CREATE_PRODUCT, params).await
 }
-pub async fn create_product_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_product_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateProductParams<'_>,
 ) -> Result<Option<CreateProductRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -368,11 +368,9 @@ pub async fn get_product_with_category(
 ) -> Result<GetProductWithCategoryRow, tokio_postgres::Error> {
     self::get_product_with_category_with(client, GET_PRODUCT_WITH_CATEGORY, id).await
 }
-pub async fn get_product_with_category_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_product_with_category_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: uuid::Uuid,
 ) -> Result<GetProductWithCategoryRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -385,11 +383,9 @@ pub async fn get_product_with_category_opt(
 ) -> Result<Option<GetProductWithCategoryRow>, tokio_postgres::Error> {
     self::get_product_with_category_opt_with(client, GET_PRODUCT_WITH_CATEGORY, id).await
 }
-pub async fn get_product_with_category_opt_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_product_with_category_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: uuid::Uuid,
 ) -> Result<Option<GetProductWithCategoryRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -465,9 +461,9 @@ pub async fn search_products(
 ) -> Result<Vec<SearchProductsRow>, tokio_postgres::Error> {
     self::search_products_with(client, SEARCH_PRODUCTS, params).await
 }
-pub async fn search_products_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn search_products_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: SearchProductsParams<'_>,
 ) -> Result<Vec<SearchProductsRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -487,9 +483,9 @@ pub async fn search_products_stream(
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     self::search_products_stream_with(client, SEARCH_PRODUCTS, params).await
 }
-pub async fn search_products_stream_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn search_products_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: SearchProductsParams<'_>,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -546,11 +542,9 @@ pub async fn get_products_with_specific_attribute(
     )
     .await
 }
-pub async fn get_products_with_specific_attribute_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_products_with_specific_attribute_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     column_1: serde_json::Value,
 ) -> Result<Vec<GetProductsWithSpecificAttributeRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&column_1];
@@ -570,11 +564,9 @@ pub async fn get_products_with_specific_attribute_stream(
     )
     .await
 }
-pub async fn get_products_with_specific_attribute_stream_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_products_with_specific_attribute_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     column_1: serde_json::Value,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&column_1];
@@ -599,9 +591,9 @@ pub async fn update_product_stock(
 ) -> Result<(), tokio_postgres::Error> {
     self::update_product_stock_with(client, UPDATE_PRODUCT_STOCK, params).await
 }
-pub async fn update_product_stock_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn update_product_stock_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: UpdateProductStockParams,
 ) -> Result<(), tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&params.id, &params.add_quantity];
@@ -645,9 +637,9 @@ pub async fn create_order(
 ) -> Result<CreateOrderRow, tokio_postgres::Error> {
     self::create_order_with(client, CREATE_ORDER, params).await
 }
-pub async fn create_order_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_order_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateOrderParams,
 ) -> Result<CreateOrderRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
@@ -661,9 +653,9 @@ pub async fn create_order_opt(
 ) -> Result<Option<CreateOrderRow>, tokio_postgres::Error> {
     self::create_order_opt_with(client, CREATE_ORDER, params).await
 }
-pub async fn create_order_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_order_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateOrderParams,
 ) -> Result<Option<CreateOrderRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
@@ -713,9 +705,9 @@ pub async fn create_order_item(
 ) -> Result<CreateOrderItemRow, tokio_postgres::Error> {
     self::create_order_item_with(client, CREATE_ORDER_ITEM, params).await
 }
-pub async fn create_order_item_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_order_item_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateOrderItemParams,
 ) -> Result<CreateOrderItemRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -733,9 +725,9 @@ pub async fn create_order_item_opt(
 ) -> Result<Option<CreateOrderItemRow>, tokio_postgres::Error> {
     self::create_order_item_opt_with(client, CREATE_ORDER_ITEM, params).await
 }
-pub async fn create_order_item_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_order_item_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateOrderItemParams,
 ) -> Result<Option<CreateOrderItemRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -794,9 +786,9 @@ pub async fn get_order_details(
 ) -> Result<GetOrderDetailsRow, tokio_postgres::Error> {
     self::get_order_details_with(client, GET_ORDER_DETAILS, id).await
 }
-pub async fn get_order_details_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_order_details_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<GetOrderDetailsRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -809,9 +801,9 @@ pub async fn get_order_details_opt(
 ) -> Result<Option<GetOrderDetailsRow>, tokio_postgres::Error> {
     self::get_order_details_opt_with(client, GET_ORDER_DETAILS, id).await
 }
-pub async fn get_order_details_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn get_order_details_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: i64,
 ) -> Result<Option<GetOrderDetailsRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];
@@ -856,11 +848,9 @@ pub async fn list_order_items_by_order_id(
 ) -> Result<Vec<ListOrderItemsByOrderIdRow>, tokio_postgres::Error> {
     self::list_order_items_by_order_id_with(client, LIST_ORDER_ITEMS_BY_ORDER_ID, order_id).await
 }
-pub async fn list_order_items_by_order_id_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn list_order_items_by_order_id_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     order_id: i64,
 ) -> Result<Vec<ListOrderItemsByOrderIdRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&order_id];
@@ -876,11 +866,9 @@ pub async fn list_order_items_by_order_id_stream(
     self::list_order_items_by_order_id_stream_with(client, LIST_ORDER_ITEMS_BY_ORDER_ID, order_id)
         .await
 }
-pub async fn list_order_items_by_order_id_stream_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn list_order_items_by_order_id_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     order_id: i64,
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&order_id];
@@ -927,9 +915,9 @@ pub async fn create_review(
 ) -> Result<CreateReviewRow, tokio_postgres::Error> {
     self::create_review_with(client, CREATE_REVIEW, params).await
 }
-pub async fn create_review_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_review_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateReviewParams<'_>,
 ) -> Result<CreateReviewRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -947,9 +935,9 @@ pub async fn create_review_opt(
 ) -> Result<Option<CreateReviewRow>, tokio_postgres::Error> {
     self::create_review_opt_with(client, CREATE_REVIEW, params).await
 }
-pub async fn create_review_opt_with<S: ?Sized + tokio_postgres::ToStatement + Sync + Send>(
+pub async fn create_review_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: CreateReviewParams<'_>,
 ) -> Result<Option<CreateReviewRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
@@ -996,11 +984,9 @@ pub async fn get_product_average_rating(
 ) -> Result<GetProductAverageRatingRow, tokio_postgres::Error> {
     self::get_product_average_rating_with(client, GET_PRODUCT_AVERAGE_RATING, product_id).await
 }
-pub async fn get_product_average_rating_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_product_average_rating_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     product_id: uuid::Uuid,
 ) -> Result<GetProductAverageRatingRow, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&product_id];
@@ -1013,11 +999,9 @@ pub async fn get_product_average_rating_opt(
 ) -> Result<Option<GetProductAverageRatingRow>, tokio_postgres::Error> {
     self::get_product_average_rating_opt_with(client, GET_PRODUCT_AVERAGE_RATING, product_id).await
 }
-pub async fn get_product_average_rating_opt_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_product_average_rating_opt_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     product_id: uuid::Uuid,
 ) -> Result<Option<GetProductAverageRatingRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&product_id];
@@ -1065,11 +1049,9 @@ pub async fn get_category_sales_ranking(
 ) -> Result<Vec<GetCategorySalesRankingRow>, tokio_postgres::Error> {
     self::get_category_sales_ranking_with(client, GET_CATEGORY_SALES_RANKING).await
 }
-pub async fn get_category_sales_ranking_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_category_sales_ranking_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<Vec<GetCategorySalesRankingRow>, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     let rows = client.query(statement, values).await?;
@@ -1082,11 +1064,9 @@ pub async fn get_category_sales_ranking_stream(
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     self::get_category_sales_ranking_stream_with(client, GET_CATEGORY_SALES_RANKING).await
 }
-pub async fn get_category_sales_ranking_stream_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn get_category_sales_ranking_stream_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
 ) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
     client.query_raw(statement, values.iter().copied()).await
@@ -1103,11 +1083,9 @@ pub async fn delete_user_and_related_data(
 ) -> Result<(), tokio_postgres::Error> {
     self::delete_user_and_related_data_with(client, DELETE_USER_AND_RELATED_DATA, id).await
 }
-pub async fn delete_user_and_related_data_with<
-    S: ?Sized + tokio_postgres::ToStatement + Sync + Send,
->(
+pub async fn delete_user_and_related_data_with(
     client: &impl tokio_postgres::GenericClient,
-    statement: &S,
+    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
     id: uuid::Uuid,
 ) -> Result<(), tokio_postgres::Error> {
     let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&id];

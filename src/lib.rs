@@ -529,14 +529,11 @@ mod tests {
 
     #[test]
     fn rejects_removed_db_crates_and_legacy_api() {
-        for db_crate in ["postgres", "deadpool-postgres"] {
-            let error = Config::from_option(format!(r#"{{"db_crate":"{db_crate}"}}"#).as_bytes())
-                .unwrap_err();
-            assert!(
-                error.to_string().contains("is not supported yet"),
-                "{error}"
-            );
-        }
+        let error = Config::from_option(br#"{"db_crate":"postgres"}"#).unwrap_err();
+        assert!(
+            error.to_string().contains("is not supported yet"),
+            "{error}"
+        );
 
         let config = Config::from_option(br#"{"api":"builder"}"#).unwrap();
         assert_eq!(
@@ -565,7 +562,13 @@ mod tests {
             Config::from_option(br#"{"db_crate":"tokio-postgres"}"#)
                 .unwrap()
                 .db_crate,
-            db_crates::DbCrate::TokioPostgres
+            db_crates::DbCrate::TokioPostgres(db_crates::TokioPostgres::Tokio)
+        ));
+        assert!(matches!(
+            Config::from_option(br#"{"db_crate":"deadpool-postgres"}"#)
+                .unwrap()
+                .db_crate,
+            db_crates::DbCrate::TokioPostgres(db_crates::TokioPostgres::Deadpool)
         ));
     }
 
@@ -611,6 +614,15 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "params_struct does not support :execlastid with tokio-postgres (DeleteAuthors)."
+        );
+
+        let config = Config::from_option(br#"{"db_crate":"deadpool-postgres"}"#).unwrap();
+        assert_eq!(
+            config
+                .validate(std::slice::from_ref(&query))
+                .unwrap_err()
+                .to_string(),
+            "params_struct does not support :execlastid with deadpool-postgres (DeleteAuthors)."
         );
     }
 }

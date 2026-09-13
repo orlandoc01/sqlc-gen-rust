@@ -73,7 +73,9 @@ pub struct GetMappingRow {
     pub composite_val: crate::Complex,
 }
 impl GetMappingRow {
-    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+    pub fn from_row(
+        row: &deadpool_postgres::tokio_postgres::Row,
+    ) -> Result<Self, deadpool_postgres::tokio_postgres::Error> {
         Ok(Self {
             bool_val: row.try_get(0)?,
             bool_array_val: row.try_get(1)?,
@@ -103,33 +105,34 @@ impl GetMappingRow {
     }
 }
 pub async fn prepare_get_mapping(
-    client: &impl tokio_postgres::GenericClient,
-) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
-    client.prepare(GET_MAPPING).await
+    client: &impl deadpool_postgres::GenericClient,
+) -> Result<deadpool_postgres::tokio_postgres::Statement, deadpool_postgres::tokio_postgres::Error>
+{
+    client.prepare_cached(GET_MAPPING).await
 }
 pub async fn get_mapping(
-    client: &impl tokio_postgres::GenericClient,
-) -> Result<GetMappingRow, tokio_postgres::Error> {
+    client: &impl deadpool_postgres::GenericClient,
+) -> Result<GetMappingRow, deadpool_postgres::tokio_postgres::Error> {
     self::get_mapping_with(client, GET_MAPPING).await
 }
 pub async fn get_mapping_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
-) -> Result<GetMappingRow, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
+) -> Result<GetMappingRow, deadpool_postgres::tokio_postgres::Error> {
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
     let row = client.query_one(statement, values).await?;
     GetMappingRow::from_row(&row)
 }
 pub async fn get_mapping_opt(
-    client: &impl tokio_postgres::GenericClient,
-) -> Result<Option<GetMappingRow>, tokio_postgres::Error> {
+    client: &impl deadpool_postgres::GenericClient,
+) -> Result<Option<GetMappingRow>, deadpool_postgres::tokio_postgres::Error> {
     self::get_mapping_opt_with(client, GET_MAPPING).await
 }
 pub async fn get_mapping_opt_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
-) -> Result<Option<GetMappingRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[];
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
+) -> Result<Option<GetMappingRow>, deadpool_postgres::tokio_postgres::Error> {
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[];
     client
         .query_opt(statement, values)
         .await?
@@ -193,22 +196,23 @@ pub struct InsertMappingParams<'a> {
     pub composite_val: crate::Complex,
 }
 pub async fn prepare_insert_mapping(
-    client: &impl tokio_postgres::GenericClient,
-) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
-    client.prepare(INSERT_MAPPING).await
+    client: &impl deadpool_postgres::GenericClient,
+) -> Result<deadpool_postgres::tokio_postgres::Statement, deadpool_postgres::tokio_postgres::Error>
+{
+    client.prepare_cached(INSERT_MAPPING).await
 }
 pub async fn insert_mapping(
-    client: &impl tokio_postgres::GenericClient,
+    client: &impl deadpool_postgres::GenericClient,
     params: InsertMappingParams<'_>,
-) -> Result<(), tokio_postgres::Error> {
+) -> Result<(), deadpool_postgres::tokio_postgres::Error> {
     self::insert_mapping_with(client, INSERT_MAPPING, params).await
 }
 pub async fn insert_mapping_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: InsertMappingParams<'_>,
-) -> Result<(), tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[
+) -> Result<(), deadpool_postgres::tokio_postgres::Error> {
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[
         &params.bool_val,
         &params.bool_array_val,
         &params.char_val,
@@ -244,7 +248,9 @@ pub struct GetByStateRow {
     pub state: S,
 }
 impl GetByStateRow {
-    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+    pub fn from_row(
+        row: &deadpool_postgres::tokio_postgres::Row,
+    ) -> Result<Self, deadpool_postgres::tokio_postgres::Error> {
         Ok(Self {
             id: row.try_get(0)?,
             state: row.try_get(1)?,
@@ -252,37 +258,40 @@ impl GetByStateRow {
     }
 }
 pub async fn prepare_get_by_state(
-    client: &impl tokio_postgres::GenericClient,
-) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
-    client.prepare(GET_BY_STATE).await
+    client: &impl deadpool_postgres::GenericClient,
+) -> Result<deadpool_postgres::tokio_postgres::Statement, deadpool_postgres::tokio_postgres::Error>
+{
+    client.prepare_cached(GET_BY_STATE).await
 }
 pub async fn get_by_state(
-    client: &impl tokio_postgres::GenericClient,
+    client: &impl deadpool_postgres::GenericClient,
     state: S,
-) -> Result<Vec<GetByStateRow>, tokio_postgres::Error> {
+) -> Result<Vec<GetByStateRow>, deadpool_postgres::tokio_postgres::Error> {
     self::get_by_state_with(client, GET_BY_STATE, state).await
 }
 pub async fn get_by_state_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     state: S,
-) -> Result<Vec<GetByStateRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+) -> Result<Vec<GetByStateRow>, deadpool_postgres::tokio_postgres::Error> {
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&state];
     let rows = client.query(statement, values).await?;
     rows.iter().map(GetByStateRow::from_row).collect()
 }
 pub async fn get_by_state_stream(
-    client: &impl tokio_postgres::GenericClient,
+    client: &impl deadpool_postgres::GenericClient,
     state: S,
-) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
+) -> Result<deadpool_postgres::tokio_postgres::RowStream, deadpool_postgres::tokio_postgres::Error>
+{
     self::get_by_state_stream_with(client, GET_BY_STATE, state).await
 }
 pub async fn get_by_state_stream_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     state: S,
-) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+) -> Result<deadpool_postgres::tokio_postgres::RowStream, deadpool_postgres::tokio_postgres::Error>
+{
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&state];
     client.query_raw(statement, values.iter().copied()).await
 }
 pub const GET_ONE_BY_STATE: &str = r"SELECT id, state FROM state_mappings
@@ -293,7 +302,9 @@ pub struct GetOneByStateRow {
     pub state: S,
 }
 impl GetOneByStateRow {
-    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+    pub fn from_row(
+        row: &deadpool_postgres::tokio_postgres::Row,
+    ) -> Result<Self, deadpool_postgres::tokio_postgres::Error> {
         Ok(Self {
             id: row.try_get(0)?,
             state: row.try_get(1)?,
@@ -301,37 +312,38 @@ impl GetOneByStateRow {
     }
 }
 pub async fn prepare_get_one_by_state(
-    client: &impl tokio_postgres::GenericClient,
-) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
-    client.prepare(GET_ONE_BY_STATE).await
+    client: &impl deadpool_postgres::GenericClient,
+) -> Result<deadpool_postgres::tokio_postgres::Statement, deadpool_postgres::tokio_postgres::Error>
+{
+    client.prepare_cached(GET_ONE_BY_STATE).await
 }
 pub async fn get_one_by_state(
-    client: &impl tokio_postgres::GenericClient,
+    client: &impl deadpool_postgres::GenericClient,
     state: S,
-) -> Result<GetOneByStateRow, tokio_postgres::Error> {
+) -> Result<GetOneByStateRow, deadpool_postgres::tokio_postgres::Error> {
     self::get_one_by_state_with(client, GET_ONE_BY_STATE, state).await
 }
 pub async fn get_one_by_state_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     state: S,
-) -> Result<GetOneByStateRow, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+) -> Result<GetOneByStateRow, deadpool_postgres::tokio_postgres::Error> {
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&state];
     let row = client.query_one(statement, values).await?;
     GetOneByStateRow::from_row(&row)
 }
 pub async fn get_one_by_state_opt(
-    client: &impl tokio_postgres::GenericClient,
+    client: &impl deadpool_postgres::GenericClient,
     state: S,
-) -> Result<Option<GetOneByStateRow>, tokio_postgres::Error> {
+) -> Result<Option<GetOneByStateRow>, deadpool_postgres::tokio_postgres::Error> {
     self::get_one_by_state_opt_with(client, GET_ONE_BY_STATE, state).await
 }
 pub async fn get_one_by_state_opt_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     state: S,
-) -> Result<Option<GetOneByStateRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&state];
+) -> Result<Option<GetOneByStateRow>, deadpool_postgres::tokio_postgres::Error> {
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] = &[&state];
     client
         .query_opt(statement, values)
         .await?
@@ -352,7 +364,9 @@ pub struct GetByStateWithMinimumIdRow {
     pub state: S,
 }
 impl GetByStateWithMinimumIdRow {
-    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, tokio_postgres::Error> {
+    pub fn from_row(
+        row: &deadpool_postgres::tokio_postgres::Row,
+    ) -> Result<Self, deadpool_postgres::tokio_postgres::Error> {
         Ok(Self {
             id: row.try_get(0)?,
             state: row.try_get(1)?,
@@ -360,22 +374,23 @@ impl GetByStateWithMinimumIdRow {
     }
 }
 pub async fn prepare_get_by_state_with_minimum_id(
-    client: &impl tokio_postgres::GenericClient,
-) -> Result<tokio_postgres::Statement, tokio_postgres::Error> {
-    client.prepare(GET_BY_STATE_WITH_MINIMUM_ID).await
+    client: &impl deadpool_postgres::GenericClient,
+) -> Result<deadpool_postgres::tokio_postgres::Statement, deadpool_postgres::tokio_postgres::Error>
+{
+    client.prepare_cached(GET_BY_STATE_WITH_MINIMUM_ID).await
 }
 pub async fn get_by_state_with_minimum_id(
-    client: &impl tokio_postgres::GenericClient,
+    client: &impl deadpool_postgres::GenericClient,
     params: GetByStateWithMinimumIdParams,
-) -> Result<Vec<GetByStateWithMinimumIdRow>, tokio_postgres::Error> {
+) -> Result<Vec<GetByStateWithMinimumIdRow>, deadpool_postgres::tokio_postgres::Error> {
     self::get_by_state_with_minimum_id_with(client, GET_BY_STATE_WITH_MINIMUM_ID, params).await
 }
 pub async fn get_by_state_with_minimum_id_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: GetByStateWithMinimumIdParams,
-) -> Result<Vec<GetByStateWithMinimumIdRow>, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
+) -> Result<Vec<GetByStateWithMinimumIdRow>, deadpool_postgres::tokio_postgres::Error> {
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] =
         &[&params.state, &params.minimum_id];
     let rows = client.query(statement, values).await?;
     rows.iter()
@@ -383,18 +398,20 @@ pub async fn get_by_state_with_minimum_id_with(
         .collect()
 }
 pub async fn get_by_state_with_minimum_id_stream(
-    client: &impl tokio_postgres::GenericClient,
+    client: &impl deadpool_postgres::GenericClient,
     params: GetByStateWithMinimumIdParams,
-) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
+) -> Result<deadpool_postgres::tokio_postgres::RowStream, deadpool_postgres::tokio_postgres::Error>
+{
     self::get_by_state_with_minimum_id_stream_with(client, GET_BY_STATE_WITH_MINIMUM_ID, params)
         .await
 }
 pub async fn get_by_state_with_minimum_id_stream_with(
-    client: &impl tokio_postgres::GenericClient,
-    statement: &(impl tokio_postgres::ToStatement + ?Sized + Sync + Send),
+    client: &impl deadpool_postgres::GenericClient,
+    statement: &(impl deadpool_postgres::tokio_postgres::ToStatement + ?Sized + Sync + Send),
     params: GetByStateWithMinimumIdParams,
-) -> Result<tokio_postgres::RowStream, tokio_postgres::Error> {
-    let values: &[&(dyn tokio_postgres::types::ToSql + Sync)] =
+) -> Result<deadpool_postgres::tokio_postgres::RowStream, deadpool_postgres::tokio_postgres::Error>
+{
+    let values: &[&(dyn deadpool_postgres::tokio_postgres::types::ToSql + Sync)] =
         &[&params.state, &params.minimum_id];
     client.query_raw(statement, values.iter().copied()).await
 }

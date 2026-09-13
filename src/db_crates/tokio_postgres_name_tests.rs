@@ -26,9 +26,9 @@ fn parsed_queries(
 }
 
 fn collision_error(first: plugin::Query, second: plugin::Query) -> String {
-    let type_map = TokioPostgres.db_type_map();
+    let type_map = TokioPostgres::Tokio.db_type_map();
     let (rows, queries) = parsed_queries(&type_map, vec![first, second]);
-    params_common::generate_queries(&TokioPostgres, &rows, &queries, 1)
+    params_common::generate_queries(&TokioPostgres::Tokio, &rows, &queries, 1)
         .unwrap_err()
         .to_string()
 }

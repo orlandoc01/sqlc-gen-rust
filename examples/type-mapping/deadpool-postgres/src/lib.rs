@@ -19,22 +19,22 @@ mod tests {
     use chrono::TimeZone;
     use futures_util::TryStreamExt as _;
     use test_context::test_context;
-    use test_utils::PgTokioContext;
+    use test_utils::PgDeadpoolContext;
 
     use super::*;
 
-    async fn migrate_db(client: &tokio_postgres::Client) {
+    async fn migrate_db(client: &deadpool_postgres::Client) {
         client
             .batch_execute(include_str!("../schema.sql"))
             .await
             .unwrap();
     }
 
-    #[test_context(PgTokioContext)]
+    #[test_context(PgDeadpoolContext)]
     #[tokio::test]
-    async fn maps_types(ctx: &mut PgTokioContext) {
-        let client = &ctx.client;
-        migrate_db(client).await;
+    async fn maps_types(ctx: &mut PgDeadpoolContext) {
+        let client = ctx.pool.get().await.unwrap();
+        migrate_db(&client).await;
 
         let bool_array_val = [true, false];
         let bytea_val = [1, 2, 3, 4, 5];
@@ -44,9 +44,9 @@ mod tests {
         let timestamptz_val = chrono::Utc.with_ymd_and_hms(2025, 1, 23, 4, 5, 6).unwrap();
         let date_val = chrono::NaiveDate::from_ymd_opt(2025, 1, 23).unwrap();
         let time_val = chrono::NaiveTime::from_hms_opt(1, 23, 45).unwrap();
-        let statement = queries::prepare_insert_mapping(client).await.unwrap();
+        let statement = queries::prepare_insert_mapping(&client).await.unwrap();
         queries::insert_mapping_with(
-            client,
+            &client,
             &statement,
             queries::InsertMappingParams {
                 bool_val: true,
@@ -78,7 +78,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mapping = queries::get_mapping(client).await.unwrap();
+        let mapping = queries::get_mapping(&client).await.unwrap();
 
         assert!(mapping.bool_val);
         assert_eq!(mapping.bool_array_val, bool_array_val);
@@ -129,7 +129,7 @@ mod tests {
         client.execute("DELETE FROM mapping", &[]).await.unwrap();
         let empty_bool_array = [];
         queries::insert_mapping(
-            client,
+            &client,
             queries::InsertMappingParams {
                 bool_val: false,
                 bool_array_val: &empty_bool_array,
@@ -159,7 +159,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let mapping = queries::get_mapping(client).await.unwrap();
+        let mapping = queries::get_mapping(&client).await.unwrap();
         assert!(!mapping.bool_val);
         assert_eq!(mapping.bool_array_val, empty_bool_array);
         assert_eq!(mapping.int_nullable_val, None);
@@ -170,11 +170,11 @@ mod tests {
         );
     }
 
-    #[test_context(PgTokioContext)]
+    #[test_context(PgDeadpoolContext)]
     #[tokio::test]
-    async fn enum_named_s_works_with_statement_helpers(ctx: &mut PgTokioContext) {
-        let client = &ctx.client;
-        migrate_db(client).await;
+    async fn enum_named_s_works_with_statement_helpers(ctx: &mut PgDeadpoolContext) {
+        let client = ctx.pool.get().await.unwrap();
+        migrate_db(&client).await;
         client
             .execute(
                 "INSERT INTO state_mappings (id, state) VALUES (1, $1), (2, $2)",
@@ -184,7 +184,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            queries::get_by_state_with(client, queries::GET_BY_STATE, queries::S::A)
+            queries::get_by_state_with(&client, queries::GET_BY_STATE, queries::S::A)
                 .await
                 .unwrap()
                 .iter()
@@ -192,9 +192,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1]
         );
-        let statement = queries::prepare_get_by_state(client).await.unwrap();
+        let statement = queries::prepare_get_by_state(&client).await.unwrap();
         assert_eq!(
-            queries::get_by_state_with(client, &statement, queries::S::B)
+            queries::get_by_state_with(&client, &statement, queries::S::B)
                 .await
                 .unwrap()
                 .iter()
@@ -203,7 +203,7 @@ mod tests {
             [2]
         );
         let stream =
-            queries::get_by_state_stream_with(client, queries::GET_BY_STATE, queries::S::A)
+            queries::get_by_state_stream_with(&client, queries::GET_BY_STATE, queries::S::A)
                 .await
                 .unwrap();
         futures_util::pin_mut!(stream);
@@ -218,14 +218,14 @@ mod tests {
             [1]
         );
         assert!(
-            queries::get_one_by_state_opt_with(client, queries::GET_ONE_BY_STATE, queries::S::B,)
+            queries::get_one_by_state_opt_with(&client, queries::GET_ONE_BY_STATE, queries::S::B,)
                 .await
                 .unwrap()
                 .is_some()
         );
         assert_eq!(
             queries::get_by_state_with_minimum_id(
-                client,
+                &client,
                 queries::GetByStateWithMinimumIdParams {
                     state: queries::S::A,
                     minimum_id: 1,

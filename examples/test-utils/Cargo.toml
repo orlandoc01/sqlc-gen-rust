@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 sqlx = { workspace = true }
 rusqlite = { workspace = true }
+deadpool-postgres = { workspace = true }
 tokio-postgres = { workspace = true }
 tokio = { workspace = true }
 fastrand = "2.4.1"
