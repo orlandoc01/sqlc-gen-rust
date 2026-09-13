@@ -1,0 +1,64 @@
+[package]
+name = "sqlc-gen-rust"
+version = "0.1.0"
+edition = "2024"
+authors = ["Orlando Castillo"]
+repository = "https://github.com/orlandoc01/sqlc-gen-rust"
+license = "MIT OR Apache-2.0"
+
+[workspace]
+members = [
+    "examples/authors/*",
+    "examples/dynamic-filter/*",
+    "examples/embed/*",
+    "examples/e-commerce",
+    "examples/sqlc-slice/*",
+    "examples/type-mapping/*",
+    "examples/test-utils",
+]
+
+[profile.release]
+lto = true
+
+[dependencies]
+prost = { version = "0.14" }
+
+prettyplease = { version = "0.3" }
+proc-macro2 = { version = "1.0" }
+quote = { version = "1.0" }
+syn = { version = "3" }
+
+convert_case = { version = "0.12" }
+regex-lite = "0.1.6"
+
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { workspace = true }
+
+[build-dependencies]
+prost-build = "0.14"
+
+[workspace.dependencies]
+sqlx = { version = "0.8.6", features = [
+    "postgres",
+    "mysql",
+    "sqlite",
+    "runtime-tokio",
+    "uuid",
+    "chrono",
+    "ipnet",
+] }
+# Newer rusqlite releases link libsqlite3-sys versions incompatible with sqlx-sqlite 0.8.6.
+rusqlite = { version = "0.32.1", features = ["bundled", "chrono", "serde_json"] }
+deadpool-postgres = { version = "0.14" }
+postgres = { version = "0.19", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1"] }
+postgres-types = { version = "0.2", features = ["derive", "with-chrono-0_4", "with-uuid-1", "with-serde_json-1"] }
+tokio = { version = "1.52.3", features = ["full"] }
+futures-util = "0.3"
+
+chrono = { version = "0.4.44" }
+uuid = { version = "1.23" }
+serde_json = { version = "1.0" }
+
+test-context = "0.4.1"
+test-utils = { path = "./examples/test-utils" }

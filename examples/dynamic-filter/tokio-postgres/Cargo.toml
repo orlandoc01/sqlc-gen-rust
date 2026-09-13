@@ -1,0 +1,14 @@
+[package]
+name = "dynamic-filter-tokio-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde_json = { workspace = true }
+tokio-postgres = { workspace = true }
+
+[dev-dependencies]
+futures-util = { workspace = true }
+tokio = { workspace = true }
+test-context = { workspace = true }
+test-utils = { workspace = true }

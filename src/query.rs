@@ -1,0 +1,1459 @@
+use quote::ToTokens;
+
+use crate::{StackError, StackErrorResult, field_ident, plugin, value_ident};
+
+#[derive(Debug, Clone)]
+pub enum QueryError {
+    MissingColumnType {
+        column_name: String,
+        location: &'static std::panic::Location<'static>,
+    },
+    MissingParamColumn {
+        param_number: i32,
+        location: &'static std::panic::Location<'static>,
+    },
+    CannotMapType {
+        message: String,
+        location: &'static std::panic::Location<'static>,
+    },
+    MissingEmbeddedTable {
+        table_name: String,
+        location: &'static std::panic::Location<'static>,
+    },
+    ConflictingEmbeddedTable {
+        first_table_name: String,
+        second_table_name: String,
+        struct_ident: String,
+        location: &'static std::panic::Location<'static>,
+    },
+    ConflictingGeneratedFunction(Box<GeneratedFunctionConflict>),
+    UnsupportedArrayDimensions {
+        query_name: String,
+        column_name: String,
+        location: &'static std::panic::Location<'static>,
+    },
+    UnknownAnnotation {
+        annotation: String,
+        location: &'static std::panic::Location<'static>,
+    },
+    Stacked {
+        source: Box<Self>,
+        location: &'static std::panic::Location<'static>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct GeneratedFunctionConflict {
+    first_query_name: String,
+    first_helper: &'static str,
+    second_query_name: String,
+    second_helper: &'static str,
+    function_ident: String,
+    location: &'static std::panic::Location<'static>,
+}
+
+impl QueryError {
+    #[track_caller]
+    pub(crate) fn missing_column_type(column_name: String) -> Self {
+        Self::MissingColumnType {
+            column_name,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn missing_param_column(param_number: i32) -> Self {
+        Self::MissingParamColumn {
+            param_number,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn cannot_map_type(col_name: String, typ_name: String) -> Self {
+        Self::CannotMapType {
+            message: format!(
+                "Cannot map type `{col_name}` of table `{typ_name}` to a Rust type. Consider add entry to overrides."
+            ),
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn missing_embedded_table(table: &plugin::Identifier) -> Self {
+        let table_name = if table.schema.is_empty() {
+            table.name.clone()
+        } else {
+            format!("{}.{}", table.schema, table.name)
+        };
+
+        Self::MissingEmbeddedTable {
+            table_name,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn conflicting_embedded_table(
+        first_table_name: String,
+        second_table_name: String,
+        struct_ident: String,
+    ) -> Self {
+        Self::ConflictingEmbeddedTable {
+            first_table_name,
+            second_table_name,
+            struct_ident,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn conflicting_generated_function(
+        first_query_name: String,
+        first_helper: &'static str,
+        second_query_name: String,
+        second_helper: &'static str,
+        function_ident: String,
+    ) -> Self {
+        Self::ConflictingGeneratedFunction(Box::new(GeneratedFunctionConflict {
+            first_query_name,
+            first_helper,
+            second_query_name,
+            second_helper,
+            function_ident,
+            location: std::panic::Location::caller(),
+        }))
+    }
+
+    #[track_caller]
+    pub(crate) fn unsupported_array_dimensions(query_name: String, column_name: String) -> Self {
+        Self::UnsupportedArrayDimensions {
+            query_name,
+            column_name,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    #[track_caller]
+    pub(crate) fn unknown_annotation(annotation: String) -> Self {
+        Self::UnknownAnnotation {
+            annotation,
+            location: std::panic::Location::caller(),
+        }
+    }
+
+    fn location(&self) -> &'static std::panic::Location<'static> {
+        match self {
+            QueryError::MissingColumnType { location, .. } => location,
+            QueryError::MissingParamColumn { location, .. } => location,
+            QueryError::CannotMapType { location, .. } => location,
+            QueryError::MissingEmbeddedTable { location, .. } => location,
+            QueryError::ConflictingEmbeddedTable { location, .. } => location,
+            QueryError::ConflictingGeneratedFunction(conflict) => conflict.location,
+            QueryError::UnsupportedArrayDimensions { location, .. } => location,
+            QueryError::UnknownAnnotation { location, .. } => location,
+            QueryError::Stacked { location, .. } => location,
+        }
+    }
+}
+
+impl std::fmt::Display for QueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueryError::MissingColumnType { column_name, .. } => {
+                write!(f, "Column type not found for column: `{column_name}`")
+            }
+            QueryError::MissingParamColumn { param_number, .. } => {
+                write!(
+                    f,
+                    "Parameter column not found for parameter #{param_number}"
+                )
+            }
+            QueryError::UnknownAnnotation { annotation, .. } => {
+                write!(f, "Unknown annotation `{annotation}` found")
+            }
+            QueryError::CannotMapType { message, .. } => message.fmt(f),
+            QueryError::MissingEmbeddedTable { table_name, .. } => {
+                write!(f, "Embedded table not found in catalog: `{table_name}`")
+            }
+            QueryError::ConflictingEmbeddedTable {
+                first_table_name,
+                second_table_name,
+                struct_ident,
+                ..
+            } => write!(
+                f,
+                "Embedded tables `{first_table_name}` and `{second_table_name}` both generate Rust struct `{struct_ident}`"
+            ),
+            QueryError::ConflictingGeneratedFunction(conflict) => write!(
+                f,
+                "Queries `{}` ({}) and `{}` ({}) both generate Rust item `{}`",
+                conflict.first_query_name,
+                conflict.first_helper,
+                conflict.second_query_name,
+                conflict.second_helper,
+                conflict.function_ident,
+            ),
+            QueryError::UnsupportedArrayDimensions {
+                query_name,
+                column_name,
+                ..
+            } => write!(
+                f,
+                "PostgreSQL backend supports one-dimensional arrays only: query `{query_name}`, column `{column_name}`"
+            ),
+            QueryError::Stacked { source, .. } => source.fmt(f),
+        }
+    }
+}
+
+impl StackError for QueryError {
+    fn format_stack(&self, layer: usize, buf: &mut Vec<String>) {
+        let location = self.location();
+        match self {
+            QueryError::Stacked { .. } => {
+                buf.push(format!(
+                    "{}: at {}:{}",
+                    layer,
+                    location.file(),
+                    location.line()
+                ));
+            }
+            _ => {
+                buf.push(format!(
+                    "{}:{} , at {}:{}",
+                    layer,
+                    self,
+                    location.file(),
+                    location.line()
+                ));
+            }
+        }
+    }
+
+    fn next(&self) -> Option<&dyn StackError> {
+        match self {
+            Self::Stacked { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+impl std::error::Error for QueryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            QueryError::Stacked { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+impl<T> StackErrorResult<T, QueryError> for Result<T, QueryError> {
+    #[track_caller]
+    fn stacked(self) -> Self {
+        match self {
+            Ok(v) => Ok(v),
+            Err(err) => Err(QueryError::Stacked {
+                source: err.into(),
+                location: std::panic::Location::caller(),
+            }),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RsType {
+    owned: syn::Type,
+    slice: Option<syn::Type>,
+    copy_cheap: bool,
+}
+
+impl RsType {
+    pub(crate) fn new(owned: syn::Type, slice: Option<syn::Type>, copy_cheap: bool) -> Self {
+        RsType {
+            owned,
+            slice,
+            copy_cheap,
+        }
+    }
+
+    /// 自己所有の型を返す
+    pub(crate) fn owned(&self) -> proc_macro2::TokenStream {
+        self.owned.to_token_stream()
+    }
+
+    /// スライスの型を返す。これに`&`をつけると参照になる
+    pub(crate) fn slice(&self) -> proc_macro2::TokenStream {
+        if let Some(ref slice) = self.slice {
+            slice.to_token_stream()
+        } else {
+            self.owned()
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RsColType {
+    rs_type: RsType,
+    /// maybe dim
+    dim: usize,
+    /// col is optional
+    optional: bool,
+}
+pub(crate) fn make_column_type(db_type: &plugin::Identifier) -> String {
+    if !db_type.schema.is_empty() {
+        format!("{}.{}", db_type.schema, db_type.name)
+    } else {
+        db_type.name.to_string()
+    }
+}
+
+pub(crate) fn make_column_name(column: &plugin::Column) -> String {
+    if let Some(table) = &column.table {
+        format!(".{}.{}", table.name, column.name)
+    } else {
+        format!(".{}", column.name)
+    }
+}
+
+impl RsColType {
+    pub(crate) fn is_array(&self) -> bool {
+        self.dim != 0
+    }
+
+    pub(crate) fn array_dimensions(&self) -> usize {
+        self.dim
+    }
+
+    pub(crate) fn make_optional(&mut self) {
+        self.optional = true;
+    }
+
+    pub(crate) fn can_default(&self) -> bool {
+        if self.optional || self.need_params_struct_lifetime() {
+            return true;
+        }
+
+        matches!(
+            self.rs_type.owned.to_token_stream().to_string().as_str(),
+            "bool"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "f32"
+                | "f64"
+                | "String"
+                | "uuid :: Uuid"
+                | "serde_json :: Value"
+        )
+    }
+
+    pub(crate) fn new_with_type(
+        db_type: &DbTypeMap,
+        column: &plugin::Column,
+    ) -> Result<Self, QueryError> {
+        let rs_type = db_type.get_column_type(column).stacked()?;
+        let dim = if column.is_sqlc_slice {
+            1
+        } else {
+            usize::try_from(column.array_dims).unwrap_or_default()
+        };
+
+        // sqlc.slice parameters are never optional.
+        // https://docs.sqlc.dev/en/latest/howto/select.html#mysql-and-sqlite
+        let optional = !column.is_sqlc_slice && !column.not_null;
+
+        Ok(Self {
+            rs_type,
+            dim,
+            optional,
+        })
+    }
+
+    /// Convert to tokens for row struct
+    pub(crate) fn to_row_tokens(&self) -> proc_macro2::TokenStream {
+        let base_type = self.rs_type.owned();
+
+        // 配列の次元数に応じてVecでラップ
+        let mut wrapped_type = base_type;
+        for _ in 0..self.dim {
+            wrapped_type = quote::quote! { Vec<#wrapped_type> };
+        }
+
+        // optionalの場合はOptionでラップ
+        if self.optional {
+            quote::quote! { Option<#wrapped_type> }
+        } else {
+            wrapped_type
+        }
+    }
+
+    pub(crate) fn need_params_struct_lifetime(&self) -> bool {
+        self.dim != 0 || self.rs_type.slice.is_some()
+    }
+
+    pub(crate) fn copy_cheap(&self) -> bool {
+        self.rs_type.copy_cheap
+    }
+
+    pub(crate) fn to_params_struct_tokens(
+        &self,
+        lifetime: Option<&syn::Lifetime>,
+    ) -> proc_macro2::TokenStream {
+        let wrapped_type = match self.dim {
+            0 if self.rs_type.slice.is_some() => self.rs_type.slice(),
+            0 => self.rs_type.owned(),
+            _ => {
+                let mut base_type = self.rs_type.owned();
+                for _ in 1..self.dim {
+                    base_type = quote::quote! {Vec<#base_type>};
+                }
+                quote::quote! {[#base_type]}
+            }
+        };
+
+        match (self.need_params_struct_lifetime(), self.optional, lifetime) {
+            (true, true, Some(lifetime)) => quote::quote! {Option<&#lifetime #wrapped_type>},
+            (true, false, Some(lifetime)) => quote::quote! {&#lifetime #wrapped_type},
+            (true, true, None) => quote::quote! {Option<&#wrapped_type>},
+            (true, false, None) => quote::quote! {&#wrapped_type},
+            (false, true, _) => quote::quote! {Option<#wrapped_type>},
+            (false, false, _) => wrapped_type,
+        }
+    }
+}
+
+pub trait TypeMapper {
+    fn find_rs_type(&self, db_type_name: &str) -> Option<&RsType>;
+    fn find_column_type(&self, column: &plugin::Column) -> Option<RsType> {
+        let col_type = column.r#type.as_ref().map(make_column_type)?;
+        self.find_rs_type(&col_type).cloned()
+    }
+    fn insert_db_type(&mut self, db_type: &str, rs_type: RsType);
+}
+
+#[derive(Default)]
+pub(crate) struct SimpleTypeMap {
+    /// db_type to rust type
+    map: std::collections::BTreeMap<String, RsType>,
+}
+
+impl TypeMapper for SimpleTypeMap {
+    fn find_rs_type(&self, db_type_name: &str) -> Option<&RsType> {
+        self.map.get(db_type_name)
+    }
+
+    fn insert_db_type(&mut self, db_type: &str, rs_type: RsType) {
+        self.map.insert(db_type.to_string(), rs_type);
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct ColumnTypeMap {
+    /// column name to rust type
+    column_map: crate::path_map::PathMap<RsType>,
+}
+
+impl ColumnTypeMap {
+    pub(crate) fn insert(&mut self, column_name: &str, rs_type: RsType) {
+        self.column_map.insert(column_name.to_string(), rs_type);
+    }
+
+    pub(crate) fn find_type(&self, column_name: &str) -> Option<&RsType> {
+        self.column_map.find_best_match(column_name)
+    }
+}
+
+pub(crate) struct DbTypeMap {
+    type_map: Box<dyn TypeMapper>,
+    column_map: ColumnTypeMap,
+}
+
+impl DbTypeMap {
+    pub(crate) fn from_dyn(type_map: Box<dyn TypeMapper>) -> Self {
+        Self {
+            type_map,
+            column_map: Default::default(),
+        }
+    }
+}
+
+impl DbTypeMap {
+    pub(crate) fn get_column_type(&self, column: &plugin::Column) -> Result<RsType, QueryError> {
+        let db_col_name = make_column_name(column);
+        if let Some(rs_type) = self.column_map.find_type(&db_col_name) {
+            return Ok(rs_type.clone());
+        };
+
+        let db_col_type = column
+            .r#type
+            .as_ref()
+            .map(make_column_type)
+            .ok_or_else(|| QueryError::missing_column_type(db_col_name.clone()))?
+            .to_lowercase();
+
+        self.type_map
+            .find_column_type(column)
+            .ok_or_else(|| QueryError::cannot_map_type(db_col_type, db_col_name))
+    }
+
+    pub(crate) fn insert_db_type(&mut self, db_type: &str, rs_type: RsType) {
+        self.type_map.insert_db_type(db_type, rs_type);
+    }
+
+    pub(crate) fn insert_column_type(&mut self, column_name: &str, rs_type: RsType) {
+        self.column_map.insert(column_name, rs_type);
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct DbEnum {
+    /// name of enum
+    ///
+    /// ```sql
+    /// CREATE TYPE book_type AS ENUM (
+    ///             ^^^^^^^^^
+    ///           'FICTION',
+    ///           'NONFICTION'
+    /// );
+    /// ```
+    pub(crate) name: String,
+
+    /// values of enum
+    ///
+    /// ```sql
+    /// CREATE TYPE book_type AS ENUM (
+    ///           'FICTION',
+    ///            ^^^^^^^
+    ///           'NONFICTION'
+    ///            ^^^^^^^^^^
+    /// );
+    /// ```
+    pub(crate) values: Vec<String>,
+
+    /// additional derives for enum
+    pub(crate) derives: Vec<syn::Path>,
+}
+
+impl DbEnum {
+    pub(crate) fn ident(&self) -> syn::Ident {
+        value_ident(&self.name)
+    }
+}
+
+pub(crate) fn collect_enums(catalog: &plugin::Catalog) -> Vec<DbEnum> {
+    let mut res = vec![];
+
+    for schema in &catalog.schemas {
+        for s_enum in &schema.enums {
+            let db_enum = DbEnum {
+                name: s_enum.name.clone(),
+                values: s_enum.vals.clone(),
+                derives: Vec::new(),
+            };
+            res.push(db_enum);
+        }
+    }
+
+    res
+}
+
+#[derive(Clone)]
+pub(crate) struct ColumnField {
+    /// normalized field name
+    pub(crate) name: syn::Ident,
+    /// original field name
+    pub(crate) name_original: syn::LitStr,
+    pub(crate) typ: ColumnFieldType,
+    pub(crate) attribute: Option<proc_macro2::TokenStream>,
+}
+
+#[derive(Clone)]
+pub(crate) enum ColumnFieldType {
+    Scalar(Box<RsColType>),
+    Embed(EmbeddedTable),
+}
+
+impl ColumnFieldType {
+    fn to_row_tokens(&self) -> proc_macro2::TokenStream {
+        match self {
+            Self::Scalar(typ) => typ.to_row_tokens(),
+            Self::Embed(table) => {
+                let ident = &table.ident;
+                quote::quote! {#ident}
+            }
+        }
+    }
+
+    fn width(&self) -> usize {
+        match self {
+            Self::Scalar(_) => 1,
+            Self::Embed(table) => table.fields.len(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct EmbeddedTable {
+    pub(crate) qualified_name: String,
+    pub(crate) ident: syn::Ident,
+    pub(crate) fields: Vec<ColumnField>,
+    pub(crate) attributes: Option<proc_macro2::TokenStream>,
+}
+
+impl EmbeddedTable {
+    fn from_catalog(
+        db_type: &DbTypeMap,
+        attribute_map: &ReturnRowAttributes,
+        table: &plugin::Table,
+        identifier: &plugin::Identifier,
+    ) -> Result<Self, QueryError> {
+        let columns = table
+            .columns
+            .iter()
+            .cloned()
+            .map(|mut column| {
+                column.table = Some(identifier.clone());
+                column
+            })
+            .collect::<Vec<_>>();
+        let field_names = generate_column_names(&columns)
+            .into_iter()
+            .map(|name| field_ident(&name));
+        let attributes = columns
+            .iter()
+            .zip(field_names.clone())
+            .map(|(column, name)| {
+                attribute_map
+                    .column_attributes
+                    .find_best_match(&format!(".{}.{}", identifier.name, name))
+                    .or_else(|| {
+                        attribute_map
+                            .column_attributes
+                            .find_best_match(&make_column_name(column))
+                    })
+                    .cloned()
+            });
+        let fields = columns
+            .iter()
+            .zip(field_names)
+            .zip(attributes)
+            .map(|((column, name), attribute)| {
+                Ok(ColumnField {
+                    name_original: syn::LitStr::new(&column.name, proc_macro2::Span::call_site()),
+                    name,
+                    typ: ColumnFieldType::Scalar(Box::new(RsColType::new_with_type(
+                        db_type, column,
+                    )?)),
+                    attribute,
+                })
+            })
+            .collect::<Result<Vec<_>, QueryError>>()?;
+
+        Ok(Self {
+            qualified_name: if identifier.schema.is_empty() {
+                identifier.name.clone()
+            } else {
+                format!("{}.{}", identifier.schema, identifier.name)
+            },
+            ident: value_ident(&identifier.name),
+            fields,
+            attributes: attribute_map
+                .row_attributes
+                .find_best_match(&format!(".{}", identifier.name))
+                .cloned(),
+        })
+    }
+}
+
+impl ColumnField {
+    pub(crate) fn scalar_type(&self) -> &RsColType {
+        match &self.typ {
+            ColumnFieldType::Scalar(typ) => typ,
+            ColumnFieldType::Embed(_) => {
+                unreachable!("ColumnField::scalar_type parameters are never sqlc.embed columns")
+            }
+        }
+    }
+
+    fn scalar_type_mut(&mut self) -> &mut RsColType {
+        match &mut self.typ {
+            ColumnFieldType::Scalar(typ) => typ,
+            ColumnFieldType::Embed(_) => {
+                unreachable!("ColumnField::scalar_type parameters are never sqlc.embed columns")
+            }
+        }
+    }
+
+    pub(crate) fn row_type(&self) -> proc_macro2::TokenStream {
+        self.typ.to_row_tokens()
+    }
+
+    pub(crate) fn embedded_table(&self) -> Option<&EmbeddedTable> {
+        match &self.typ {
+            ColumnFieldType::Scalar(_) => None,
+            ColumnFieldType::Embed(table) => Some(table),
+        }
+    }
+
+    pub(crate) fn width(&self) -> usize {
+        self.typ.width()
+    }
+}
+
+pub(crate) fn find_embedded_table<'a>(
+    catalog: &'a plugin::Catalog,
+    identifier: &plugin::Identifier,
+) -> Result<&'a plugin::Table, QueryError> {
+    catalog
+        .schemas
+        .iter()
+        .flat_map(|schema| schema.tables.iter())
+        .find(|table| match &table.rel {
+            Some(rel) => {
+                rel.name == identifier.name
+                    && (identifier.schema.is_empty() || rel.schema == identifier.schema)
+            }
+            None => false,
+        })
+        .ok_or_else(|| QueryError::missing_embedded_table(identifier))
+}
+
+fn deserialize_path_map<'de, D>(
+    deserializer: D,
+) -> Result<crate::path_map::PathMap<proc_macro2::TokenStream>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(untagged)]
+    enum SingleOrMany {
+        Single(String),
+        Many(Vec<String>),
+    }
+
+    impl SingleOrMany {
+        fn into_token(self) -> Result<proc_macro2::TokenStream, syn::Error> {
+            let s = match self {
+                SingleOrMany::Single(v) => v,
+                SingleOrMany::Many(items) => items.join("\n"),
+            };
+
+            syn::parse_str::<proc_macro2::TokenStream>(&s)
+        }
+    }
+
+    let m = std::collections::BTreeMap::<String, SingleOrMany>::deserialize(deserializer)?;
+    let mut map = crate::path_map::PathMap::default();
+    for (k, v) in m.into_iter() {
+        let v = v.into_token().map_err(serde::de::Error::custom)?;
+        map.insert(k, v);
+    }
+    Ok(map)
+}
+
+#[derive(Default, Debug, serde::Deserialize)]
+#[serde(default)]
+pub(crate) struct ReturnRowAttributes {
+    #[serde(deserialize_with = "deserialize_path_map")]
+    row_attributes: crate::path_map::PathMap<proc_macro2::TokenStream>,
+    #[serde(deserialize_with = "deserialize_path_map")]
+    column_attributes: crate::path_map::PathMap<proc_macro2::TokenStream>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ReturningRows {
+    pub(crate) fields: Vec<ColumnField>,
+    pub(crate) query_name: String,
+    pub(crate) attributes: Option<proc_macro2::TokenStream>,
+}
+
+impl ReturningRows {
+    pub(crate) fn from_query(
+        db_type: &DbTypeMap,
+        attribute_map: &ReturnRowAttributes,
+        catalog: Option<&plugin::Catalog>,
+        query: &plugin::Query,
+    ) -> Result<Self, QueryError> {
+        let field_names = generate_column_names(&query.columns)
+            .into_iter()
+            .map(|s| field_ident(&s));
+        let original_names = query
+            .columns
+            .iter()
+            .map(|col| syn::LitStr::new(&col.name, proc_macro2::Span::call_site()));
+        let column_names = field_names.zip(original_names).collect::<Vec<_>>();
+
+        let column_attributes = query
+            .columns
+            .iter()
+            .zip(column_names.iter())
+            .map(|(col, (name, _))| {
+                let query_att = attribute_map
+                    .column_attributes
+                    .find_best_match(&format!(".{}.{}", query.name, name));
+                let table_att = attribute_map
+                    .column_attributes
+                    .find_best_match(&make_column_name(col));
+                query_att.or(table_att)
+            })
+            .collect::<Vec<_>>();
+
+        let fields = column_names
+            .into_iter()
+            .zip(column_attributes)
+            .zip(query.columns.iter())
+            .map(|(((col_name, col_name_original), col_attribute), column)| {
+                let typ = match &column.embed_table {
+                    Some(identifier) => {
+                        let catalog = catalog
+                            .ok_or_else(|| QueryError::missing_embedded_table(identifier))?;
+                        let table = find_embedded_table(catalog, identifier)?;
+                        ColumnFieldType::Embed(EmbeddedTable::from_catalog(
+                            db_type,
+                            attribute_map,
+                            table,
+                            identifier,
+                        )?)
+                    }
+                    None => ColumnFieldType::Scalar(Box::new(RsColType::new_with_type(
+                        db_type, column,
+                    )?)),
+                };
+
+                Ok(ColumnField {
+                    name: col_name,
+                    name_original: col_name_original,
+                    typ,
+                    attribute: col_attribute.cloned(),
+                })
+            })
+            .collect::<Result<Vec<_>, QueryError>>()?;
+
+        let row_attributes = attribute_map
+            .row_attributes
+            .find_best_match(&format!(".{}", query.name));
+
+        Ok(Self {
+            fields,
+            query_name: query.name.to_string(),
+            attributes: row_attributes.cloned(),
+        })
+    }
+
+    pub(crate) fn struct_ident(&self) -> syn::Ident {
+        value_ident(&format!("{}Row", self.query_name))
+    }
+
+    pub(crate) fn embedded_tables(&self) -> impl Iterator<Item = &EmbeddedTable> {
+        self.fields.iter().filter_map(ColumnField::embedded_table)
+    }
+
+    pub(crate) fn field_ordinals(&self) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
+        self.fields.iter().scan(0, |ordinal, field| {
+            let range = *ordinal..*ordinal + field.width();
+            *ordinal += field.width();
+            Some(range)
+        })
+    }
+}
+
+/// sqlc annotation
+/// See https://docs.sqlc.dev/en/stable/reference/query-annotations.html
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Annotation {
+    Exec,
+    ExecResult,
+    ExecRows,
+    ExecLastId,
+    Many,
+    One,
+    BatchExec,
+    BatchMany,
+    BatchOne,
+    CopyFrom,
+}
+
+impl std::fmt::Display for Annotation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let txt = match self {
+            Annotation::Exec => ":exec",
+            Annotation::ExecResult => ":execresult",
+            Annotation::ExecRows => ":execrows",
+            Annotation::ExecLastId => ":execlastid",
+            Annotation::Many => ":many",
+            Annotation::One => ":one",
+            Annotation::BatchExec => ":batch",
+            Annotation::BatchMany => ":batchmany",
+            Annotation::BatchOne => ":batchone",
+            Annotation::CopyFrom => ":copyfrom",
+        };
+        f.write_str(txt)
+    }
+}
+
+impl std::str::FromStr for Annotation {
+    type Err = QueryError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let annotation = match s {
+            ":exec" => Annotation::Exec,
+            ":execresult" => Annotation::ExecResult,
+            ":execrows" => Annotation::ExecRows,
+            ":execlastid" => Annotation::ExecLastId,
+            ":many" => Annotation::Many,
+            ":one" => Annotation::One,
+            ":batch" => Annotation::BatchExec,
+            ":batchmany" => Annotation::BatchMany,
+            ":batchone" => Annotation::BatchOne,
+            ":copyfrom" => Annotation::CopyFrom,
+            _ => return Err(QueryError::unknown_annotation(s.to_string())),
+        };
+        Ok(annotation)
+    }
+}
+fn make_raw_string_literal(s: &str) -> proc_macro2::TokenStream {
+    // 文字列内の"#の組み合わせを検出して、必要なハッシュ数を決定
+    let mut hash_count = 0;
+    let mut current_hashes = 0;
+    let mut in_quote = false;
+
+    for ch in s.chars() {
+        match ch {
+            '"' => {
+                if in_quote {
+                    hash_count = hash_count.max(current_hashes + 1);
+                }
+                in_quote = !in_quote;
+                current_hashes = 0;
+            }
+            '#' if in_quote => {
+                current_hashes += 1;
+            }
+            _ => {
+                current_hashes = 0;
+            }
+        }
+    }
+
+    // raw string literalを構築
+    let hashes = "#".repeat(hash_count);
+    let raw_str = format!("r{hashes}\"{s}\"{hashes}");
+
+    raw_str
+        .parse::<proc_macro2::TokenStream>()
+        .unwrap_or_else(|_| proc_macro2::Literal::string(s).to_token_stream())
+}
+
+pub(crate) struct Query {
+    pub(crate) fields: Vec<ColumnField>,
+
+    pub(crate) annotation: Annotation,
+    /// ```sql
+    /// -- name: GetAuthor :one
+    ///          ^^^^^^^^^
+    /// SELECT * FROM authors
+    /// WHERE id = $1 LIMIT 1;
+    /// ```
+    pub(crate) query_name: String,
+    /// ```sql
+    /// -- name: GetAuthor :one
+    /// SELECT * FROM authors
+    /// ^^^^^^^^^^^^^^^^^^^^^
+    /// WHERE id = $1 LIMIT 1;
+    /// ^^^^^^^^^^^^^^^^^^^^^^
+    /// ```
+    query_str: String,
+    param_numbers: Vec<usize>,
+    sqlc_slice_param_numbers: std::collections::BTreeSet<usize>,
+    dynfilter: Option<crate::dynfilter::DynFilterInfo>,
+}
+
+impl Query {
+    pub(crate) fn from_query(
+        db_type: &DbTypeMap,
+        query: &plugin::Query,
+    ) -> Result<Self, QueryError> {
+        let columns = query
+            .params
+            .iter()
+            .map(|p| {
+                p.column
+                    .as_ref()
+                    .ok_or_else(|| QueryError::missing_param_column(p.number))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let field_names = generate_column_names(columns.iter().copied())
+            .into_iter()
+            .map(|s| field_ident(&s));
+        let original_names = columns
+            .iter()
+            .map(|col| syn::LitStr::new(&col.name, proc_macro2::Span::call_site()));
+        let param_names = field_names.zip(original_names);
+
+        let param_types = columns
+            .iter()
+            .map(|col| RsColType::new_with_type(db_type, col))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let fields = param_names
+            .zip(param_types)
+            .map(|((par_name, par_name_original), par_type)| ColumnField {
+                name: par_name,
+                name_original: par_name_original,
+                typ: ColumnFieldType::Scalar(Box::new(par_type)),
+                attribute: None,
+            })
+            .collect::<Vec<_>>();
+
+        let annotation = query.cmd.parse::<Annotation>().stacked()?;
+        let query_name = query.name.to_string();
+
+        let query_str = query.text.clone();
+        let param_numbers = query
+            .params
+            .iter()
+            .map(|param| usize::try_from(param.number).unwrap_or_default())
+            .collect();
+        let sqlc_slice_param_numbers = query
+            .params
+            .iter()
+            .filter_map(|param| {
+                param
+                    .column
+                    .as_ref()
+                    .filter(|column| column.is_sqlc_slice)
+                    .map(|_| usize::try_from(param.number).unwrap_or_default())
+            })
+            .collect();
+
+        Ok(Self {
+            fields,
+            annotation,
+            query_name,
+            query_str,
+            param_numbers,
+            sqlc_slice_param_numbers,
+            dynfilter: None,
+        })
+    }
+
+    pub(crate) fn apply_dynfilter(&mut self) {
+        let params = self.params();
+        let Some(info) = crate::dynfilter::parse(&self.query_str, &params) else {
+            return;
+        };
+        for (field, number) in self.fields.iter_mut().zip(&self.param_numbers) {
+            if info.conditional_param_numbers.contains(number) {
+                field.scalar_type_mut().make_optional();
+            }
+        }
+        self.query_str = info.annotated_sql.clone();
+        self.dynfilter = Some(info);
+    }
+
+    pub(crate) fn apply_static_slices(&mut self) {
+        let params = self.params();
+        let Some(info) = crate::dynfilter::parse_static_slices(&self.query_str, &params) else {
+            return;
+        };
+        self.query_str = info.annotated_sql.clone();
+        self.dynfilter = Some(info);
+    }
+
+    pub(crate) fn dynfilter(&self) -> Option<&crate::dynfilter::DynFilterInfo> {
+        self.dynfilter.as_ref()
+    }
+
+    pub(crate) fn param_number(&self, field_index: usize) -> usize {
+        self.param_numbers[field_index]
+    }
+
+    pub(crate) fn is_sqlc_slice(&self, field_index: usize) -> bool {
+        self.sqlc_slice_param_numbers
+            .contains(&self.param_number(field_index))
+    }
+
+    fn params(&self) -> Vec<(String, usize)> {
+        self.fields
+            .iter()
+            .zip(&self.param_numbers)
+            .map(|(field, number)| (field.name_original.value(), *number))
+            .collect()
+    }
+
+    pub(crate) fn query_str(&self) -> proc_macro2::TokenStream {
+        make_raw_string_literal(&self.query_str)
+    }
+}
+
+/// 次の命名規則で、カラム名を生成する
+///
+/// 1. テーブル名とカラム名が両方とも空の時: column_1, column_2...
+/// 2. 同じカラム名が存在しないとき: column_name
+/// 3. 同じカラム名が存在し、テーブル名が異なる時: table_column
+/// 4. テーブル名もカラム名も同一の時: table_column_1, table_column_2
+fn generate_column_names<'a, I>(columns: I) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a plugin::Column>,
+{
+    // Step 1: カラム情報を収集
+    let column_info: Vec<_> = columns
+        .into_iter()
+        .map(|column| {
+            let table_name = column.table.as_ref().map(|t| t.name.as_str()).unwrap_or("");
+            let column_name = column.name.as_str();
+            (table_name, column_name)
+        })
+        .collect();
+
+    // Step 2: 空でないカラム名の出現回数をカウント
+    let mut column_name_counts = std::collections::HashMap::new();
+    for &(_, column_name) in &column_info {
+        if !column_name.is_empty() {
+            *column_name_counts.entry(column_name).or_insert(0) += 1;
+        }
+    }
+
+    // Step 3: 各カラムの基本名を決定
+    let mut base_names = Vec::new();
+    for (i, &(table_name, column_name)) in column_info.iter().enumerate() {
+        let base_name = match (table_name.is_empty(), column_name.is_empty()) {
+            (true, true) => {
+                // Rule 1: テーブル名とカラム名が両方とも空
+                format!("column_{}", i + 1)
+            }
+            (_, true) => {
+                // カラム名が空の場合（テーブル名の有無は関係なし）
+                format!("column_{}", i + 1)
+            }
+            (_, false) => {
+                // カラム名が存在する場合
+                let count = column_name_counts.get(column_name).unwrap_or(&0);
+                if *count == 1 {
+                    // Rule 2: 同じカラム名が存在しない
+                    column_name.to_string()
+                } else {
+                    // Rule 3: 同じカラム名が存在する
+                    if table_name.is_empty() {
+                        column_name.to_string()
+                    } else {
+                        format!("{table_name}_{column_name}")
+                    }
+                }
+            }
+        };
+        base_names.push(base_name);
+    }
+
+    // Step 4: 最終的な名前の重複を解決（Rule 4）
+    // まず重複する基本名を特定
+    let mut base_name_counts = std::collections::HashMap::new();
+    for base_name in &base_names {
+        *base_name_counts.entry(base_name.clone()).or_insert(0) += 1;
+    }
+
+    let mut final_names = Vec::new();
+    let mut name_occurrence_counts = std::collections::HashMap::new();
+
+    for base_name in base_names {
+        let total_count = base_name_counts.get(&base_name).unwrap_or(&1);
+        let occurrence_count = name_occurrence_counts.entry(base_name.clone()).or_insert(0);
+        *occurrence_count += 1;
+
+        let final_name = if *total_count == 1 {
+            // 重複がない場合はそのまま
+            base_name
+        } else {
+            // 重複がある場合は最初から連番を付ける
+            format!("{base_name}_{occurrence_count}")
+        };
+        final_names.push(final_name);
+    }
+
+    final_names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db_crates::test_support::{column, identifier};
+
+    fn create_test_column(table_name: Option<&str>, column_name: &str) -> plugin::Column {
+        plugin::Column {
+            name: column_name.to_string(),
+            table: table_name.map(|name| plugin::Identifier {
+                name: name.to_string(),
+                schema: String::new(),
+                catalog: String::new(),
+            }),
+            not_null: false,
+            is_array: false,
+            comment: String::new(),
+            length: 0,
+            is_named_param: false,
+            is_func_call: false,
+            scope: String::new(),
+            table_alias: String::new(),
+            r#type: None,
+            is_sqlc_slice: false,
+            embed_table: None,
+            original_name: String::new(),
+            unsigned: false,
+            array_dims: 0,
+        }
+    }
+
+    fn test_catalog() -> plugin::Catalog {
+        plugin::Catalog {
+            comment: String::new(),
+            default_schema: String::new(),
+            name: String::new(),
+            schemas: vec![plugin::Schema {
+                comment: String::new(),
+                name: String::new(),
+                tables: vec![
+                    plugin::Table {
+                        rel: Some(identifier("authors")),
+                        columns: vec![column("id", false), column("name", false)],
+                        comment: String::new(),
+                    },
+                    plugin::Table {
+                        rel: Some(identifier("books")),
+                        columns: vec![
+                            column("id", false),
+                            column("author_id", false),
+                            column("title", false),
+                        ],
+                        comment: String::new(),
+                    },
+                ],
+                enums: Vec::new(),
+                composite_types: Vec::new(),
+            }],
+        }
+    }
+
+    fn test_type_map() -> DbTypeMap {
+        let mut type_map = SimpleTypeMap::default();
+        type_map.insert_db_type(
+            "integer",
+            RsType::new(syn::parse_str("i64").unwrap(), None, true),
+        );
+        DbTypeMap::from_dyn(Box::new(type_map))
+    }
+
+    #[test]
+    fn test_empty_columns() {
+        let columns = vec![create_test_column(None, ""), create_test_column(None, "")];
+
+        let names = generate_column_names(&columns);
+        assert_eq!(names, vec!["column_1", "column_2"]);
+    }
+
+    #[test]
+    fn test_unique_column_names() {
+        let columns = vec![
+            create_test_column(None, "id"),
+            create_test_column(None, "name"),
+        ];
+
+        let names = generate_column_names(&columns);
+        assert_eq!(names, vec!["id", "name"]);
+    }
+
+    #[test]
+    fn test_duplicate_column_names_different_tables() {
+        let columns = vec![
+            create_test_column(Some("users"), "id"),
+            create_test_column(Some("posts"), "id"),
+        ];
+
+        let names = generate_column_names(&columns);
+        assert_eq!(names, vec!["users_id", "posts_id"]);
+    }
+
+    #[test]
+    fn test_duplicate_table_and_column() {
+        let columns = vec![
+            create_test_column(Some("users"), "id"),
+            create_test_column(Some("users"), "id"),
+        ];
+
+        let names = generate_column_names(&columns);
+        assert_eq!(names, vec!["users_id_1", "users_id_2"]);
+    }
+
+    #[test]
+    fn test_mixed_scenarios() {
+        let columns = vec![
+            create_test_column(None, ""),            // column_1
+            create_test_column(None, "name"),        // name (unique)
+            create_test_column(Some("users"), "id"), // users_id_1 (重複するので連番)
+            create_test_column(Some("posts"), "id"), // posts_id (重複しないのでそのまま)
+            create_test_column(None, "id"),          // id (重複しないのでそのまま)
+            create_test_column(Some("users"), "id"), // users_id_2 (重複するので連番)
+        ];
+
+        let names = generate_column_names(&columns);
+        assert_eq!(
+            names,
+            vec![
+                "column_1",
+                "name",
+                "users_id_1",
+                "posts_id",
+                "id",
+                "users_id_2"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_complex_scenario_with_multiple_duplicates() {
+        let columns = vec![
+            create_test_column(Some("users"), "name"), // users_name_1
+            create_test_column(Some("posts"), "name"), // posts_name
+            create_test_column(Some("users"), "name"), // users_name_2
+            create_test_column(None, "name"),          // name_1
+            create_test_column(None, "name"),          // name_2
+        ];
+
+        let names = generate_column_names(&columns);
+        assert_eq!(
+            names,
+            vec![
+                "users_name_1",
+                "posts_name",
+                "users_name_2",
+                "name_1",
+                "name_2"
+            ]
+        );
+    }
+
+    #[test]
+    fn finds_embedded_table_in_catalog() {
+        let catalog = test_catalog();
+
+        let table = find_embedded_table(&catalog, &identifier("authors")).unwrap();
+        assert_eq!(table.rel.as_ref().unwrap().name, "authors");
+
+        let error = find_embedded_table(&catalog, &identifier("missing")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Embedded table not found in catalog: `missing`"
+        );
+    }
+
+    #[test]
+    fn assigns_embed_ordinals_in_flattened_order() {
+        let catalog = test_catalog();
+        let mut authors = create_test_column(None, "authors");
+        authors.embed_table = Some(identifier("authors"));
+        let mut books = create_test_column(None, "books");
+        books.embed_table = Some(identifier("books"));
+        let query = plugin::Query {
+            text: String::new(),
+            name: "Embedded".to_string(),
+            cmd: ":one".to_string(),
+            columns: vec![
+                column("before", false),
+                authors,
+                column("after", false),
+                books,
+            ],
+            params: Vec::new(),
+            comments: Vec::new(),
+            filename: String::new(),
+            insert_into_table: None,
+        };
+
+        let row = ReturningRows::from_query(
+            &test_type_map(),
+            &ReturnRowAttributes::default(),
+            Some(&catalog),
+            &query,
+        )
+        .unwrap();
+
+        assert_eq!(
+            row.field_ordinals().collect::<Vec<_>>(),
+            vec![0..1, 1..3, 3..4, 4..7]
+        );
+    }
+
+    #[test]
+    fn params_struct_types_borrow_only_slices() {
+        let lifetime = syn::Lifetime::new("'a", proc_macro2::Span::call_site());
+        let string = RsColType {
+            rs_type: RsType::new(
+                syn::parse_str("String").unwrap(),
+                Some(syn::parse_str("str").unwrap()),
+                false,
+            ),
+            dim: 0,
+            optional: false,
+        };
+        let integer = RsColType {
+            rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            dim: 0,
+            optional: false,
+        };
+        let override_type = RsColType {
+            rs_type: RsType::new(
+                syn::parse_str("chrono::DateTime<chrono::Utc>").unwrap(),
+                None,
+                false,
+            ),
+            dim: 0,
+            optional: false,
+        };
+        let slice = RsColType {
+            rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            dim: 1,
+            optional: false,
+        };
+        let nullable = RsColType {
+            rs_type: RsType::new(syn::parse_str("i64").unwrap(), None, true),
+            dim: 0,
+            optional: true,
+        };
+
+        assert_eq!(
+            string.to_params_struct_tokens(Some(&lifetime)).to_string(),
+            "& 'a str"
+        );
+        assert_eq!(
+            integer.to_params_struct_tokens(Some(&lifetime)).to_string(),
+            "i64"
+        );
+        assert_eq!(
+            override_type
+                .to_params_struct_tokens(Some(&lifetime))
+                .to_string(),
+            "chrono :: DateTime < chrono :: Utc >"
+        );
+        assert_eq!(
+            slice.to_params_struct_tokens(Some(&lifetime)).to_string(),
+            "& 'a [i64]"
+        );
+        assert_eq!(
+            nullable
+                .to_params_struct_tokens(Some(&lifetime))
+                .to_string(),
+            "Option < i64 >"
+        );
+    }
+}

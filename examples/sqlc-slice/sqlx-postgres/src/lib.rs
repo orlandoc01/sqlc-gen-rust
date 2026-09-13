@@ -1,0 +1,150 @@
+#[allow(dead_code)]
+mod queries;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_context::test_context;
+    use test_utils::SqlxPgContext;
+
+    async fn migrate_db(pool: &sqlx::PgPool) {
+        sqlx::raw_sql(include_str!("../schema.sql"))
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn seed_authors(pool: &sqlx::PgPool) {
+        sqlx::query("INSERT INTO authors (id, name) VALUES ($1, $2), ($3, $4), ($5, $6)")
+            .bind(1i64)
+            .bind("Alice")
+            .bind(2i64)
+            .bind("Bob")
+            .bind(3i64)
+            .bind("Charlie")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[test_context(SqlxPgContext)]
+    #[tokio::test]
+    async fn lists_authors_by_ids(ctx: &mut SqlxPgContext) {
+        let pool = &ctx.pool;
+        migrate_db(pool).await;
+        seed_authors(pool).await;
+
+        let authors = queries::list_authors_by_ids(pool, &[]).await.unwrap();
+        assert_eq!(authors.len(), 0);
+
+        let ids = [2i64];
+        let authors = queries::list_authors_by_ids(pool, &ids).await.unwrap();
+        assert_eq!(authors.len(), 1);
+        assert_eq!(authors[0].id, 2);
+
+        let ids = [1i64, 3i64];
+        let authors = queries::list_authors_by_ids(pool, &ids).await.unwrap();
+        assert_eq!(authors.len(), 2);
+        assert_eq!(authors[0].id, 1);
+        assert_eq!(authors[1].id, 3);
+    }
+
+    #[test_context(SqlxPgContext)]
+    #[tokio::test]
+    async fn lists_authors_by_two_id_lists(ctx: &mut SqlxPgContext) {
+        let pool = &ctx.pool;
+        migrate_db(pool).await;
+        seed_authors(pool).await;
+
+        let authors = queries::list_authors_by_two_id_lists(
+            pool,
+            queries::ListAuthorsByTwoIdListsParams {
+                ids: &[],
+                backup_ids: &[],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(authors.len(), 0);
+
+        let ids = [1i64];
+        let authors = queries::list_authors_by_two_id_lists(
+            pool,
+            queries::ListAuthorsByTwoIdListsParams {
+                ids: &ids,
+                backup_ids: &[],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(authors.len(), 1);
+        assert_eq!(authors[0].id, 1);
+
+        let ids = [1i64, 2i64];
+        let backup_ids = [3i64];
+        let authors = queries::list_authors_by_two_id_lists(
+            pool,
+            queries::ListAuthorsByTwoIdListsParams {
+                ids: &ids,
+                backup_ids: &backup_ids,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(authors.len(), 3);
+    }
+
+    #[test_context(SqlxPgContext)]
+    #[tokio::test]
+    async fn lists_authors_by_ids_mixed(ctx: &mut SqlxPgContext) {
+        let pool = &ctx.pool;
+        migrate_db(pool).await;
+        seed_authors(pool).await;
+
+        let authors = queries::list_authors_by_ids_mixed(
+            pool,
+            queries::ListAuthorsByIDsMixedParams {
+                ids: &[],
+                min_id: 1,
+                skip_ids: &[],
+                excluded_name: "X",
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(authors.len(), 0);
+
+        let ids = [1i64];
+        let skip_ids = [2i64];
+        let authors = queries::list_authors_by_ids_mixed(
+            pool,
+            queries::ListAuthorsByIDsMixedParams {
+                ids: &ids,
+                min_id: 1,
+                skip_ids: &skip_ids,
+                excluded_name: "X",
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(authors.len(), 1);
+        assert_eq!(authors[0].id, 1);
+
+        let ids = [1i64, 2i64, 3i64];
+        let skip_ids = [2i64];
+        let authors = queries::list_authors_by_ids_mixed(
+            pool,
+            queries::ListAuthorsByIDsMixedParams {
+                ids: &ids,
+                min_id: 1,
+                skip_ids: &skip_ids,
+                excluded_name: "Alice",
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(authors.len(), 1);
+        assert_eq!(authors[0].id, 3);
+        assert_eq!(authors[0].name, "Charlie");
+    }
+}

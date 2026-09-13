@@ -1,0 +1,377 @@
+version: "2"
+plugins:
+  - name: sqlc-gen-rust
+    wasm:
+      url: file://target/wasm32-wasip1/debug/sqlc-gen-rust.wasm
+      sha256: $WASM_SHA256
+
+sql:
+  - schema: examples/e-commerce/schema.sql
+    queries: examples/e-commerce/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/e-commerce/src
+        options:
+          output: sqlx_query.rs
+          db_crate: sqlx-postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - column: .users.created_at
+              rs_type: chrono::DateTime<chrono::Local>
+      - plugin: sqlc-gen-rust
+        out: examples/e-commerce/src
+        options:
+          output: tokio_query.rs
+          db_crate: tokio-postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - column: .users.created_at
+              rs_type: chrono::DateTime<chrono::Local>
+      - plugin: sqlc-gen-rust
+        out: examples/e-commerce/src
+        options:
+          output: postgres_query.rs
+          db_crate: postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - column: .users.created_at
+              rs_type: chrono::DateTime<chrono::Local>
+
+  - schema: examples/authors/sqlx-postgres/schema.sql
+    queries: examples/authors/sqlx-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/sqlx-postgres/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-postgres
+  - schema: examples/authors/sqlx-mysql/schema.sql
+    queries: examples/authors/sqlx-mysql/queries.sql
+    engine: mysql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/sqlx-mysql/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-mysql
+  - schema: examples/authors/tokio-postgres/schema.sql
+    queries: examples/authors/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
+  - schema: examples/authors/postgres/schema.sql
+    queries: examples/authors/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
+  - schema: examples/authors/postgres/schema.sql
+    queries: examples/authors/postgres/locals.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/postgres/src
+        options:
+          output: locals.rs
+          db_crate: postgres
+          query_parameter_limit: 3
+  - schema: examples/authors/deadpool-postgres/schema.sql
+    queries: examples/authors/deadpool-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/deadpool-postgres/src
+        options:
+          output: queries.rs
+          db_crate: deadpool-postgres
+  - schema: examples/authors/sqlx-sqlite/schema.sql
+    queries: examples/authors/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/sqlx-sqlite/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+
+  - schema: examples/authors/sqlx-sqlite/schema.sql
+    queries: examples/authors/rusqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/authors/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+
+  - schema: examples/embed/sqlx-sqlite/schema.sql
+    queries: examples/embed/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/embed/sqlx-sqlite/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+          query_parameter_limit: 0
+      - plugin: sqlc-gen-rust
+        out: examples/embed/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+          query_parameter_limit: 0
+
+  - schema: examples/type-mapping/sqlx-postgres/schema.sql
+    queries: examples/type-mapping/sqlx-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/sqlx-postgres/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - db_type: pg_catalog.timestamp
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: pg_catalog.time
+              rs_type: chrono::NaiveTime
+            - db_type: complex
+              rs_type: crate::Complex
+              copy_cheap: true
+  - schema: examples/type-mapping/sqlx-mysql/schema.sql
+    queries: examples/type-mapping/sqlx-mysql/queries.sql
+    engine: mysql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/sqlx-mysql/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-mysql
+          overrides:
+            - db_type: timestamp
+              rs_type: chrono::DateTime<chrono::Utc>
+            - db_type: datetime
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+  - schema: examples/type-mapping/tokio-postgres/schema.sql
+    queries: examples/type-mapping/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - db_type: pg_catalog.timestamp
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: pg_catalog.time
+              rs_type: chrono::NaiveTime
+            - db_type: complex
+              rs_type: crate::Complex
+              copy_cheap: true
+  - schema: examples/type-mapping/postgres/schema.sql
+    queries: examples/type-mapping/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - db_type: pg_catalog.timestamp
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: pg_catalog.time
+              rs_type: chrono::NaiveTime
+            - db_type: complex
+              rs_type: crate::Complex
+              copy_cheap: true
+  - schema: examples/type-mapping/deadpool-postgres/schema.sql
+    queries: examples/type-mapping/deadpool-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/deadpool-postgres/src
+        options:
+          output: queries.rs
+          db_crate: deadpool-postgres
+          overrides:
+            - db_type: timestamptz
+              rs_type: chrono::DateTime<chrono::Utc>
+            - db_type: pg_catalog.timestamp
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: pg_catalog.time
+              rs_type: chrono::NaiveTime
+            - db_type: complex
+              rs_type: crate::Complex
+              copy_cheap: true
+  - schema: examples/type-mapping/sqlx-sqlite/schema.sql
+    queries: examples/type-mapping/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/sqlx-sqlite/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+          overrides:
+            - db_type: datetime
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: time
+              rs_type: chrono::NaiveTime
+      - plugin: sqlc-gen-rust
+        out: examples/type-mapping/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+          query_parameter_limit: 2
+          overrides:
+            - db_type: datetime
+              rs_type: chrono::NaiveDateTime
+            - db_type: date
+              rs_type: chrono::NaiveDate
+            - db_type: time
+              rs_type: chrono::NaiveTime
+
+  - schema: examples/sqlc-slice/sqlx-postgres/schema.sql
+    queries: examples/sqlc-slice/sqlx-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/sqlx-postgres/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-postgres
+  - schema: examples/sqlc-slice/sqlx-mysql/schema.sql
+    queries: examples/sqlc-slice/sqlx-mysql/queries.sql
+    engine: mysql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/sqlx-mysql/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-mysql
+  - schema: examples/sqlc-slice/tokio-postgres/schema.sql
+    queries: examples/sqlc-slice/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
+  - schema: examples/sqlc-slice/postgres/schema.sql
+    queries: examples/sqlc-slice/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
+  - schema: examples/sqlc-slice/sqlx-sqlite/schema.sql
+    queries: examples/sqlc-slice/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/sqlx-sqlite/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+          query_parameter_limit: 0
+      - plugin: sqlc-gen-rust
+        out: examples/sqlc-slice/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+          query_parameter_limit: 0
+
+  - schema: examples/dynamic-filter/sqlx-sqlite/schema.sql
+    queries: examples/dynamic-filter/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/sqlx-sqlite/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-sqlite
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/rusqlite/src
+        options:
+          output: queries.rs
+          db_crate: rusqlite
+  - schema: examples/dynamic-filter/sqlx-postgres/schema.sql
+    queries: examples/dynamic-filter/sqlx-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/sqlx-postgres/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-postgres
+  - schema: examples/dynamic-filter/sqlx-mysql/schema.sql
+    queries: examples/dynamic-filter/sqlx-mysql/queries.sql
+    engine: mysql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/sqlx-mysql/src
+        options:
+          output: queries.rs
+          db_crate: sqlx-mysql
+  - schema: examples/dynamic-filter/tokio-postgres/schema.sql
+    queries: examples/dynamic-filter/tokio-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/tokio-postgres/src
+        options:
+          output: queries.rs
+          db_crate: tokio-postgres
+  - schema: examples/dynamic-filter/postgres/schema.sql
+    queries: examples/dynamic-filter/postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/postgres/src
+        options:
+          output: queries.rs
+          db_crate: postgres
+  - schema: examples/dynamic-filter/deadpool-postgres/schema.sql
+    queries: examples/dynamic-filter/deadpool-postgres/queries.sql
+    engine: postgresql
+    codegen:
+      - plugin: sqlc-gen-rust
+        out: examples/dynamic-filter/deadpool-postgres/src
+        options:
+          output: queries.rs
+          db_crate: deadpool-postgres
