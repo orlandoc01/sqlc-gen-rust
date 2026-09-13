@@ -101,9 +101,10 @@ WHERE id = $1;
 
 ### Generated API
 
-Each query becomes a free async function with a public
-params struct. Each function takes any `sqlx::Executor`, so a pool, a connection, or a
-transaction all work:
+Each query becomes a free function with a public params struct. The first argument is the
+database handle for the configured `db_crate`; a pool, a connection, or a transaction all work.
+Functions are async for the async crates and synchronous for `rusqlite` and `postgres`. The
+example below uses `sqlx-postgres`; see [Backend notes](#backend-notes) for each crate's handle type:
 
 ```rust
 mod queries;
