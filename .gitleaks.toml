@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Workflow template expressions are placeholders, not secrets"
+regexes = ['''\$\{\{ *github\.token *\}\}''']

@@ -62,7 +62,7 @@ cargo test --workspace
 The wasm is not byte-reproducible across machines: a local `just build-release` hashes differently from CI's build of the same commit. The README sha256 must therefore come from the CI-built asset, never from a local build. To cut a release:
 
 1. Bump `version` in `Cargo.toml`, run `just generate` (generated file headers embed the version), commit.
-2. `git tag vX.Y.Z && git push origin main vX.Y.Z` and wait for the release workflow.
+2. Tag that commit `vX.Y.Z` on the public `main` and push the tag; wait for the release workflow.
 3. Copy the sha256 from the release's `sqlc-gen-rust.wasm.sha256` asset into the README install snippet along with the new tag, commit, push. That commit is docs-only and needs no new tag.
 
 ## Machine Traps
