@@ -1,30 +1,30 @@
 use crate::{
     db_crates::{
         DbCrate, Postgres,
-        params_common::{self, GeneratedFunction},
+        params_common::{self, GeneratedItem},
     },
     query::{Annotation, Query},
 };
 
-pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<GeneratedFunction> {
+pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<GeneratedItem> {
     if !DbCrate::Postgres(backend).supports(query.annotation) {
         return Vec::new();
     }
 
     let name = params_common::query_function_ident(query);
     if query.dynfilter().is_some() {
-        let helper = GeneratedFunction {
+        let helper = GeneratedItem {
             ident: quote::format_ident!("{name}_query"),
             helper: "dynamic query helper",
         };
         return match query.annotation {
             Annotation::One => vec![
                 helper,
-                GeneratedFunction {
+                GeneratedItem {
                     ident: name.clone(),
                     helper: "query function",
                 },
-                GeneratedFunction {
+                GeneratedItem {
                     ident: quote::format_ident!("{name}_opt"),
                     helper: "optional query helper",
                 },
@@ -33,11 +33,11 @@ pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<Gener
                 let suffix = backend.many_iterator_suffix();
                 vec![
                     helper,
-                    GeneratedFunction {
+                    GeneratedItem {
                         ident: name.clone(),
                         helper: "query function",
                     },
-                    GeneratedFunction {
+                    GeneratedItem {
                         ident: quote::format_ident!("{name}_{suffix}"),
                         helper: backend.many_iterator_helpers().0,
                     },
@@ -46,7 +46,7 @@ pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<Gener
             Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult => {
                 vec![
                     helper,
-                    GeneratedFunction {
+                    GeneratedItem {
                         ident: name,
                         helper: "query function",
                     },
@@ -56,26 +56,26 @@ pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<Gener
         };
     }
 
-    let prepare = GeneratedFunction {
+    let prepare = GeneratedItem {
         ident: quote::format_ident!("prepare_{name}"),
         helper: "prepare helper",
     };
     match query.annotation {
         Annotation::One => vec![
             prepare,
-            GeneratedFunction {
+            GeneratedItem {
                 ident: name.clone(),
                 helper: "query function",
             },
-            GeneratedFunction {
+            GeneratedItem {
                 ident: quote::format_ident!("{name}_with"),
                 helper: "with helper",
             },
-            GeneratedFunction {
+            GeneratedItem {
                 ident: quote::format_ident!("{name}_opt"),
                 helper: "optional query helper",
             },
-            GeneratedFunction {
+            GeneratedItem {
                 ident: quote::format_ident!("{name}_opt_with"),
                 helper: "optional with helper",
             },
@@ -85,19 +85,19 @@ pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<Gener
             let (iterator, iterator_with) = backend.many_iterator_helpers();
             vec![
                 prepare,
-                GeneratedFunction {
+                GeneratedItem {
                     ident: name.clone(),
                     helper: "query function",
                 },
-                GeneratedFunction {
+                GeneratedItem {
                     ident: quote::format_ident!("{name}_with"),
                     helper: "with helper",
                 },
-                GeneratedFunction {
+                GeneratedItem {
                     ident: quote::format_ident!("{name}_{suffix}"),
                     helper: iterator,
                 },
-                GeneratedFunction {
+                GeneratedItem {
                     ident: quote::format_ident!("{name}_{suffix}_with"),
                     helper: iterator_with,
                 },
@@ -105,11 +105,11 @@ pub(super) fn generated_functions(backend: Postgres, query: &Query) -> Vec<Gener
         }
         Annotation::Exec | Annotation::ExecRows | Annotation::ExecResult => vec![
             prepare,
-            GeneratedFunction {
+            GeneratedItem {
                 ident: name.clone(),
                 helper: "query function",
             },
-            GeneratedFunction {
+            GeneratedItem {
                 ident: quote::format_ident!("{name}_with"),
                 helper: "with helper",
             },

@@ -14,5 +14,7 @@ CREATE TABLE mapping (
     date_val DATE NOT NULL,
     time_val TIME NOT NULL,
     json_val JSON NOT NULL,
+    year_val YEAR NOT NULL,
+    year_nullable_val YEAR,
     id BIGINT AUTO_INCREMENT PRIMARY KEY
 );

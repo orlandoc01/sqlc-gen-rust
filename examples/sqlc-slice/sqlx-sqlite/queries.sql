@@ -31,3 +31,9 @@ ORDER BY id;
 -- name: DeleteAuthorsByIDs :exec
 DELETE FROM authors
 WHERE id IN (sqlc.slice('ids'));
+
+-- name: ListAuthorLabelsByIDs :many
+SELECT id, '/*SLICE:ids*/?' AS label
+FROM authors
+WHERE id IN (sqlc.slice('ids'))
+ORDER BY id;

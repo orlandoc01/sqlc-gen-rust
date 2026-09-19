@@ -151,13 +151,13 @@ mod tests {
 
     #[test_context(PgTokioContext)]
     #[tokio::test]
-    async fn toggles_each_order_by_direction(ctx: &mut PgTokioContext) {
+    async fn selects_each_sort_preset(ctx: &mut PgTokioContext) {
         let client = &ctx.client;
         migrate(client).await;
         let asc = queries::search_users(
             client,
             queries::SearchUsersParams {
-                id_asc: true,
+                sort: queries::SearchUsersSort::IdAsc,
                 ..params()
             },
         )
@@ -170,7 +170,7 @@ mod tests {
         let desc = queries::search_users(
             client,
             queries::SearchUsersParams {
-                id_desc: true,
+                sort: queries::SearchUsersSort::IdDesc,
                 ..params()
             },
         )
@@ -179,6 +179,30 @@ mod tests {
         assert_eq!(
             desc.iter().map(|user| user.id).collect::<Vec<_>>(),
             [3, 2, 1]
+        );
+
+        let shortest = queries::search_users(
+            client,
+            queries::SearchUsersParams {
+                sort: queries::SearchUsersSort::ShortestEmail,
+                ..params()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            shortest.iter().map(|user| user.id).collect::<Vec<_>>(),
+            [2, 3, 1]
+        );
+
+        assert_eq!(
+            queries::SearchUsersSort::default(),
+            queries::SearchUsersSort::IdAsc
+        );
+        let by_default = queries::search_users(client, params()).await.unwrap();
+        assert_eq!(
+            by_default.iter().map(|user| user.id).collect::<Vec<_>>(),
+            [1, 2, 3]
         );
     }
 
@@ -387,6 +411,65 @@ mod tests {
             .await
             .is_err()
         );
+    }
+
+    #[test_context(PgTokioContext)]
+    #[tokio::test]
+    async fn gates_a_join_with_its_bind_and_ordering(ctx: &mut PgTokioContext) {
+        let client = &ctx.client;
+        migrate(client).await;
+        client.batch_execute("INSERT INTO users (id, email, phone, profile) VALUES (4, 'dave@example.com', '', '{}'), (5, 'erin@example.com', '555', '{}'); INSERT INTO orders (id, user_id, created_at) VALUES (3, 4, '2025-06-01'), (4, 1, '2025-02-01');").await.unwrap();
+        // Dave has no phone but an order, Erin has a phone and no order, and Alice has two
+        // orders, so the phone flag, the inner join's multiplicity, and an enabled join with
+        // no match each change the result.
+        for (orders_since, with_phone, expected) in [
+            (None, false, vec![1, 2, 3, 4, 5]),
+            (None, true, vec![1, 2, 3, 5]),
+            (Some("2024-01-01"), false, vec![4, 1, 2, 1]),
+            (Some("2025-01-01"), true, vec![1, 2]),
+            (Some("2030-01-01"), false, vec![]),
+        ] {
+            let users = queries::search_users_with_orders(
+                client,
+                queries::SearchUsersWithOrdersParams {
+                    orders_since,
+                    with_phone,
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                users.iter().map(|user| user.id).collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+
+    #[test_context(PgTokioContext)]
+    #[tokio::test]
+    async fn gates_or_operands_with_a_false_fallback(ctx: &mut PgTokioContext) {
+        let client = &ctx.client;
+        migrate(client).await;
+        for (email_pattern, phone_pattern, expected) in [
+            (None, None, vec![]),
+            (Some("alice%"), None, vec![1]),
+            (None, Some("%3"), vec![3]),
+            (Some("alice%"), Some("222"), vec![1, 2]),
+        ] {
+            let users = queries::search_users_by_pattern(
+                client,
+                queries::SearchUsersByPatternParams {
+                    email_pattern,
+                    phone_pattern,
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                users.iter().map(|user| user.id).collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 }
 

@@ -14,7 +14,9 @@ SELECT
     datetime_val,
     date_val,
     time_val,
-    json_val
+    json_val,
+    year_val,
+    year_nullable_val
 FROM mapping;
 
 /* name: InsertMapping :exec */
@@ -33,7 +35,9 @@ INSERT INTO mapping (
     datetime_val,
     date_val,
     time_val,
-    json_val
+    json_val,
+    year_val,
+    year_nullable_val
 ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 );
