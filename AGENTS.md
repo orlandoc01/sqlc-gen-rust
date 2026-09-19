@@ -4,25 +4,28 @@
 
 This is a public fork of `tunamaguro/sqlc-gen-rust`, a sqlc WASM plugin that generates Rust. It is published from `github.com/orlandoc01/sqlc-gen-rust`
 
-- `main` carries `sqlc.embed` support, params-struct output, and `-- :if` dynamic filters.
-- New behavior must be behind an opt-in config option. Dynamic filters are opted into per query by the `-- :if` annotation, not by a separate option.
+- `main` carries `sqlc.embed` support, params-struct output, and `-- :if`/`-- :flag`/`-- :switch` dynamic filters.
+- New behavior is opt-in within a minor release line; a new minor release may break the previous one, and every breaking change gets a `CHANGELOG.md` entry with a migration note.
 - Never hand-edit committed generated output. Run `just generate`, including for files such as `examples/*/src/queries.rs`.
 
 ## Layout
 
-- `src/lib.rs`: plugin entry point, `Config` parsing and validation, and override types.
-- `src/query.rs`: query, parameter, and row models; annotations; and static-slice handling.
-- `src/dynfilter.rs`: parses `-- :if @param` annotations and static `sqlc.slice()` markers into a bind plan.
+- `src/lib.rs`: plugin entry point and `generate()`; `src/generate_tests.rs` holds its end-to-end tests.
+- `src/config.rs`: `Config` parsing and validation and override types. `src/ident.rs`: SQL-name to Rust-identifier spelling and validation. `src/error.rs`: the top-level `Error` and stack-trace traits. `src/unique.rs`: the insert-or-conflict helper every uniqueness check uses.
+- `src/query/{mod,types,rows,names,error,tests}.rs`: query and parameter models, annotations, static-slice handling, and the shared member-name validator (`mod`); Rust type mapping (`types`); row structs, embedded tables, and catalog enums (`rows`); row field naming (`names`); `QueryError` (`error`).
+- `src/dynfilter/{mod,strict,slots}.rs`: the `dynfilters:` option map, annotation lexing and classification (`-- :if`, `-- :flag`, `-- :switch`/`-- :case`), control slot allocation, plus structural attachment, switch validation, and canonicalization with sqlparser. `resolve/` holds catalog column resolution with its tests as a child module.
+- `src/dynfilter/variants.rs`: enumerates every control state of a dynamic query, renders each through the inlined runtime with the backend's placeholders, deduplicates, and enforces `dynfilters.variant_limit`.
 - `src/db_crates/{mod,sqlx,rusqlite,postgres}.rs`: backend dispatch, SQLx/SQLite/PostgreSQL/deadpool-postgres type mapping, and backend setup and row decoding.
-- `src/db_crates/params_common.rs`: shared params-struct definitions, identifier generation, dynamic-filter setup, and query index.
-- `src/db_crates/{sqlx_params,rusqlite_params,postgres_params}.rs`: SQLx, rusqlite, and postgres/tokio-postgres/deadpool-postgres params-struct query generators.
-- `src/db_crates/{rusqlite_tests,postgres_tests}.rs`: rusqlite and postgres/tokio-postgres/deadpool-postgres generator token tests.
+- `src/db_crates/params_common.rs`: shared params-struct definitions, identifier generation, dynamic-filter setup, and query index; `params_common/items.rs` is the registry of every emitted top-level item.
+- `src/db_crates/{sqlx_params,rusqlite_params,postgres_params}.rs`: SQLx, rusqlite, and postgres/tokio-postgres/deadpool-postgres params-struct query generators. `sqlx_params/prepared.rs` holds the SQLx warm-ups and the PostgreSQL bind-type check.
+- `src/dynfilter/prepared.rs`: the runtime-exact variant set `dynfilters.prepared` feeds into codegen, built from the in-memory expansions in the same pass.
+- `src/db_crates/{rusqlite_tests,postgres_tests}.rs` and `prepared_tests/`: rusqlite and postgres/tokio-postgres/deadpool-postgres generator token tests, and the `dynfilters.prepared` matrix over every backend (`typing.rs` covers SQLx PostgreSQL bind types).
 - `src/db_crates/postgres_types.rs`: PostgreSQL type mappings shared by the SQLx, postgres, tokio-postgres, and deadpool-postgres backends.
 - `src/db_crates/dynfilter_runtime.rs`: the `pub mod dynfilter` runtime that is inlined into generated code when a query needs it. It is also compiled into the plugin's own tests.
 - `src/path_map.rs`: SQL-to-Rust path mapping.
 - `src/protos/codegen.proto`: sqlc plugin protocol. `build.rs` compiles it with `prost-build`, which requires `protoc`.
 - Root `sqlc.yaml`: drives regeneration for every `examples/*` package.
-- `examples/dynamic-filter/*`: one crate per supported engine exercising `-- :if`.
+- `examples/dynamic-filter/*`: one crate per supported engine exercising `-- :if`, `-- :flag`, and `-- :switch` with `dynfilters.prepared` on.
 - `examples/test-utils`: SQLx, postgres, tokio-postgres, deadpool-postgres, MySQL, and SQLite test contexts; PostgreSQL/MySQL read their database URLs from the environment.
 - `rust-toolchain.toml`: pins Rust 1.89.0 and the `wasm32-wasip1` target.
 - `.devcontainer/` + `Dockerfile` + `compose.yaml`: upstream's VS Code container with `postgres` and `mysql` services. `.dev.env` uses the compose hostnames, which only resolve inside that container.
@@ -61,7 +64,7 @@ cargo test --workspace
 
 The wasm is not byte-reproducible across machines: a local `just build-release` hashes differently from CI's build of the same commit. The README sha256 must therefore come from the CI-built asset, never from a local build. To cut a release:
 
-1. Bump `version` in `Cargo.toml`, run `just generate` (generated file headers embed the version), commit.
+1. Bump `version` in `Cargo.toml`, update `CHANGELOG.md`, run `just generate` (generated file headers embed the version), commit.
 2. Tag that commit `vX.Y.Z` on the public `main` and push the tag; wait for the release workflow.
 3. Copy the sha256 from the release's `sqlc-gen-rust.wasm.sha256` asset into the README install snippet along with the new tag, commit, push. That commit is docs-only and needs no new tag.
 

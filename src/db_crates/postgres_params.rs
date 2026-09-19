@@ -1,7 +1,10 @@
+use crate::dynfilter_runtime::Placeholders;
 use crate::query::{Annotation, Query, ReturningRows};
 
 use super::{
-    params_common::{self, ParameterAccess, ParamsGenerator, QueryParts},
+    params_common::{
+        self, AGGREGATE_WARMUP, ParameterAccess, ParamsGenerator, PreparedParts, QueryParts,
+    },
     postgres::{Postgres, PostgresPaths},
 };
 
@@ -10,8 +13,8 @@ mod functions;
 mod names;
 
 impl ParamsGenerator for Postgres {
-    fn placeholders(&self) -> proc_macro2::TokenStream {
-        quote::quote! {dynfilter::Placeholders::Numbered}
+    fn placeholders(&self) -> Placeholders {
+        Placeholders::Numbered
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
@@ -26,7 +29,7 @@ impl ParamsGenerator for Postgres {
         )
     }
 
-    fn generated_functions(&self, query: &Query) -> Vec<params_common::GeneratedFunction> {
+    fn generated_functions(&self, query: &Query) -> Vec<params_common::GeneratedItem> {
         names::generated_functions(*self, query)
     }
 
@@ -34,9 +37,47 @@ impl ParamsGenerator for Postgres {
         &self,
         query: &Query,
         row: &ReturningRows,
-        parts: &QueryParts,
+        parts: &QueryParts<'_>,
     ) -> proc_macro2::TokenStream {
         Function::new(*self, query, row, parts).generate()
+    }
+
+    /// Only deadpool keeps a statement cache; `postgres::Client` and `tokio_postgres::Client`
+    /// would need a statement-passing API, so they get variant constants only.
+    fn caches_statements(&self) -> bool {
+        matches!(self, Self::Deadpool)
+    }
+
+    fn prepare_functions(
+        &self,
+        _query: &Query,
+        parts: &PreparedParts<'_>,
+    ) -> proc_macro2::TokenStream {
+        let name = &parts.warmup_ident;
+        let variants = &parts.variants_ident;
+        quote::quote! {
+            pub async fn #name(client: &deadpool_postgres::ClientWrapper) -> Result<(), deadpool_postgres::tokio_postgres::Error> {
+                for sql in #variants {
+                    client.prepare_cached(sql).await?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn prepare_all(&self, functions: &[syn::Ident]) -> proc_macro2::TokenStream {
+        let name = quote::format_ident!("{AGGREGATE_WARMUP}");
+        let client = if functions.is_empty() {
+            quote::format_ident!("_client")
+        } else {
+            quote::format_ident!("client")
+        };
+        quote::quote! {
+            pub async fn #name(#client: &deadpool_postgres::ClientWrapper) -> Result<(), deadpool_postgres::tokio_postgres::Error> {
+                #(self::#functions(#client).await?;)*
+                Ok(())
+            }
+        }
     }
 }
 
@@ -44,7 +85,7 @@ struct Function<'a> {
     backend: Postgres,
     query: &'a Query,
     row: &'a ReturningRows,
-    parts: &'a QueryParts,
+    parts: &'a QueryParts<'a>,
     paths: PostgresPaths,
     name: syn::Ident,
     client: syn::Ident,
@@ -62,7 +103,7 @@ impl<'a> Function<'a> {
         backend: Postgres,
         query: &'a Query,
         row: &'a ReturningRows,
-        parts: &'a QueryParts,
+        parts: &'a QueryParts<'a>,
     ) -> Self {
         let name = params_common::query_function_ident(query);
         let client = parts.local("client");

@@ -50,6 +50,8 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-postgres
+          dynfilters:
+            prepared: true
   - schema: examples/authors/sqlx-mysql/schema.sql
     queries: examples/authors/sqlx-mysql/queries.sql
     engine: mysql
@@ -59,6 +61,8 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
+          dynfilters:
+            prepared: true
   - schema: examples/authors/tokio-postgres/schema.sql
     queries: examples/authors/tokio-postgres/queries.sql
     engine: postgresql
@@ -96,6 +100,8 @@ sql:
         options:
           output: queries.rs
           db_crate: deadpool-postgres
+          dynfilters:
+            prepared: true
   - schema: examples/authors/sqlx-sqlite/schema.sql
     queries: examples/authors/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -115,6 +121,8 @@ sql:
         options:
           output: queries.rs
           db_crate: rusqlite
+          dynfilters:
+            prepared: true
 
   - schema: examples/embed/sqlx-sqlite/schema.sql
     queries: examples/embed/sqlx-sqlite/queries.sql
@@ -302,6 +310,7 @@ sql:
         options:
           output: queries.rs
           db_crate: postgres
+  # No dynamic queries: exercises the empty warm-up and zero count under denied warnings.
   - schema: examples/sqlc-slice/sqlx-sqlite/schema.sql
     queries: examples/sqlc-slice/sqlx-sqlite/queries.sql
     engine: sqlite
@@ -312,6 +321,12 @@ sql:
           output: queries.rs
           db_crate: sqlx-sqlite
           query_parameter_limit: 0
+          dynfilters:
+            prepared: true
+  - schema: examples/sqlc-slice/sqlx-sqlite/schema.sql
+    queries: examples/sqlc-slice/sqlx-sqlite/queries.sql
+    engine: sqlite
+    codegen:
       - plugin: sqlc-gen-rust
         out: examples/sqlc-slice/rusqlite/src
         options:
@@ -328,11 +343,23 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-sqlite
+          dynfilters:
+            prepared: true
+            # Expanded like every other query, but executed without the statement cache.
+            prepared_skip:
+              - ClearPhones
+              # The benchmark's uncached twin of SearchUsersByPattern.
+              - SearchUsersByPatternUncached
       - plugin: sqlc-gen-rust
         out: examples/dynamic-filter/rusqlite/src
         options:
           output: queries.rs
           db_crate: rusqlite
+          dynfilters:
+            prepared: true
+            prepared_skip:
+              - ClearPhones
+              - SearchUsersByPatternUncached
   - schema: examples/dynamic-filter/sqlx-postgres/schema.sql
     queries: examples/dynamic-filter/sqlx-postgres/queries.sql
     engine: postgresql
@@ -342,6 +369,22 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-postgres
+          dynfilters:
+            prepared: true
+            # The benchmark's uncached twin of SearchUsersByPattern.
+            prepared_skip:
+              - SearchUsersByPatternUncached
+          # `age` is int4 but binds as i64: the typed warm-up must prepare it as INT8.
+          overrides:
+            - db_type: integer
+              rs_type: i64
+              copy_cheap: true
+            - db_type: pg_catalog.int4
+              rs_type: i64
+              copy_cheap: true
+            # An owned, non-Copy parameter type: bound by reference, prepared as `String`.
+            - column: .users.note
+              rs_type: String
   - schema: examples/dynamic-filter/sqlx-mysql/schema.sql
     queries: examples/dynamic-filter/sqlx-mysql/queries.sql
     engine: mysql
@@ -351,6 +394,11 @@ sql:
         options:
           output: queries.rs
           db_crate: sqlx-mysql
+          dynfilters:
+            prepared: true
+            # The benchmark's uncached twin of SearchUsersByPattern.
+            prepared_skip:
+              - SearchUsersByPatternUncached
   - schema: examples/dynamic-filter/tokio-postgres/schema.sql
     queries: examples/dynamic-filter/tokio-postgres/queries.sql
     engine: postgresql
@@ -360,6 +408,8 @@ sql:
         options:
           output: queries.rs
           db_crate: tokio-postgres
+          dynfilters:
+            prepared: true
   - schema: examples/dynamic-filter/postgres/schema.sql
     queries: examples/dynamic-filter/postgres/queries.sql
     engine: postgresql
@@ -369,6 +419,8 @@ sql:
         options:
           output: queries.rs
           db_crate: postgres
+          dynfilters:
+            prepared: true
   - schema: examples/dynamic-filter/deadpool-postgres/schema.sql
     queries: examples/dynamic-filter/deadpool-postgres/queries.sql
     engine: postgresql
@@ -378,3 +430,8 @@ sql:
         options:
           output: queries.rs
           db_crate: deadpool-postgres
+          dynfilters:
+            prepared: true
+            # The benchmark's uncached twin of SearchUsersByPattern.
+            prepared_skip:
+              - SearchUsersByPatternUncached

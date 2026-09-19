@@ -1,14 +1,17 @@
+use crate::dynfilter_runtime::Placeholders;
 use crate::query::{Annotation, Query, ReturningRows};
 
 use super::{
     DbCrate,
-    params_common::{self, GeneratedFunction, ParamsGenerator, QueryParts},
+    params_common::{
+        self, AGGREGATE_WARMUP, GeneratedItem, ParamsGenerator, PreparedParts, QueryParts,
+    },
     rusqlite::Rusqlite,
 };
 
 impl ParamsGenerator for Rusqlite {
-    fn placeholders(&self) -> proc_macro2::TokenStream {
-        quote::quote! {dynfilter::Placeholders::NumberedSqlite}
+    fn placeholders(&self) -> Placeholders {
+        Placeholders::NumberedSqlite
     }
 
     fn returning_row(&self, row: &ReturningRows) -> proc_macro2::TokenStream {
@@ -20,7 +23,7 @@ impl ParamsGenerator for Rusqlite {
         )
     }
 
-    fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
+    fn generated_functions(&self, query: &Query) -> Vec<GeneratedItem> {
         params_common::simple_generated_functions(query, |annotation| {
             DbCrate::Rusqlite.supports(annotation)
         })
@@ -30,9 +33,45 @@ impl ParamsGenerator for Rusqlite {
         &self,
         query: &Query,
         row: &ReturningRows,
-        parts: &QueryParts,
+        parts: &QueryParts<'_>,
     ) -> proc_macro2::TokenStream {
         Function::new(query, row, parts).generate()
+    }
+
+    fn caches_statements(&self) -> bool {
+        true
+    }
+
+    fn prepare_functions(
+        &self,
+        _query: &Query,
+        parts: &PreparedParts<'_>,
+    ) -> proc_macro2::TokenStream {
+        let name = &parts.warmup_ident;
+        let variants = &parts.variants_ident;
+        quote::quote! {
+            pub fn #name(client: &impl RusqliteClient) -> rusqlite::Result<()> {
+                for sql in #variants {
+                    client.connection().prepare_cached(sql)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn prepare_all(&self, functions: &[syn::Ident]) -> proc_macro2::TokenStream {
+        let name = quote::format_ident!("{AGGREGATE_WARMUP}");
+        let client = if functions.is_empty() {
+            quote::format_ident!("_client")
+        } else {
+            quote::format_ident!("client")
+        };
+        quote::quote! {
+            pub fn #name(#client: &impl RusqliteClient) -> rusqlite::Result<()> {
+                #(self::#functions(#client)?;)*
+                Ok(())
+            }
+        }
     }
 }
 
@@ -40,7 +79,7 @@ impl ParamsGenerator for Rusqlite {
 struct Function<'a> {
     query: &'a Query,
     row: &'a ReturningRows,
-    parts: &'a QueryParts,
+    parts: &'a QueryParts<'a>,
     name: syn::Ident,
     client: syn::Ident,
     statement: syn::Ident,
@@ -48,7 +87,7 @@ struct Function<'a> {
 }
 
 impl<'a> Function<'a> {
-    fn new(query: &'a Query, row: &'a ReturningRows, parts: &'a QueryParts) -> Self {
+    fn new(query: &'a Query, row: &'a ReturningRows, parts: &'a QueryParts<'a>) -> Self {
         Self {
             query,
             row,
@@ -182,19 +221,29 @@ impl<'a> Function<'a> {
                     (None, false) => quote::quote! {&params.#name},
                 };
                 quote::quote! {#pattern => #value,}
-            });
+            })
+            .collect::<Vec<_>>();
+        let value = if binds.is_empty() {
+            quote::quote! {|_| -> &dyn rusqlite::ToSql {
+                unreachable!("dynfilter bind plan referenced an unknown argument")
+            }}
+        } else {
+            quote::quote! {|bind| -> &dyn rusqlite::ToSql {
+                match bind {
+                    #(#binds)*
+                    #unknown_bind_arm
+                }
+            }}
+        };
+        let prepare = if self.parts.prepared.is_some() {
+            quote::quote! { prepare_cached(&sql) }
+        } else {
+            quote::quote! { prepare(&sql) }
+        };
         quote::quote! {
             #dynamic_setup
-            let values = binds
-                .into_iter()
-                .map(|bind| -> &dyn rusqlite::ToSql {
-                    match bind {
-                        #(#binds)*
-                        #unknown_bind_arm
-                    }
-                })
-                .collect::<Vec<_>>();
-            let mut #statement = #client.connection().prepare(&sql)?;
+            let values = binds.into_iter().map(#value);
+            let mut #statement = #client.connection().#prepare?;
             let #params = rusqlite::params_from_iter(values);
         }
     }

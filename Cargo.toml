@@ -1,6 +1,6 @@
 [package]
 name = "sqlc-gen-rust"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["Orlando Castillo"]
 repository = "https://github.com/orlandoc01/sqlc-gen-rust"
@@ -30,6 +30,7 @@ syn = { version = "3" }
 
 convert_case = { version = "0.12" }
 regex-lite = "0.1.6"
+sqlparser = { version = "0.61", default-features = false, features = ["std", "visitor"] }
 
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = { workspace = true }

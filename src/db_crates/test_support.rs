@@ -1,4 +1,5 @@
 use crate::plugin;
+use crate::query::{DbTypeMap, Query, ReturnRowAttributes, ReturningRows};
 
 pub(crate) fn identifier(name: &str) -> plugin::Identifier {
     plugin::Identifier {
@@ -52,4 +53,48 @@ pub(crate) fn query(
         filename: String::new(),
         insert_into_table: None,
     }
+}
+
+pub(crate) fn dialect(backend: super::DbCrate) -> crate::dynfilter::Dialect {
+    use super::{DbCrate, Sqlx};
+    match backend {
+        DbCrate::Sqlx(Sqlx::Postgres) | DbCrate::Postgres(_) => {
+            crate::dynfilter::Dialect::PostgreSql
+        }
+        DbCrate::Sqlx(Sqlx::MySql) => crate::dynfilter::Dialect::MySql,
+        DbCrate::Sqlx(Sqlx::Sqlite) | DbCrate::Rusqlite => crate::dynfilter::Dialect::Sqlite,
+    }
+}
+
+/// Rows and parsed queries the way `generate` builds them, resolving against the same catalog.
+pub(crate) fn parsed(
+    backend: super::DbCrate,
+    type_map: &DbTypeMap,
+    catalog: Option<&plugin::Catalog>,
+    queries: &[plugin::Query],
+) -> (Vec<ReturningRows>, Vec<Query>) {
+    let resolve_catalog = catalog
+        .map(crate::dynfilter::resolve::Catalog::from_plugin)
+        .unwrap_or_default();
+    queries
+        .iter()
+        .map(|query| {
+            let row = ReturningRows::from_query(
+                type_map,
+                &ReturnRowAttributes::default(),
+                catalog,
+                query,
+            )
+            .unwrap();
+            let query = Query::parse(
+                type_map,
+                query,
+                dialect(backend),
+                &resolve_catalog,
+                backend.apply_static_slices(),
+            )
+            .unwrap();
+            (row, query)
+        })
+        .unzip()
 }

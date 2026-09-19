@@ -1,25 +1,25 @@
 use crate::{
     db_crates::{
-        params_common,
+        DbCrate, params_common,
         rusqlite::Rusqlite,
-        test_support::{column, query},
+        test_support::{column, parsed, query},
     },
     plugin,
-    query::{Query, ReturnRowAttributes, ReturningRows},
 };
 
 fn generated(query: plugin::Query, query_parameter_limit: usize) -> String {
-    let type_map = Rusqlite.db_type_map();
-    let row = ReturningRows::from_query(&type_map, &ReturnRowAttributes::default(), None, &query)
-        .unwrap();
-    let mut query = Query::from_query(&type_map, &query).unwrap();
-    query.apply_dynfilter();
-    if query.dynfilter().is_none() {
-        query.apply_static_slices();
-    }
-    params_common::generate_queries(&Rusqlite, &[row], &[query], query_parameter_limit)
-        .unwrap()
-        .to_string()
+    let (rows, queries) = parsed(DbCrate::Rusqlite, &Rusqlite.db_type_map(), None, &[query]);
+    params_common::generate_queries(
+        &Rusqlite,
+        &rows,
+        &queries,
+        &crate::db_crates::GenerateOptions {
+            query_parameter_limit,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .to_string()
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn generates_dynamic_filters() {
         query(
             "SearchAuthors",
             ":many",
-            "SELECT id FROM authors WHERE TRUE\nAND id = ? -- :if @id",
+            "SELECT id FROM authors WHERE id = ?1 -- :if @id",
             vec![column("id", false)],
             vec![(1, column("id", false))],
         ),
@@ -135,4 +135,100 @@ fn direct_parameters_never_collide_with_generated_locals() {
         "let mut statement_ = client_ . connection () . prepare_cached (BY_STATEMENT) ? ;"
     ));
     assert!(tokens.contains("statement_ . query_map (params_ , ByStatementRow :: from_row)"));
+}
+
+fn switch_query(name: &str, sql: &str) -> plugin::Query {
+    query(
+        name,
+        ":many",
+        sql,
+        vec![column("id", false)],
+        vec![(1, column("owner_id", false))],
+    )
+}
+
+const SWITCHED_SQL: &str = "SELECT id FROM notes\nWHERE\n  owner_id = ?1 -- :if @owner_id\n  AND archived = 0 -- :flag @hide_archived\nORDER BY -- :switch @sort newest oldest title default=newest\n  created_at DESC, -- :case @newest\n  created_at ASC, -- :case @oldest\n  title ASC, -- :case @title\n  id ASC -- :case @title\nLIMIT 10";
+
+#[test]
+fn generates_a_switch_enum_and_matches_lowering() {
+    let tokens = generated(switch_query("ListNotes", SWITCHED_SQL), 1);
+
+    assert!(
+        tokens.contains(
+            "# [derive (Debug , Clone , Copy , PartialEq , Eq , Default)] pub enum ListNotesSort { # [default] Newest , Oldest , Title , }"
+        ),
+        "{tokens}"
+    );
+    assert!(
+        tokens.contains(
+            "pub struct ListNotesParams { pub owner_id : Option < i64 > , pub hide_archived : bool , pub sort : ListNotesSort , }"
+        ),
+        "{tokens}"
+    );
+    assert!(!tokens.contains("pub newest : bool"));
+    assert!(
+        tokens.contains(
+            "dynfilter :: Arg :: from_option (& params . owner_id) , dynfilter :: Arg :: Flag (params . hide_archived) , dynfilter :: Arg :: Flag (matches ! (params . sort , ListNotesSort :: Newest)) , dynfilter :: Arg :: Flag (matches ! (params . sort , ListNotesSort :: Oldest)) , dynfilter :: Arg :: Flag (matches ! (params . sort , ListNotesSort :: Title)) ,"
+        ),
+        "{tokens}"
+    );
+}
+
+fn generation_error(queries: Vec<plugin::Query>) -> String {
+    let (rows, queries) = parsed(DbCrate::Rusqlite, &Rusqlite.db_type_map(), None, &queries);
+    params_common::generate_queries(
+        &Rusqlite,
+        &rows,
+        &queries,
+        &crate::db_crates::GenerateOptions::default(),
+    )
+    .unwrap_err()
+    .to_string()
+}
+
+#[test]
+fn rejects_generated_identifier_collisions() {
+    let error = generation_error(vec![switch_query(
+        "ListNotes",
+        "SELECT id FROM notes\nORDER BY -- :switch @sort id_asc IdAsc default=id_asc\n  id ASC, -- :case @id_asc\n  id DESC -- :case @IdAsc\nLIMIT 10",
+    )]);
+    assert!(
+        error.contains("`id_asc` and `IdAsc` both generate switch variant `IdAsc`"),
+        "{error}"
+    );
+
+    let error = generation_error(vec![switch_query(
+        "ListNotes",
+        "SELECT id FROM notes\nWHERE\n  owner_id = ?1 -- :if @owner_id\n  AND a = 1 -- :flag @SortBy\n  AND b = 1 -- :flag @sort_by\nLIMIT 10",
+    )]);
+    assert!(
+        error.contains("`SortBy` and `sort_by` both generate params struct field `sort_by`"),
+        "{error}"
+    );
+
+    let error = generation_error(vec![
+        switch_query(
+            "Search",
+            "SELECT id FROM notes\nORDER BY -- :switch @users_params a b default=a\n  id ASC, -- :case @a\n  id DESC -- :case @b\nLIMIT 10",
+        ),
+        switch_query(
+            "SearchUsers",
+            "SELECT id FROM notes WHERE owner_id = ?1 -- :if @owner_id\n",
+        ),
+    ]);
+    assert!(
+        error.contains("both generate Rust item `SearchUsersParams`"),
+        "{error}"
+    );
+
+    let error = generation_error(vec![switch_query(
+        "SearchUsers",
+        "SELECT id FROM notes\nORDER BY -- :switch @row a b default=a\n  id ASC, -- :case @a\n  id DESC -- :case @b\nLIMIT 10",
+    )]);
+    assert!(
+        error.contains(
+            "(row struct) and `SearchUsers` (switch enum) both generate Rust item `SearchUsersRow`"
+        ),
+        "{error}"
+    );
 }

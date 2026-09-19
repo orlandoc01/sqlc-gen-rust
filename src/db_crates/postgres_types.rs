@@ -1,7 +1,5 @@
 use crate::query::{DbTypeMap, SimpleTypeMap};
 
-use super::sqlx;
-
 // https://github.com/sqlc-dev/sqlc/blob/v1.29.0/internal/codegen/golang/postgresql_type.go#L37-L605
 // https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html
 pub(crate) const COPY_CHEAP: &[(&str, &[&str])] = &[
@@ -63,5 +61,5 @@ pub(crate) fn type_map(
         .chain(extra_defaults)
         .copied()
         .collect::<Vec<_>>();
-    sqlx::type_map(Box::new(SimpleTypeMap::default()), &copy_cheap, &defaults)
+    super::type_map(Box::new(SimpleTypeMap::default()), &copy_cheap, &defaults)
 }

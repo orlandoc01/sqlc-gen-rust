@@ -1,4 +1,4 @@
-use crate::query::{self, Annotation, EmbeddedTable, ReturningRows};
+use crate::query::{self, Annotation, EmbeddedTable, ReturningRows, RsType, TypeMapper};
 
 mod params_common;
 mod params_common_types;
@@ -16,14 +16,43 @@ mod postgres_name_tests;
 #[cfg(test)]
 mod postgres_tests;
 #[cfg(test)]
+mod prepared_tests;
+#[cfg(test)]
 mod rusqlite_tests;
 #[cfg(test)]
 pub(crate) mod test_support;
 #[cfg(test)]
 mod validation_tests;
 
+pub(crate) use params_common::GenerateOptions;
 pub(crate) use postgres::Postgres;
 pub(crate) use sqlx::Sqlx;
+
+/// Populates `map` with the backend's copy-cheap and default Rust types for each database type.
+fn type_map(
+    mut map: Box<dyn TypeMapper>,
+    copy_cheap_types: &[(&str, &[&str])],
+    default_types: &[(&str, Option<&str>, &[&str])],
+) -> query::DbTypeMap {
+    for (owned_type, db_types) in copy_cheap_types {
+        let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
+        for db_type in *db_types {
+            map.insert_db_type(db_type, RsType::new(owned_type.clone(), None, true));
+        }
+    }
+    for (owned_type, slice_type, db_types) in default_types {
+        let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
+        let slice_type = slice_type
+            .map(|typ| syn::parse_str::<syn::Type>(typ).expect("Failed to parse slice type"));
+        for db_type in *db_types {
+            map.insert_db_type(
+                db_type,
+                RsType::new(owned_type.clone(), slice_type.clone(), false),
+            );
+        }
+    }
+    query::DbTypeMap::from_dyn(map)
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum DbCrate {
@@ -63,7 +92,7 @@ impl<'de> serde::Deserialize<'de> for DbCrate {
 }
 
 impl DbCrate {
-    const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Sqlx(Sqlx::Postgres),
         Self::Sqlx(Sqlx::MySql),
         Self::Sqlx(Sqlx::Sqlite),
@@ -132,25 +161,40 @@ impl DbCrate {
         )
     }
 
+    /// The placeholder form the generated code renders at run time, as the backend's
+    /// generator declares it.
+    pub(crate) fn runtime_placeholders(self) -> crate::dynfilter_runtime::Placeholders {
+        use params_common::ParamsGenerator as _;
+        match self {
+            Self::Sqlx(sqlx) => sqlx.placeholders(),
+            Self::Rusqlite => rusqlite::Rusqlite.placeholders(),
+            Self::Postgres(backend) => backend.placeholders(),
+        }
+    }
+
+    /// The bind-type classifier for backends that prepare by SQL text and must detect one
+    /// text binding two Rust types; only SQLx PostgreSQL does.
+    pub(crate) fn bind_classes(self) -> Option<crate::dynfilter::variants::BindClasses<'static>> {
+        match self {
+            Self::Sqlx(Sqlx::Postgres) => Some(&sqlx_params::bind_classes),
+            _ => None,
+        }
+    }
+
     pub(crate) fn generate_queries(
         self,
         rows: &[ReturningRows],
         queries: &[query::Query],
-        query_parameter_limit: usize,
+        options: &GenerateOptions<'_>,
     ) -> Result<proc_macro2::TokenStream, query::QueryError> {
         self.validate_array_dimensions(rows, queries)?;
         match self {
-            Self::Sqlx(sqlx) => {
-                params_common::generate_queries(&sqlx, rows, queries, query_parameter_limit)
+            Self::Sqlx(sqlx) => params_common::generate_queries(&sqlx, rows, queries, options),
+            Self::Rusqlite => {
+                params_common::generate_queries(&rusqlite::Rusqlite, rows, queries, options)
             }
-            Self::Rusqlite => params_common::generate_queries(
-                &rusqlite::Rusqlite,
-                rows,
-                queries,
-                query_parameter_limit,
-            ),
             Self::Postgres(backend) => {
-                params_common::generate_queries(&backend, rows, queries, query_parameter_limit)
+                params_common::generate_queries(&backend, rows, queries, options)
             }
         }
     }
@@ -176,13 +220,15 @@ pub(crate) fn make_embedded_tables(
         }
 
         let ident = table.ident.to_string();
-        if let Some(existing_table) = idents.insert(ident.clone(), &table.qualified_name) {
-            return Err(query::QueryError::conflicting_embedded_table(
-                existing_table.clone(),
-                table.qualified_name.clone(),
-                ident,
-            ));
-        }
+        crate::unique::insert_unique(&mut idents, ident.clone(), &table.qualified_name).map_err(
+            |existing_table| {
+                query::QueryError::conflicting_embedded_table(
+                    existing_table.clone(),
+                    table.qualified_name.clone(),
+                    ident,
+                )
+            },
+        )?;
         tables.insert(table.qualified_name.clone(), table);
     }
 

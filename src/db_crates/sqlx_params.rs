@@ -1,16 +1,21 @@
 use super::{
     DbCrate,
-    params_common::{self, GeneratedFunction, ParamsGenerator, QueryParts},
+    params_common::{self, GeneratedItem, ParamsGenerator, PreparedParts, QueryParts},
     sqlx::Sqlx,
 };
-use crate::query::{Annotation, Query, ReturningRows};
+use crate::dynfilter_runtime::Placeholders;
+use crate::query::{Annotation, Query, QueryError, ReturningRows};
+
+mod prepared;
+
+pub(crate) use prepared::bind_classes;
 
 impl ParamsGenerator for Sqlx {
-    fn placeholders(&self) -> proc_macro2::TokenStream {
+    fn placeholders(&self) -> Placeholders {
         match self {
-            Self::MySql => quote::quote! {dynfilter::Placeholders::Question},
-            Self::Postgres => quote::quote! {dynfilter::Placeholders::Numbered},
-            Self::Sqlite => quote::quote! {dynfilter::Placeholders::NumberedSqlite},
+            Self::MySql => Placeholders::Question,
+            Self::Postgres => Placeholders::Numbered,
+            Self::Sqlite => Placeholders::NumberedSqlite,
         }
     }
 
@@ -31,7 +36,7 @@ impl ParamsGenerator for Sqlx {
         }
     }
 
-    fn generated_functions(&self, query: &Query) -> Vec<GeneratedFunction> {
+    fn generated_functions(&self, query: &Query) -> Vec<GeneratedItem> {
         params_common::simple_generated_functions(query, |annotation| {
             DbCrate::Sqlx(*self).supports(annotation)
         })
@@ -41,9 +46,36 @@ impl ParamsGenerator for Sqlx {
         &self,
         query: &Query,
         row: &ReturningRows,
-        parts: &QueryParts,
+        parts: &QueryParts<'_>,
     ) -> proc_macro2::TokenStream {
         Function::new(self, query, row, parts).generate()
+    }
+
+    fn caches_statements(&self) -> bool {
+        true
+    }
+
+    fn validate_prepared(
+        &self,
+        queries: &[Query],
+        prepared: &crate::dynfilter::prepared::Prepared<'_>,
+    ) -> Result<(), QueryError> {
+        match self {
+            Self::Postgres => prepared::validate_bind_types(queries, prepared),
+            Self::MySql | Self::Sqlite => Ok(()),
+        }
+    }
+
+    fn prepare_functions(
+        &self,
+        query: &Query,
+        parts: &PreparedParts<'_>,
+    ) -> proc_macro2::TokenStream {
+        prepared::warmup(self, query, parts)
+    }
+
+    fn prepare_all(&self, functions: &[syn::Ident]) -> proc_macro2::TokenStream {
+        prepared::aggregate(self, functions)
     }
 }
 
@@ -52,7 +84,7 @@ struct Function<'a> {
     sqlx: &'a Sqlx,
     query: &'a Query,
     row: &'a ReturningRows,
-    parts: &'a QueryParts,
+    parts: &'a QueryParts<'a>,
     name: syn::Ident,
     executor: syn::Ident,
     q: syn::Ident,
@@ -63,7 +95,7 @@ impl<'a> Function<'a> {
         sqlx: &'a Sqlx,
         query: &'a Query,
         row: &'a ReturningRows,
-        parts: &'a QueryParts,
+        parts: &'a QueryParts<'a>,
     ) -> Self {
         Self {
             sqlx,
@@ -213,12 +245,28 @@ impl<'a> Function<'a> {
                     (false, false) => quote::quote! {&params.#name},
                 };
                 quote::quote! {#pattern => #q.bind(#value),}
-            });
+            })
+            .collect::<Vec<_>>();
         let query = match row {
             Some(row) => quote::quote! {sqlx::query_as::<_, #row>(&sql)},
             None => quote::quote! {sqlx::query(&sql)},
         };
 
+        // A cache-eligible query keeps sqlx's per-connection statement cache; every other
+        // dynamic query still bypasses it, since its texts are unbounded or not enumerated.
+        let persistent = self
+            .parts
+            .prepared
+            .is_none()
+            .then(|| quote::quote! { let #q = #q.persistent(false); });
+        if binds.is_empty() {
+            return quote::quote! {
+                #dynamic_setup
+                debug_assert!(binds.is_empty(), "dynfilter bind plan referenced an unknown argument");
+                let #q = #query;
+                #persistent
+            };
+        }
         quote::quote! {
             #dynamic_setup
             let mut #q = #query;
@@ -228,7 +276,7 @@ impl<'a> Function<'a> {
                     #unknown_bind_arm
                 };
             }
-            let #q = #q.persistent(false);
+            #persistent
         }
     }
 }
