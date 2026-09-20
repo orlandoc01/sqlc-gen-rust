@@ -55,6 +55,24 @@ impl PgDatabase {
     }
 }
 
+impl SqlxPgContext {
+    /// Closes the pool and connects a new one to the same database, so a test can migrate
+    /// through the plain pool first and then attach connection hooks and cache settings.
+    pub async fn rebuild_pool(
+        &mut self,
+        connect: impl FnOnce(sqlx::postgres::PgConnectOptions) -> sqlx::postgres::PgConnectOptions,
+        pool: impl FnOnce(sqlx::postgres::PgPoolOptions) -> sqlx::postgres::PgPoolOptions,
+    ) {
+        self.pool.close().await;
+        let options =
+            sqlx::postgres::PgConnectOptions::from_str(self.database.test_url().as_str()).unwrap();
+        self.pool = pool(sqlx::postgres::PgPoolOptions::new())
+            .connect_with(connect(options))
+            .await
+            .unwrap();
+    }
+}
+
 impl AsyncTestContext for SqlxPgContext {
     async fn setup() -> Self {
         let database = tokio::task::spawn_blocking(PgDatabase::setup)
@@ -116,11 +134,11 @@ pub struct PgDeadpoolContext {
     pub pool: deadpool_postgres::Pool,
 }
 
-impl AsyncTestContext for PgDeadpoolContext {
-    async fn setup() -> Self {
-        let database = tokio::task::spawn_blocking(PgDatabase::setup)
-            .await
-            .unwrap();
+impl PgDeadpoolContext {
+    fn build_pool(
+        database: &PgDatabase,
+        configure: impl FnOnce(deadpool_postgres::PoolBuilder) -> deadpool_postgres::PoolBuilder,
+    ) -> deadpool_postgres::Pool {
         let config = tokio_postgres::Config::from_str(database.test_url().as_str()).unwrap();
         let manager = deadpool_postgres::Manager::from_config(
             config,
@@ -129,10 +147,28 @@ impl AsyncTestContext for PgDeadpoolContext {
                 recycling_method: deadpool_postgres::RecyclingMethod::Fast,
             },
         );
-        let pool = deadpool_postgres::Pool::builder(manager)
-            .max_size(4)
+        configure(deadpool_postgres::Pool::builder(manager).max_size(4))
             .build()
+            .unwrap()
+    }
+
+    /// Closes the pool and builds a new one for the same database, so a test can migrate
+    /// through the plain pool first and then attach `post_create` hooks.
+    pub fn rebuild_pool(
+        &mut self,
+        configure: impl FnOnce(deadpool_postgres::PoolBuilder) -> deadpool_postgres::PoolBuilder,
+    ) {
+        self.pool.close();
+        self.pool = Self::build_pool(&self.database, configure);
+    }
+}
+
+impl AsyncTestContext for PgDeadpoolContext {
+    async fn setup() -> Self {
+        let database = tokio::task::spawn_blocking(PgDatabase::setup)
+            .await
             .unwrap();
+        let pool = Self::build_pool(&database, |builder| builder);
         Self { database, pool }
     }
 
@@ -167,7 +203,25 @@ impl TestContext for PgSyncContext {
 
 pub struct SqlxMysqlContext {
     db_name: String,
+    test_url: String,
     pub pool: sqlx::MySqlPool,
+}
+
+impl SqlxMysqlContext {
+    /// Closes the pool and connects a new one to the same database, so a test can migrate
+    /// through the plain pool first and then attach connection hooks and cache settings.
+    pub async fn rebuild_pool(
+        &mut self,
+        connect: impl FnOnce(sqlx::mysql::MySqlConnectOptions) -> sqlx::mysql::MySqlConnectOptions,
+        pool: impl FnOnce(sqlx::mysql::MySqlPoolOptions) -> sqlx::mysql::MySqlPoolOptions,
+    ) {
+        self.pool.close().await;
+        let options = sqlx::mysql::MySqlConnectOptions::from_str(&self.test_url).unwrap();
+        self.pool = pool(sqlx::mysql::MySqlPoolOptions::new())
+            .connect_with(connect(options))
+            .await
+            .unwrap();
+    }
 }
 
 fn mysql_url() -> String {
@@ -203,7 +257,11 @@ impl AsyncTestContext for SqlxMysqlContext {
 
         let test_url = format!("mysql://{user}:{password}@{host}:{port}/{db_name}");
         let pool = sqlx::MySqlPool::connect(&test_url).await.unwrap();
-        Self { db_name, pool }
+        Self {
+            db_name,
+            test_url,
+            pool,
+        }
     }
 
     async fn teardown(self) {

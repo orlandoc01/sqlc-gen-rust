@@ -42,11 +42,15 @@ mod tests {
                 date_val: chrono::NaiveDate::from_ymd_opt(2025, 1, 23).unwrap(),
                 time_val: sqlx::mysql::types::MySqlTime::ZERO,
                 json_val: serde_json::json!({ "type": "json" }),
+                year_val: 2025,
+                year_nullable_val: Some(1901),
             },
         )
         .await
         .unwrap();
 
-        queries::get_mapping(pool).await.unwrap();
+        let row = queries::get_mapping(pool).await.unwrap();
+        assert_eq!(row.year_val, 2025);
+        assert_eq!(row.year_nullable_val, Some(1901));
     }
 }

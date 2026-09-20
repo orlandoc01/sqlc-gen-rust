@@ -20,6 +20,12 @@ async fn migrate(client: &deadpool_postgres::Client) {
         .unwrap();
 }
 
+async fn warmed(ctx: &mut PgDeadpoolContext) -> deadpool_postgres::Client {
+    migrate(&ctx.pool.get().await.unwrap()).await;
+    ctx.rebuild_pool(|builder| builder.post_create(crate::tests::warmup_hook()));
+    ctx.pool.get().await.unwrap()
+}
+
 fn params() -> queries::SearchUsersParams<'static> {
     queries::SearchUsersParams {
         row_limit: 100,
@@ -30,8 +36,7 @@ fn params() -> queries::SearchUsersParams<'static> {
 #[test_context(PgDeadpoolContext)]
 #[tokio::test]
 async fn drains_dynamic_streams_after_params_drop(ctx: &mut PgDeadpoolContext) {
-    let client = ctx.pool.get().await.unwrap();
-    migrate(&client).await;
+    let client = warmed(ctx).await;
 
     let active = queries::search_users_stream(
         &client,

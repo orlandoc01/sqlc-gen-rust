@@ -1,364 +1,41 @@
-use convert_case::{Case, Casing as _};
 use prost::Message as _;
 use std::io::{Read as _, Write};
 
 pub(crate) mod plugin {
     include!(concat!(env!("OUT_DIR"), "/plugin.rs"));
 }
+mod config;
 pub(crate) mod db_crates;
 pub(crate) mod dynfilter;
+mod error;
+pub(crate) mod ident;
 pub(crate) mod path_map;
 pub(crate) mod query;
-#[cfg(test)]
+pub(crate) mod unique;
+/// The inlined runtime doubles as the plugin's variant renderer, so generation and execution
+/// share one implementation. Not every runtime item is used on the plugin side.
+#[allow(dead_code)]
 mod dynfilter_runtime {
     include!("db_crates/dynfilter_runtime.rs");
+
+    #[cfg(test)]
+    pub(crate) mod tests {
+        include!("db_crates/dynfilter_runtime_tests.rs");
+    }
 }
+use config::{Config, apply_overrides};
+pub(crate) use error::StackErrorResult;
+pub use error::{Error, StackError, StackErrorExt};
+pub(crate) use ident::{
+    field_ident, normalize_str, validate_field_name, validate_type_name, value_ident,
+};
 use query::{Query, ReturningRows, RsType, collect_enums};
-pub trait StackError: std::error::Error {
-    /// format each error stack
-    fn format_stack(&self, layer: usize, buf: &mut Vec<String>);
-    /// next error
-    fn next(&self) -> Option<&dyn StackError>;
-
-    /// last error
-    fn last(&self) -> &dyn StackError
-    where
-        Self: Sized,
-    {
-        let Some(mut result) = self.next() else {
-            return self;
-        };
-        while let Some(err) = result.next() {
-            result = err;
-        }
-        result
-    }
-}
-
-pub(crate) trait StackErrorResult<T, E> {
-    fn stacked(self) -> Result<T, E>;
-}
-
-pub trait StackErrorExt: StackError {
-    fn stack_error(&self) -> Vec<String>
-    where
-        Self: Sized,
-    {
-        let mut buf = Vec::new();
-        let mut layer = 0;
-        let mut current: &dyn StackError = self;
-
-        loop {
-            current.format_stack(layer, &mut buf);
-            match current.next() {
-                Some(next) => {
-                    current = next;
-                    layer += 1;
-                }
-                None => break,
-            }
-        }
-
-        buf
-    }
-}
-
-impl<E: StackError> StackErrorExt for E {}
-
-#[derive(Debug)]
-pub enum Error {
-    Io {
-        source: std::io::Error,
-        location: &'static std::panic::Location<'static>,
-    },
-    ProstDecode {
-        source: prost::DecodeError,
-        location: &'static std::panic::Location<'static>,
-    },
-    Json {
-        source: serde_json::Error,
-        location: &'static std::panic::Location<'static>,
-    },
-    QueryError {
-        source: query::QueryError,
-        location: &'static std::panic::Location<'static>,
-    },
-    Any {
-        source: Box<dyn std::error::Error + 'static>,
-        location: &'static std::panic::Location<'static>,
-    },
-}
-
-impl Error {
-    fn location(&self) -> &'static std::panic::Location<'static> {
-        match self {
-            Error::Io { location, .. } => location,
-            Error::ProstDecode { location, .. } => location,
-            Error::Json { location, .. } => location,
-            Error::Any { location, .. } => location,
-            Error::QueryError { location, .. } => location,
-        }
-    }
-
-    #[track_caller]
-    fn any(source: Box<dyn std::error::Error + 'static>) -> Self {
-        Error::Any {
-            source,
-            location: std::panic::Location::caller(),
-        }
-    }
-}
-
-impl From<std::io::Error> for Error {
-    #[track_caller]
-    fn from(value: std::io::Error) -> Self {
-        Self::Io {
-            source: value,
-            location: std::panic::Location::caller(),
-        }
-    }
-}
-
-impl From<prost::DecodeError> for Error {
-    #[track_caller]
-    fn from(value: prost::DecodeError) -> Self {
-        Self::ProstDecode {
-            source: value,
-            location: std::panic::Location::caller(),
-        }
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    #[track_caller]
-    fn from(value: serde_json::Error) -> Self {
-        Self::Json {
-            source: value,
-            location: std::panic::Location::caller(),
-        }
-    }
-}
-
-impl From<query::QueryError> for Error {
-    #[track_caller]
-    fn from(value: query::QueryError) -> Self {
-        Self::QueryError {
-            source: value,
-            location: std::panic::Location::caller(),
-        }
-    }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Io { source, .. } => source.fmt(f),
-            Error::ProstDecode { source, .. } => source.fmt(f),
-            Error::Json { source, .. } => source.fmt(f),
-            Error::Any { source, .. } => source.fmt(f),
-            Error::QueryError { source, .. } => source.fmt(f),
-        }
-    }
-}
-
-impl StackError for Error {
-    fn format_stack(&self, layer: usize, buf: &mut Vec<String>) {
-        let location = self.location();
-        let message = format!(
-            "{}:{} , at {}:{}",
-            layer,
-            self,
-            location.file(),
-            location.line()
-        );
-        buf.push(message);
-    }
-
-    fn next(&self) -> Option<&dyn StackError> {
-        match self {
-            Error::QueryError { source, .. } => Some(source),
-            _ => None,
-        }
-    }
-
-    fn last(&self) -> &dyn StackError
-    where
-        Self: Sized,
-    {
-        let Some(mut result) = self.next() else {
-            return self;
-        };
-        while let Some(err) = result.next() {
-            result = err;
-        }
-        result
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::Io { source, .. } => Some(source),
-            Error::ProstDecode { source, .. } => Some(source),
-            Error::Json { source, .. } => Some(source),
-            Error::QueryError { source, .. } => Some(source),
-            Error::Any { source, .. } => Some(source.as_ref()),
-        }
-    }
-}
-
 fn deserialize_codegen_request(data: &[u8]) -> Result<plugin::GenerateRequest, prost::DecodeError> {
     plugin::GenerateRequest::decode(data)
 }
 
 fn serialize_codegen_response(response: &plugin::GenerateResponse) -> Vec<u8> {
     response.encode_to_vec()
-}
-
-pub(crate) fn normalize_str(value: &str) -> String {
-    use regex_lite::Regex;
-    use std::sync::LazyLock;
-    static IDENT_PATTERN: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r#"[^a-zA-Z0-9_]"#).unwrap());
-
-    let value = value.replace("-", "_");
-    let value = value.replace(":", "_");
-    let value = value.replace("/", "_");
-    let value = IDENT_PATTERN.replace_all(&value, "");
-    value.to_string()
-}
-
-pub(crate) fn value_ident(ident: &str) -> syn::Ident {
-    let ident = normalize_str(ident).to_case(Case::Pascal);
-    quote::format_ident!("{}", ident)
-}
-
-pub(crate) fn field_ident(ident: &str) -> syn::Ident {
-    let ident = normalize_str(ident).to_case(Case::Snake);
-    const RAW_IDENTIFIER_EXCEPTIONS: &[&str] = &["crate", "self", "super", "Self"];
-    const KEYWORDS: &[&str] = &[
-        "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
-        "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
-        "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "union",
-        "unsafe", "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box",
-        "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
-        "gen",
-    ];
-
-    if RAW_IDENTIFIER_EXCEPTIONS.contains(&ident.as_str()) {
-        quote::format_ident!("{}_", ident)
-    } else if KEYWORDS.contains(&ident.as_str()) {
-        syn::Ident::new_raw(&ident, proc_macro2::Span::call_site())
-    } else {
-        quote::format_ident!("{}", ident)
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize, Default)]
-#[serde(default)]
-struct OverrideType {
-    /// Override db type
-    db_type: Option<String>,
-    /// Override column name
-    column: Option<String>,
-    /// Override Rust type
-    rs_type: String,
-    /// Rust type's slice if have
-    rs_slice: Option<String>,
-    /// Marker is copy cheap
-    copy_cheap: bool,
-    /// Marker the type implements `Default`, so params structs using it can derive it
-    can_default: bool,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(default)]
-struct Config {
-    output: String,
-    db_crate: db_crates::DbCrate,
-    api: Option<String>,
-    query_parameter_limit: usize,
-    overrides: Vec<OverrideType>,
-    debug: bool,
-    #[serde(flatten)]
-    return_row_attributes: query::ReturnRowAttributes,
-    enum_derives: Vec<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            output: "queries.rs".into(),
-            db_crate: Default::default(),
-            api: None,
-            query_parameter_limit: 1,
-            overrides: Default::default(),
-            debug: false,
-            return_row_attributes: Default::default(),
-            enum_derives: Vec::new(),
-        }
-    }
-}
-
-impl Config {
-    fn from_option(buf: &[u8]) -> Result<Self, serde_json::Error> {
-        serde_json::from_slice(buf)
-    }
-
-    fn validate(&self, queries: &[Query]) -> Result<(), Error> {
-        if self.api.as_deref() == Some("builder") {
-            return Err(Error::any(
-                "the builder API was removed; only params_struct is generated".into(),
-            ));
-        }
-
-        if let Some(query) = queries
-            .iter()
-            .find(|query| !self.db_crate.supports(query.annotation))
-        {
-            return Err(Error::any(
-                format!(
-                    "params_struct does not support {} with {} ({}).",
-                    query.annotation, self.db_crate, query.query_name
-                )
-                .into(),
-            ));
-        }
-
-        Ok(())
-    }
-}
-
-fn apply_overrides(config: &Config, db_type: &mut query::DbTypeMap) -> Result<(), Error> {
-    for override_type in &config.overrides {
-        let owned_type = syn::parse_str::<syn::Type>(&override_type.rs_type)
-            .map_err(|e| Error::any(e.into()))?;
-        let slice_type = override_type
-            .rs_slice
-            .as_deref()
-            .map(syn::parse_str::<syn::Type>)
-            .transpose()
-            .map_err(|e| Error::any(e.into()))?;
-
-        let rs_type = RsType::new(owned_type, slice_type, override_type.copy_cheap)
-            .with_can_default(override_type.can_default);
-        match (
-            override_type.db_type.as_deref(),
-            override_type.column.as_deref(),
-        ) {
-            (None, Some(column)) => db_type.insert_column_type(column, rs_type),
-            (Some(db_type_name), None) => db_type.insert_db_type(db_type_name, rs_type),
-            (Some(_), Some(_)) => {
-                let message = "Cannot override both db_type and column name at the same time.";
-                return Err(Error::any(message.into()));
-            }
-            (None, None) => {
-                let message = "Must override either db_type or column name.";
-                return Err(Error::any(message.into()));
-            }
-        }
-    }
-    Ok(())
 }
 
 fn generate_comment(sqlc_version: &str) -> String {
@@ -379,6 +56,44 @@ pub fn try_main() -> Result<(), Error> {
     stdin.read_to_end(&mut buffer)?;
 
     let request = deserialize_codegen_request(&buffer)?;
+    let response = generate(&request, buffer)?;
+    let serialized_response = serialize_codegen_response(&response);
+
+    std::io::stdout().write_all(&serialized_response)?;
+
+    Ok(())
+}
+
+/// Catalog enums and backend support items are emitted outside the per-query registry, so the
+/// assembled file is the only place every top-level item is visible at once.
+fn validate_unique_items(file: &syn::File) -> Result<(), Error> {
+    let mut seen = std::collections::BTreeMap::new();
+    for item in &file.items {
+        let (kind, ident) = match item {
+            syn::Item::Struct(item) => ("struct", &item.ident),
+            syn::Item::Enum(item) => ("enum", &item.ident),
+            syn::Item::Trait(item) => ("trait", &item.ident),
+            syn::Item::Type(item) => ("type alias", &item.ident),
+            syn::Item::Const(item) => ("const", &item.ident),
+            syn::Item::Static(item) => ("static", &item.ident),
+            syn::Item::Fn(item) => ("fn", &item.sig.ident),
+            syn::Item::Mod(item) => ("module", &item.ident),
+            _ => continue,
+        };
+        unique::insert_unique(&mut seen, ident.to_string(), kind).map_err(|first| {
+            Error::any(
+                format!("generated output defines `{ident}` twice ({first} and {kind}); rename the query, switch field, or database enum")
+                    .into(),
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn generate(
+    request: &plugin::GenerateRequest,
+    input: Vec<u8>,
+) -> Result<plugin::GenerateResponse, Error> {
     let config = if request.plugin_options.is_empty() {
         Config::default()
     } else {
@@ -398,6 +113,7 @@ pub fn try_main() -> Result<(), Error> {
         .catalog
         .as_ref()
         .map(collect_enums)
+        .transpose()?
         .unwrap_or_default();
 
     for e in &mut defined_enums {
@@ -432,21 +148,39 @@ pub fn try_main() -> Result<(), Error> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut queries = request
+    let settings = request
+        .settings
+        .as_ref()
+        .ok_or_else(|| Error::any("dynamic filters require sqlc engine settings".into()))?;
+    let dialect = dynfilter::Dialect::from_engine(&settings.engine)
+        .map_err(|message| Error::any(message.into()))?;
+    let catalog = request
+        .catalog
+        .as_ref()
+        .map(dynfilter::resolve::Catalog::from_plugin)
+        .unwrap_or_default();
+    let queries = request
         .queries
         .iter()
-        .map(|q| Query::from_query(&db_type, q))
+        .map(|q| {
+            Query::parse(
+                &db_type,
+                q,
+                dialect,
+                &catalog,
+                config.db_crate.apply_static_slices(),
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let static_slices = config.db_crate.apply_static_slices();
-    for query in &mut queries {
-        query.apply_dynfilter();
-        if static_slices && query.dynfilter().is_none() {
-            query.apply_static_slices();
-        }
-    }
-
     config.validate(&queries)?;
+    let prepared = config
+        .dynfilters
+        .prepared
+        .then(|| {
+            dynfilter::prepared::Prepared::enumerate(&queries, config.db_crate, &config.dynfilters)
+        })
+        .transpose()?;
 
     let enums_ts = defined_enums
         .iter()
@@ -459,7 +193,10 @@ pub fn try_main() -> Result<(), Error> {
     let queries_tt = config.db_crate.generate_queries(
         &returning_rows,
         &queries,
-        config.query_parameter_limit,
+        &db_crates::GenerateOptions {
+            query_parameter_limit: config.query_parameter_limit,
+            prepared: prepared.as_ref(),
+        },
     )?;
     let tt = quote::quote! {
         #init_tt
@@ -469,6 +206,7 @@ pub fn try_main() -> Result<(), Error> {
     };
     let mut response = plugin::GenerateResponse::default();
     let ast = syn::parse2(tt).map_err(|e| Error::any(e.into()))?;
+    validate_unique_items(&ast)?;
     let contents = format!(
         "{}\n\n{}",
         generate_comment(&request.sqlc_version),
@@ -489,166 +227,12 @@ pub fn try_main() -> Result<(), Error> {
 
         response.files.push(plugin::File {
             name: "input.bin".into(),
-            contents: buffer,
+            contents: input,
         });
     }
 
-    let serialized_response = serialize_codegen_response(&response);
-
-    std::io::stdout().write_all(&serialized_response)?;
-
-    Ok(())
+    Ok(response)
 }
 
 #[cfg(test)]
-mod identifier_tests {
-    use super::*;
-
-    #[test]
-    fn escapes_keyword_field_identifiers() {
-        assert_eq!(field_ident("type").to_string(), "r#type");
-        assert_eq!(field_ident("union").to_string(), "r#union");
-        assert_eq!(field_ident("crate").to_string(), "crate_");
-        assert_eq!(field_ident("id").to_string(), "id");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_db_crates_and_rejects_legacy_api() {
-        let config = Config::from_option(br#"{"api":"builder"}"#).unwrap();
-        assert_eq!(
-            config.validate(&[]).unwrap_err().to_string(),
-            "the builder API was removed; only params_struct is generated"
-        );
-
-        assert_eq!(
-            Config::from_option(br#"{"api":"params_struct"}"#)
-                .unwrap()
-                .api
-                .as_deref(),
-            Some("params_struct")
-        );
-    }
-
-    #[test]
-    fn parses_rusqlite_db_crate() {
-        assert!(matches!(
-            Config::from_option(br#"{"db_crate":"rusqlite"}"#)
-                .unwrap()
-                .db_crate,
-            db_crates::DbCrate::Rusqlite
-        ));
-        assert!(matches!(
-            Config::from_option(br#"{"db_crate":"tokio-postgres"}"#)
-                .unwrap()
-                .db_crate,
-            db_crates::DbCrate::Postgres(db_crates::Postgres::Tokio)
-        ));
-        assert!(matches!(
-            Config::from_option(br#"{"db_crate":"deadpool-postgres"}"#)
-                .unwrap()
-                .db_crate,
-            db_crates::DbCrate::Postgres(db_crates::Postgres::Deadpool)
-        ));
-        assert!(matches!(
-            Config::from_option(br#"{"db_crate":"postgres"}"#)
-                .unwrap()
-                .db_crate,
-            db_crates::DbCrate::Postgres(db_crates::Postgres::Sync)
-        ));
-    }
-
-    #[test]
-    fn applies_override_types_and_validates_targets() {
-        let config = Config::from_option(
-            br#"{"overrides":[{"db_type":"timestamp","rs_type":"crate::Timestamp","copy_cheap":true,"can_default":true}]}"#,
-        )
-        .unwrap();
-        let mut db_type = config.db_crate.db_type_map();
-        apply_overrides(&config, &mut db_type).unwrap();
-        assert!(db_type.find_rs_type("timestamp").unwrap().can_default());
-
-        for (options, message) in [
-            (
-                br#"{"overrides":[{"db_type":"timestamp","column":".events.timestamp","rs_type":"crate::Timestamp"}]}"#
-                    .as_slice(),
-                "Cannot override both db_type and column name at the same time.",
-            ),
-            (
-                br#"{"overrides":[{"rs_type":"crate::Timestamp"}]}"#.as_slice(),
-                "Must override either db_type or column name.",
-            ),
-        ] {
-            let config = Config::from_option(options).unwrap();
-            let mut db_type = config.db_crate.db_type_map();
-            assert_eq!(apply_overrides(&config, &mut db_type).unwrap_err().to_string(), message);
-        }
-    }
-
-    #[test]
-    fn rejects_unsupported_params_struct_annotations() {
-        let mut query = Query::from_query(
-            &db_crates::DbCrate::Rusqlite.db_type_map(),
-            &plugin::Query {
-                text: "DELETE FROM authors".to_string(),
-                name: "DeleteAuthors".to_string(),
-                cmd: ":execresult".to_string(),
-                columns: Vec::new(),
-                params: Vec::new(),
-                comments: Vec::new(),
-                filename: String::new(),
-                insert_into_table: None,
-            },
-        )
-        .unwrap();
-        let config = Config::from_option(br#"{"db_crate":"rusqlite"}"#).unwrap();
-        assert_eq!(
-            config
-                .validate(std::slice::from_ref(&query))
-                .unwrap_err()
-                .to_string(),
-            "params_struct does not support :execresult with rusqlite (DeleteAuthors)."
-        );
-
-        query.annotation = query::Annotation::CopyFrom;
-        assert_eq!(
-            config
-                .validate(std::slice::from_ref(&query))
-                .unwrap_err()
-                .to_string(),
-            "params_struct does not support :copyfrom with rusqlite (DeleteAuthors)."
-        );
-
-        query.annotation = query::Annotation::ExecLastId;
-        let config = Config::from_option(br#"{"db_crate":"tokio-postgres"}"#).unwrap();
-        assert_eq!(
-            config
-                .validate(std::slice::from_ref(&query))
-                .unwrap_err()
-                .to_string(),
-            "params_struct does not support :execlastid with tokio-postgres (DeleteAuthors)."
-        );
-
-        let config = Config::from_option(br#"{"db_crate":"deadpool-postgres"}"#).unwrap();
-        assert_eq!(
-            config
-                .validate(std::slice::from_ref(&query))
-                .unwrap_err()
-                .to_string(),
-            "params_struct does not support :execlastid with deadpool-postgres (DeleteAuthors)."
-        );
-
-        let config = Config::from_option(br#"{"db_crate":"postgres"}"#).unwrap();
-        assert_eq!(
-            config
-                .validate(std::slice::from_ref(&query))
-                .unwrap_err()
-                .to_string(),
-            "params_struct does not support :execlastid with postgres (DeleteAuthors)."
-        );
-    }
-}
+mod generate_tests;

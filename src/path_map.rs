@@ -11,12 +11,7 @@ impl<T> PathMap<T> {
     }
 
     pub(crate) fn find_best_match(&self, path: &str) -> Option<&T> {
-        sub_path_iter(path).find_map(|sub_path| {
-            self.paths
-                .iter()
-                .find(|(p, _v)| p.as_str() == sub_path)
-                .map(|(_p, v)| v)
-        })
+        sub_path_iter(path).find_map(|sub_path| self.paths.get(sub_path))
     }
 }
 
@@ -52,20 +47,6 @@ fn suffixes(path: &str) -> impl Iterator<Item = &str> {
     .skip(1)
 }
 
-/// Return all prefixes
-///
-/// prefixes("authors.a.b") -> ["authors.a","authors"]
-///
-#[allow(unused)]
-fn prefixes(path: &str) -> impl Iterator<Item = &str> {
-    iter::successors(Some(path), |s| {
-        s.rsplit_once('.')
-            .map(|(head, _tail)| head)
-            .filter(|p| !p.is_empty())
-    })
-    .skip(1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,15 +76,6 @@ mod tests {
 
         assert_eq!(it.next(), Some(".a.b"));
         assert_eq!(it.next(), Some(".b"));
-        assert_eq!(it.next(), None);
-    }
-
-    #[test]
-    fn test_prefixes() {
-        let mut it = prefixes("authors.a.b");
-
-        assert_eq!(it.next(), Some("authors.a"));
-        assert_eq!(it.next(), Some("authors"));
         assert_eq!(it.next(), None);
     }
 }

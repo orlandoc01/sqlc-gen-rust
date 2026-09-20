@@ -1,6 +1,6 @@
 use crate::query::Annotation;
 
-use super::{Function, params_common};
+use super::{Function, ParamsGenerator as _, params_common};
 
 pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
     let paths = &function.paths;
@@ -17,7 +17,21 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
     let iterator_lifetime = &paths.iterator.lifetime;
     let iterator_client_ref = &paths.iterator.client_ref;
     let helper_function = make_helper(function, &helper, &paths.to_sql);
-    let setup = quote::quote! { let (sql, values) = #helper(&params); };
+    // A cache-eligible deadpool query goes through the client's statement cache; the plain
+    // clients have none, so they keep passing the text.
+    let cached = function.parts.prepared.is_some() && function.backend.caches_statements();
+    let sql = function.parts.sql_ref();
+    let (setup, statement) = if cached {
+        (
+            quote::quote! {
+                let (sql, values) = #helper(&params);
+                let statement = #client.prepare_cached(#sql) #await_token?;
+            },
+            quote::quote! { &statement },
+        )
+    } else {
+        (quote::quote! { let (sql, values) = #helper(&params); }, sql)
+    };
     let functions = match function.query.annotation {
         Annotation::One => {
             let row = function.row.struct_ident();
@@ -25,12 +39,12 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
             quote::quote! {
                 pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<#row, #error> {
                     #setup
-                    let row = #client.query_one(sql.as_str(), &values) #await_token?;
+                    let row = #client.query_one(#statement, &values) #await_token?;
                     #row::from_row(&row)
                 }
                 pub #async_token fn #opt #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<Option<#row>, #error> {
                     #setup
-                    #client.query_opt(sql.as_str(), &values) #await_token?.map(|row| #row::from_row(&row)).transpose()
+                    #client.query_opt(#statement, &values) #await_token?.map(|row| #row::from_row(&row)).transpose()
                 }
             }
         }
@@ -42,25 +56,25 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
             quote::quote! {
                 pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<Vec<#row>, #error> {
                     #setup
-                    let rows = #client.query(sql.as_str(), &values) #await_token?;
+                    let rows = #client.query(#statement, &values) #await_token?;
                     rows.iter().map(#row::from_row).collect()
                 }
                 pub #async_token fn #iterator #iterator_lifetime(#client: #iterator_client_ref impl #generic_client #arguments) -> Result<#row_iter, #error> {
                     #setup
-                    #client.query_raw(sql.as_str(), values) #await_token
+                    #client.query_raw(#statement, values) #await_token
                 }
             }
         }
         Annotation::Exec => quote::quote! {
             pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<(), #error> {
                 #setup
-                #client.execute(sql.as_str(), &values) #await_token.map(|_| ())
+                #client.execute(#statement, &values) #await_token.map(|_| ())
             }
         },
         Annotation::ExecRows | Annotation::ExecResult => quote::quote! {
             pub #async_token fn #name #plain_lifetime(#client: #plain_client_ref impl #generic_client #arguments) -> Result<u64, #error> {
                 #setup
-                #client.execute(sql.as_str(), &values) #await_token
+                #client.execute(#statement, &values) #await_token
             }
         },
         Annotation::ExecLastId
@@ -75,6 +89,14 @@ pub(super) fn functions(function: &Function<'_>) -> proc_macro2::TokenStream {
     }
 }
 
+/// The helper hands back a `&'static str` from the state table or a rendered `String`.
+fn sql_type(function: &Function<'_>) -> proc_macro2::TokenStream {
+    match function.parts.states_ident() {
+        Some(_) => quote::quote! { &'static str },
+        None => quote::quote! { String },
+    }
+}
+
 fn make_helper(
     function: &Function<'_>,
     helper: &syn::Ident,
@@ -83,9 +105,7 @@ fn make_helper(
     let params = params_common::params_type(function.query);
     let lifetime = function
         .query
-        .fields
-        .iter()
-        .any(|field| field.scalar_type().need_params_struct_lifetime())
+        .params_need_lifetime()
         .then(|| syn::Lifetime::new("'p", proc_macro2::Span::call_site()));
     let generics = lifetime
         .as_ref()
@@ -98,7 +118,8 @@ fn make_helper(
         Some(lifetime) => quote::quote! {&#lifetime},
         None => quote::quote! {&},
     };
-    let dynamic_setup = params_common::dynamic_plan_setup(function.query, &function.parts.constant);
+    let dynamic_setup = params_common::dynamic_plan_setup(function.query, function.parts);
+    let sql = sql_type(function);
     let unknown_bind_arm = params_common::unknown_bind_arm();
     let binds = params_common::dynamic_binds(function.query)
         .into_iter()
@@ -111,17 +132,22 @@ fn make_helper(
             }
             let name = &bind.field.name;
             quote::quote! { #pattern => &params.#name as _, }
-        });
+        })
+        .collect::<Vec<_>>();
+    let value = if binds.is_empty() {
+        quote::quote! {|_| -> &(dyn #to_sql + ::std::marker::Sync) {
+            unreachable!("dynfilter bind plan referenced an unknown argument")
+        }}
+    } else {
+        quote::quote! {|bind| match bind {
+            #(#binds)*
+            #unknown_bind_arm
+        }}
+    };
     quote::quote! {
-        fn #helper #generics(params: #params_ref) -> (String, Vec<#values_ref (dyn #to_sql + ::std::marker::Sync)>) {
+        fn #helper #generics(params: #params_ref) -> (#sql, Vec<#values_ref (dyn #to_sql + ::std::marker::Sync)>) {
             #dynamic_setup
-            let values: Vec<&(dyn #to_sql + ::std::marker::Sync)> = binds
-                .iter()
-                .map(|bind| match bind {
-                    #(#binds)*
-                    #unknown_bind_arm
-                })
-                .collect();
+            let values: Vec<&(dyn #to_sql + ::std::marker::Sync)> = binds.iter().copied().map(#value).collect();
             (sql, values)
         }
     }

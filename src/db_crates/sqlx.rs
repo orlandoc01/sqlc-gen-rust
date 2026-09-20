@@ -1,15 +1,14 @@
-use crate::query::{DbEnum, Query, RsType, TypeMapper};
+use crate::query::{DbEnum, Query, RsType, SimpleTypeMap, TypeMapper};
 
-use super::{make_enum, postgres_types};
+use super::{make_enum, postgres_types, type_map};
 
+/// MySQL integer widths and signedness come from the column, not the type name alone.
 #[derive(Default)]
-pub struct MySqlTypeMap {
-    type_map: std::collections::BTreeMap<String, RsType>,
-}
+pub struct MySqlTypeMap(SimpleTypeMap);
 
 impl TypeMapper for MySqlTypeMap {
     fn find_rs_type(&self, db_type_name: &str) -> Option<&RsType> {
-        self.type_map.get(db_type_name)
+        self.0.find_rs_type(db_type_name)
     }
 
     fn find_column_type(&self, column: &crate::plugin::Column) -> Option<RsType> {
@@ -48,18 +47,17 @@ impl TypeMapper for MySqlTypeMap {
     }
 
     fn insert_db_type(&mut self, db_type: &str, rs_type: RsType) {
-        self.type_map.insert(db_type.to_string(), rs_type);
+        self.0.insert_db_type(db_type, rs_type);
     }
 }
 
+/// SQLite resolves a declared type by affinity when no exact mapping exists.
 #[derive(Default)]
-pub struct SqliteTypeMap {
-    type_map: std::collections::BTreeMap<String, RsType>,
-}
+pub struct SqliteTypeMap(SimpleTypeMap);
 
 impl TypeMapper for SqliteTypeMap {
     fn find_rs_type(&self, db_type_name: &str) -> Option<&RsType> {
-        self.type_map.get(db_type_name)
+        self.0.find_rs_type(db_type_name)
     }
 
     fn find_column_type(&self, column: &crate::plugin::Column) -> Option<RsType> {
@@ -72,7 +70,6 @@ impl TypeMapper for SqliteTypeMap {
             return Some(rs_type.clone());
         };
 
-        // Rust type determined by affinity
         // See https://www.sqlite.org/datatype3.html
         if col_type.contains("int") {
             return self.find_rs_type("int").cloned();
@@ -90,7 +87,7 @@ impl TypeMapper for SqliteTypeMap {
     }
 
     fn insert_db_type(&mut self, db_type: &str, rs_type: RsType) {
-        self.type_map.insert(db_type.to_string(), rs_type);
+        self.0.insert_db_type(db_type, rs_type);
     }
 }
 
@@ -125,7 +122,7 @@ const SQLX_POSTGRES_DEFAULT: &[(&str, Option<&str>, &[&str])] = &[
 const MYSQL_COPY_CHEAP: &[(&str, &[&str])] = &[
     ("bool", &["bool", "boolean"]),
     // int types are handled in `find_column_type`
-    ("int16", &["year"]),
+    ("u16", &["year"]),
     ("f32", &["float"]),
     ("f64", &["double", "double precision", "real"]),
     ("sqlx::mysql::types::MySqlTime", &["time"]),
@@ -224,6 +221,14 @@ impl Sqlx {
         }
     }
 
+    pub(crate) fn connection_ident(&self) -> syn::Type {
+        match self {
+            Self::Postgres => syn::parse_quote! {sqlx::PgConnection},
+            Self::MySql => syn::parse_quote! {sqlx::MySqlConnection},
+            Self::Sqlite => syn::parse_quote! {sqlx::SqliteConnection},
+        }
+    }
+
     pub(crate) fn row_type(&self) -> syn::Type {
         match self {
             Self::Postgres => syn::parse_quote! {sqlx::postgres::PgRow},
@@ -256,29 +261,4 @@ impl Sqlx {
             }).collect(),
         }
     }
-}
-
-pub(super) fn type_map(
-    mut map: Box<dyn TypeMapper>,
-    copy_cheap_types: &[(&str, &[&str])],
-    default_types: &[(&str, Option<&str>, &[&str])],
-) -> crate::query::DbTypeMap {
-    for (owned_type, db_types) in copy_cheap_types {
-        let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
-        for db_type in *db_types {
-            map.insert_db_type(db_type, RsType::new(owned_type.clone(), None, true));
-        }
-    }
-    for (owned_type, slice_type, db_types) in default_types {
-        let owned_type = syn::parse_str::<syn::Type>(owned_type).expect("Failed to parse type");
-        let slice_type = slice_type
-            .map(|typ| syn::parse_str::<syn::Type>(typ).expect("Failed to parse slice type"));
-        for db_type in *db_types {
-            map.insert_db_type(
-                db_type,
-                RsType::new(owned_type.clone(), slice_type.clone(), false),
-            );
-        }
-    }
-    crate::query::DbTypeMap::from_dyn(map)
 }

@@ -3,10 +3,10 @@ use crate::{
         DbCrate, Postgres, Sqlx,
         params_common::ParamsGenerator,
         rusqlite::Rusqlite,
-        test_support::{column, identifier, query},
+        test_support::{self, column, dialect, identifier, parsed, query},
     },
     plugin,
-    query::{Annotation, Query, ReturnRowAttributes, ReturningRows},
+    query::{Annotation, Query},
 };
 
 fn generate(
@@ -14,29 +14,20 @@ fn generate(
     plugin_queries: Vec<plugin::Query>,
     catalog: Option<&plugin::Catalog>,
 ) -> Result<proc_macro2::TokenStream, crate::query::QueryError> {
-    let type_map = backend.db_type_map();
-    let (rows, queries): (Vec<_>, Vec<_>) = plugin_queries
-        .into_iter()
-        .map(|plugin_query| {
-            let row = ReturningRows::from_query(
-                &type_map,
-                &ReturnRowAttributes::default(),
-                catalog,
-                &plugin_query,
-            )
-            .unwrap();
-            let mut query = Query::from_query(&type_map, &plugin_query).unwrap();
-            query.apply_dynfilter();
-            (row, query)
-        })
-        .unzip();
-    backend.generate_queries(&rows, &queries, 1)
+    test_support::generate(
+        backend,
+        &backend.db_type_map(),
+        catalog,
+        &plugin_queries,
+        1,
+        None,
+    )
 }
 
 fn generated_functions(
     backend: DbCrate,
     query: &Query,
-) -> Vec<super::params_common::GeneratedFunction> {
+) -> Vec<super::params_common::GeneratedItem> {
     match backend {
         DbCrate::Sqlx(sqlx) => sqlx.generated_functions(query),
         DbCrate::Rusqlite => Rusqlite.generated_functions(query),
@@ -46,7 +37,13 @@ fn generated_functions(
 
 fn parsed_query(backend: DbCrate, annotation: Annotation, dynamic: bool) -> Query {
     let sql = if dynamic {
-        "SELECT id FROM authors WHERE TRUE\nAND id = @id -- :if @id"
+        match dialect(backend) {
+            crate::dynfilter::Dialect::PostgreSql => {
+                "SELECT id FROM authors WHERE id = $1 -- :if @id"
+            }
+            crate::dynfilter::Dialect::MySql => "SELECT id FROM authors WHERE id = ? -- :if @id",
+            crate::dynfilter::Dialect::Sqlite => "SELECT id FROM authors WHERE id = ?1 -- :if @id",
+        }
     } else {
         "SELECT id FROM authors WHERE id = $1"
     };
@@ -57,21 +54,9 @@ fn parsed_query(backend: DbCrate, annotation: Annotation, dynamic: bool) -> Quer
         vec![column("id", false)],
         vec![(1, column("id", false))],
     );
-    let mut query = Query::from_query(&backend.db_type_map(), &plugin_query).unwrap();
-    query.apply_dynfilter();
-    query
-}
-
-fn backends() -> [DbCrate; 7] {
-    [
-        DbCrate::Sqlx(Sqlx::Postgres),
-        DbCrate::Sqlx(Sqlx::MySql),
-        DbCrate::Sqlx(Sqlx::Sqlite),
-        DbCrate::Rusqlite,
-        DbCrate::Postgres(Postgres::Sync),
-        DbCrate::Postgres(Postgres::Tokio),
-        DbCrate::Postgres(Postgres::Deadpool),
-    ]
+    parsed(backend, &backend.db_type_map(), None, &[plugin_query])
+        .1
+        .remove(0)
 }
 
 fn assert_collision(
@@ -89,7 +74,7 @@ fn assert_collision(
 
 #[test]
 fn rejects_optional_helper_collisions_on_every_backend() {
-    for backend in backends() {
+    for backend in DbCrate::ALL {
         assert_collision(
             backend,
             vec![
@@ -117,7 +102,7 @@ fn rejects_optional_helper_collisions_on_every_backend() {
 
 #[test]
 fn rejects_normalized_query_name_collisions_on_every_backend() {
-    for backend in backends() {
+    for backend in DbCrate::ALL {
         assert_collision(
             backend,
             vec![
@@ -189,13 +174,6 @@ fn reserves_prepare_helpers_only_for_postgres_drivers() {
 
 #[test]
 fn rejects_generated_constant_and_dynamic_plan_collisions_on_every_backend() {
-    let dynamic = query(
-        "SearchEntries",
-        ":many",
-        "SELECT id FROM entries WHERE TRUE\nAND id = @id -- :if @id",
-        vec![column("id", false)],
-        vec![(1, column("id", false))],
-    );
     let static_query = query(
         "SearchEntriesDyn",
         ":many",
@@ -204,7 +182,24 @@ fn rejects_generated_constant_and_dynamic_plan_collisions_on_every_backend() {
         Vec::new(),
     );
 
-    for backend in backends() {
+    for backend in DbCrate::ALL {
+        let dynamic = query(
+            "SearchEntries",
+            ":many",
+            match dialect(backend) {
+                crate::dynfilter::Dialect::PostgreSql => {
+                    "SELECT id FROM entries WHERE id = $1 -- :if @id"
+                }
+                crate::dynfilter::Dialect::MySql => {
+                    "SELECT id FROM entries WHERE id = ? -- :if @id"
+                }
+                crate::dynfilter::Dialect::Sqlite => {
+                    "SELECT id FROM entries WHERE id = ?1 -- :if @id"
+                }
+            },
+            vec![column("id", false)],
+            vec![(1, column("id", false))],
+        );
         for queries in [
             vec![dynamic.clone(), static_query.clone()],
             vec![static_query.clone(), dynamic.clone()],
@@ -251,7 +246,7 @@ fn generated_functions_match_backend_annotation_support() {
         Annotation::CopyFrom,
     ];
 
-    for backend in backends() {
+    for backend in DbCrate::ALL {
         for annotation in annotations {
             for dynamic in [false, true] {
                 let query = parsed_query(backend, annotation, dynamic);
@@ -353,4 +348,38 @@ fn postgres_drivers_reject_multidimensional_array_parameters_and_rows() {
             "GetEmbeddedMatrix",
         );
     }
+}
+
+/// The fixture resolves gated-join references against the supplied catalog the way
+/// `generate` does: `email` belongs only to the ungated table, so it needs no gate.
+#[test]
+fn fixture_resolves_gated_joins_against_the_catalog() {
+    let table = |name: &str, columns: &[&str]| plugin::Table {
+        rel: Some(identifier(name)),
+        columns: columns.iter().map(|name| column(name, false)).collect(),
+        comment: String::new(),
+    };
+    let catalog = plugin::Catalog {
+        schemas: vec![plugin::Schema {
+            tables: vec![
+                table("users", &["id", "email"]),
+                table("orders", &["id", "user_id", "created_at"]),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let plugin_query = query(
+        "ListUsers",
+        ":many",
+        "SELECT u.id FROM users u\nLEFT JOIN orders o ON o.user_id = u.id -- :flag @with_orders\nWHERE email <> ''\nORDER BY u.id",
+        vec![column("id", false)],
+        Vec::new(),
+    );
+    generate(
+        DbCrate::Sqlx(Sqlx::Postgres),
+        vec![plugin_query],
+        Some(&catalog),
+    )
+    .unwrap();
 }

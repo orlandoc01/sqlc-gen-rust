@@ -1,10 +1,10 @@
 use crate::{
     db_crates::{
-        Postgres, params_common,
-        test_support::{column, identifier, query},
+        DbCrate, Postgres, params_common,
+        test_support::{column, generate, identifier, query},
     },
     plugin,
-    query::{self, EmbeddedTable, Query, ReturnRowAttributes, ReturningRows},
+    query::{self, EmbeddedTable, ReturningRows},
 };
 
 fn generated_tokens(
@@ -22,11 +22,15 @@ fn generated_tokens_with_type_map(
     query: plugin::Query,
     query_parameter_limit: usize,
 ) -> proc_macro2::TokenStream {
-    let row =
-        ReturningRows::from_query(type_map, &ReturnRowAttributes::default(), None, &query).unwrap();
-    let mut query = Query::from_query(type_map, &query).unwrap();
-    query.apply_dynfilter();
-    params_common::generate_queries(&backend, &[row], &[query], query_parameter_limit).unwrap()
+    generate(
+        DbCrate::Postgres(backend),
+        type_map,
+        None,
+        &[query],
+        query_parameter_limit,
+        None,
+    )
+    .unwrap()
 }
 
 fn generated(backend: Postgres, query: plugin::Query, query_parameter_limit: usize) -> String {
@@ -84,7 +88,7 @@ fn generates_dynamic_functions_without_statements() {
             query(
                 "SearchAuthors",
                 ":many",
-                "SELECT id FROM authors WHERE TRUE\nAND id = $1 -- :if @id",
+                "SELECT id FROM authors WHERE id = $1 -- :if @id",
                 vec![column("id", false)],
                 vec![(1, column("id", false))],
             ),
@@ -132,7 +136,7 @@ fn sync_dynamic_many_uses_iter_and_the_dynamic_helper() {
         query(
             "SearchAuthors",
             ":many",
-            "SELECT id FROM authors WHERE TRUE\nAND id = $1 -- :if @id",
+            "SELECT id FROM authors WHERE id = $1 -- :if @id",
             vec![column("id", false)],
             vec![(1, column("id", false))],
         ),
