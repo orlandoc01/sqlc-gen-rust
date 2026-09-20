@@ -1,6 +1,13 @@
 use convert_case::{Case, Casing as _};
 
-use crate::{query::Query, value_ident};
+use crate::{
+    dynfilter::{
+        DynFilterInfo, Switch,
+        variants::{Expansion, State, Variant},
+    },
+    query::Query,
+    value_ident,
+};
 
 #[derive(Clone, Copy)]
 pub(crate) enum ParameterAccess {
@@ -17,15 +24,44 @@ impl ParameterAccess {
     }
 }
 
-pub(crate) struct QueryParts {
+pub(crate) struct QueryParts<'a> {
     pub(crate) constant: syn::Ident,
     pub(crate) params: proc_macro2::TokenStream,
     pub(crate) arguments: proc_macro2::TokenStream,
     pub(crate) access: ParameterAccess,
+    /// Present only for a cache-eligible query under `dynfilters.prepared`.
+    pub(crate) prepared: Option<PreparedParts<'a>>,
     taken: Vec<String>,
 }
 
-impl QueryParts {
+pub(crate) struct PreparedParts<'a> {
+    /// `X_VARIANTS`: every runtime-exact SQL text of the query.
+    pub(crate) variants_ident: syn::Ident,
+    /// `X_STATES`: the control-state lookup the call path uses instead of rendering.
+    pub(crate) states_ident: syn::Ident,
+    /// `prepare_x`: the per-query warm-up on statement-caching backends.
+    pub(crate) warmup_ident: syn::Ident,
+    pub(crate) variants: &'a [Variant],
+    pub(crate) states: Option<&'a [State]>,
+}
+
+impl<'a> QueryParts<'a> {
+    /// `sql` as a `&str`: the table hands out a `&'static str`, the renderer a `String`.
+    pub(crate) fn sql_ref(&self) -> proc_macro2::TokenStream {
+        match self.states_ident() {
+            Some(_) => quote::quote! {sql},
+            None => quote::quote! {&sql},
+        }
+    }
+
+    /// The `X_STATES` table when the call path looks its text up instead of building it.
+    pub(crate) fn states_ident(&self) -> Option<&syn::Ident> {
+        self.prepared
+            .as_ref()
+            .filter(|prepared| prepared.states.is_some())
+            .map(|prepared| &prepared.states_ident)
+    }
+
     pub(crate) fn local(&self, base: &str) -> syn::Ident {
         let mut name = base.to_string();
         while self.taken.contains(&name) {
@@ -35,7 +71,11 @@ impl QueryParts {
     }
 }
 
-pub(crate) fn query_parts(query: &Query, query_parameter_limit: usize) -> QueryParts {
+pub(crate) fn query_parts<'a>(
+    query: &Query,
+    query_parameter_limit: usize,
+    prepared: Option<&'a Expansion<'_>>,
+) -> QueryParts<'a> {
     let (access, taken) = if uses_params_struct(query, query_parameter_limit) {
         (ParameterAccess::Struct, Vec::new())
     } else {
@@ -47,8 +87,27 @@ pub(crate) fn query_parts(query: &Query, query_parameter_limit: usize) -> QueryP
         params: params_definition(query, query_parameter_limit),
         arguments: function_arguments(query, query_parameter_limit),
         access,
+        prepared: prepared.map(|prepared| PreparedParts {
+            variants_ident: variants_const_ident(query),
+            states_ident: states_const_ident(query),
+            warmup_ident: warmup_ident(query),
+            variants: &prepared.variants,
+            states: prepared.states.as_deref(),
+        }),
         taken,
     }
+}
+
+pub(crate) fn variants_const_ident(query: &Query) -> syn::Ident {
+    quote::format_ident!("{}_VARIANTS", query_const_ident(query))
+}
+
+pub(crate) fn states_const_ident(query: &Query) -> syn::Ident {
+    quote::format_ident!("{}_STATES", query_const_ident(query))
+}
+
+pub(crate) fn warmup_ident(query: &Query) -> syn::Ident {
+    quote::format_ident!("prepare_{}", query_function_ident(query))
 }
 
 pub(crate) fn query_const_ident(query: &Query) -> syn::Ident {
@@ -116,34 +175,87 @@ fn params_definition(query: &Query, query_parameter_limit: usize) -> proc_macro2
         let typ = field.scalar_type().to_params_struct_tokens(Some(&lifetime));
         quote::quote! {pub #name: #typ}
     });
-    let flags = query.dynfilter().into_iter().flat_map(|info| {
-        info.flag_params.iter().map(|flag| {
-            let name = crate::field_ident(&flag.name);
-            quote::quote! {pub #name: bool}
-        })
+    let flags = query
+        .dynfilter()
+        .into_iter()
+        .flat_map(|info| control_fields(query, info));
+    let enums = query.dynfilter().into_iter().flat_map(|info| {
+        info.switches
+            .iter()
+            .map(|switch| switch_enum(query, switch))
     });
 
-    if query
-        .fields
-        .iter()
-        .any(|field| field.scalar_type().need_params_struct_lifetime())
-    {
-        quote::quote! {
-            #derive
-            pub struct #params<#lifetime> {
-                #(#fields,)*
-                #(#flags,)*
-            }
-        }
-    } else {
-        quote::quote! {
-            #derive
-            pub struct #params {
-                #(#fields,)*
-                #(#flags,)*
-            }
+    let generics = query
+        .params_need_lifetime()
+        .then(|| quote::quote! {<#lifetime>});
+    quote::quote! {
+        #(#enums)*
+        #derive
+        pub struct #params #generics {
+            #(#fields,)*
+            #(#flags,)*
         }
     }
+}
+
+/// `(annotation name, field ident, type)` for every bool flag and switch enum field, in
+/// bind-slot order.
+pub(crate) fn control_field_types<'a>(
+    query: &'a Query,
+    info: &'a DynFilterInfo,
+) -> impl Iterator<Item = (&'a str, syn::Ident, proc_macro2::TokenStream)> + 'a {
+    info.flag_params
+        .iter()
+        .enumerate()
+        .filter_map(move |(index, flag)| match flag.switch {
+            None => Some((
+                flag.name.as_str(),
+                crate::field_ident(&flag.name),
+                quote::quote! {bool},
+            )),
+            // A switch's choices occupy contiguous slots, so its first slot is the one whose
+            // predecessor belongs to something else.
+            Some(switch) if index == 0 || info.flag_params[index - 1].switch != Some(switch) => {
+                let switch = &info.switches[switch];
+                let ident = switch_enum_ident(query, switch);
+                Some((
+                    switch.field.as_str(),
+                    crate::field_ident(&switch.field),
+                    quote::quote! {#ident},
+                ))
+            }
+            Some(_) => None,
+        })
+}
+
+fn control_fields<'a>(
+    query: &'a Query,
+    info: &'a DynFilterInfo,
+) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
+    control_field_types(query, info).map(|(_, name, typ)| quote::quote! {pub #name: #typ})
+}
+
+fn switch_enum(query: &Query, switch: &Switch) -> proc_macro2::TokenStream {
+    let ident = switch_enum_ident(query, switch);
+    let variants = switch.choices.iter().map(|choice| {
+        let variant = switch_variant_ident(choice);
+        let default = (*choice == switch.default).then(|| quote::quote! {#[default]});
+        quote::quote! {#default #variant}
+    });
+    quote::quote! {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+        pub enum #ident {
+            #(#variants,)*
+        }
+    }
+}
+
+pub(crate) fn switch_enum_ident(query: &Query, switch: &Switch) -> syn::Ident {
+    value_ident(&format!("{}_{}", query.query_name, switch.field))
+}
+
+pub(crate) fn switch_variant_ident(choice: &str) -> syn::Ident {
+    value_ident(choice)
 }
 
 fn function_arguments(query: &Query, query_parameter_limit: usize) -> proc_macro2::TokenStream {
@@ -168,15 +280,18 @@ fn function_arguments(query: &Query, query_parameter_limit: usize) -> proc_macro
 
 pub(crate) fn params_type(query: &Query) -> proc_macro2::TokenStream {
     let params = params_ident(query);
-    if query
-        .fields
-        .iter()
-        .any(|field| field.scalar_type().need_params_struct_lifetime())
-    {
+    if query.params_need_lifetime() {
         quote::quote! {#params<'_>}
     } else {
         quote::quote! {#params}
     }
+}
+
+pub(crate) fn params_struct_ident(
+    query: &Query,
+    query_parameter_limit: usize,
+) -> Option<syn::Ident> {
+    uses_params_struct(query, query_parameter_limit).then(|| params_ident(query))
 }
 
 fn params_ident(query: &Query) -> syn::Ident {

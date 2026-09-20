@@ -1,36 +1,23 @@
 use crate::{
     db_crates::{
-        Postgres, params_common,
+        DbCrate, Postgres,
         sqlx::Sqlx,
-        test_support::{column, query},
+        test_support::{column, generate, query},
     },
     plugin,
-    query::{self, Query, ReturnRowAttributes, ReturningRows},
 };
 
-fn parsed_queries(
-    type_map: &query::DbTypeMap,
-    queries: Vec<plugin::Query>,
-) -> (Vec<ReturningRows>, Vec<Query>) {
-    queries
-        .into_iter()
-        .map(|query| {
-            let row =
-                ReturningRows::from_query(type_map, &ReturnRowAttributes::default(), None, &query)
-                    .unwrap();
-            let mut query = Query::from_query(type_map, &query).unwrap();
-            query.apply_dynfilter();
-            (row, query)
-        })
-        .unzip()
-}
-
 fn collision_error(backend: Postgres, first: plugin::Query, second: plugin::Query) -> String {
-    let type_map = backend.db_type_map();
-    let (rows, queries) = parsed_queries(&type_map, vec![first, second]);
-    params_common::generate_queries(&backend, &rows, &queries, 1)
-        .unwrap_err()
-        .to_string()
+    generate(
+        DbCrate::Postgres(backend),
+        &backend.db_type_map(),
+        None,
+        &[first, second],
+        1,
+        None,
+    )
+    .unwrap_err()
+    .to_string()
 }
 
 #[test]
@@ -215,13 +202,15 @@ fn rejects_dynamic_iter_function_name_collisions_for_sync_postgres() {
     );
 }
 
+fn generates_ok(backend: DbCrate, queries: &[plugin::Query]) -> bool {
+    generate(backend, &backend.db_type_map(), None, queries, 1, None).is_ok()
+}
+
 #[test]
 fn reserves_only_the_backend_iterator_suffix() {
-    let sync = Postgres::Sync;
-    let sync_type_map = sync.db_type_map();
-    let (rows, queries) = parsed_queries(
-        &sync_type_map,
-        vec![
+    assert!(generates_ok(
+        DbCrate::Postgres(Postgres::Sync),
+        &[
             query(
                 "ListAuthors",
                 ":many",
@@ -237,14 +226,10 @@ fn reserves_only_the_backend_iterator_suffix() {
                 vec![],
             ),
         ],
-    );
-    assert!(params_common::generate_queries(&sync, &rows, &queries, 1).is_ok());
-
-    let tokio = Postgres::Tokio;
-    let tokio_type_map = tokio.db_type_map();
-    let (rows, queries) = parsed_queries(
-        &tokio_type_map,
-        vec![
+    ));
+    assert!(generates_ok(
+        DbCrate::Postgres(Postgres::Tokio),
+        &[
             query(
                 "ListAuthors",
                 ":many",
@@ -260,16 +245,14 @@ fn reserves_only_the_backend_iterator_suffix() {
                 vec![],
             ),
         ],
-    );
-    assert!(params_common::generate_queries(&tokio, &rows, &queries, 1).is_ok());
+    ));
 }
 
 #[test]
 fn does_not_reserve_tokio_helpers_for_sqlx() {
-    let type_map = Sqlx::Sqlite.db_type_map();
-    let (rows, queries) = parsed_queries(
-        &type_map,
-        vec![
+    assert!(generates_ok(
+        DbCrate::Sqlx(Sqlx::Sqlite),
+        &[
             query(
                 "GetAuthor",
                 ":one",
@@ -285,7 +268,5 @@ fn does_not_reserve_tokio_helpers_for_sqlx() {
                 vec![],
             ),
         ],
-    );
-
-    assert!(params_common::generate_queries(&Sqlx::Sqlite, &rows, &queries, 1).is_ok());
+    ));
 }

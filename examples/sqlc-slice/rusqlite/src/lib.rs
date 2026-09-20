@@ -50,6 +50,27 @@ mod tests {
 
     #[test_context(RusqliteContext)]
     #[test]
+    fn keeps_slice_marker_text_inside_literals(ctx: &mut RusqliteContext) {
+        let conn = &ctx.conn;
+        migrate_db(conn);
+        seed_authors(conn);
+
+        let ids = [1i64, 3i64];
+        let rows = queries::list_author_labels_by_ids(
+            conn,
+            queries::ListAuthorLabelsByIDsParams { ids: &ids },
+        )
+        .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.id, row.label.as_str()))
+                .collect::<Vec<_>>(),
+            [(1, "/*SLICE:ids*/?"), (3, "/*SLICE:ids*/?")]
+        );
+    }
+
+    #[test_context(RusqliteContext)]
+    #[test]
     fn test_list_authors_by_two_id_lists(ctx: &mut RusqliteContext) {
         let conn = &ctx.conn;
         migrate_db(conn);
